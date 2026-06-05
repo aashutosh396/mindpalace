@@ -22,16 +22,21 @@ def _pidfile():
     return config.state_dir() / "daemon.pid"
 
 
-def is_running() -> bool:
+def running_pid():
+    """Live daemon PID from the pidfile, or None."""
     pf = _pidfile()
     if not pf.exists():
-        return False
+        return None
     try:
         pid = int(pf.read_text().strip())
         os.kill(pid, 0)
-        return True
+        return pid
     except (ValueError, ProcessLookupError, PermissionError):
-        return False
+        return None
+
+
+def is_running() -> bool:
+    return running_pid() is not None
 
 
 def spawn() -> bool:

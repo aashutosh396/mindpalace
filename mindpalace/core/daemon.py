@@ -36,8 +36,9 @@ def _write_pid():
 
 def run():
     from . import service
-    if service.is_running():
-        print("daemon already running (single instance) — exiting."); return
+    other = service.running_pid()
+    if other and other != os.getpid():          # a DIFFERENT live daemon already owns it
+        print(f"daemon already running (pid {other}) — exiting."); return
     _write_pid()
     if discord_configured():
         from ..gateways import discord       # bot + job watcher run together
