@@ -49,10 +49,8 @@ def _async_ops() -> str:
         "A background watcher runs it and reports the result to the home channel — so you "
         "stay free to chat. Use this for anything long.\n"
         "- Post a proactive update to the owner any time:  python3 -m mindpalace.notify 'message'\n"
-        "- NARRATE as you work: before each step, say in one short, natural line what you're "
-        "doing and why (e.g. \"saving the newly discovered creds into accounts/, linking them to "
-        "the repairmate project\", \"recording the VPS in infra/ and logging it\"). The owner "
-        "watches these live — keep them human and specific, not robotic.\n"
+        "- Keep replies tight: the owner sees your tool/action steps stream live, so don't "
+        "re-narrate them in prose — just give the result + next step.\n"
     )
 
 
@@ -261,19 +259,12 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                 continue
             t = ev.get("type")
             if t == "assistant":
+                # stream ONLY action/tool steps as live progress — NOT the model's prose text
+                # blocks (those become the final reply → would post twice).
                 for blk in ev.get("message", {}).get("content", []):
                     if steps >= max_steps:
                         break
-                    bt = blk.get("type")
-                    if bt == "text":
-                        txt = (blk.get("text") or "").strip()
-                        if txt:                       # the model's own narration
-                            steps += 1
-                            try:
-                                await on_progress("💭 " + txt[:240])
-                            except Exception:
-                                pass
-                    elif bt == "tool_use":
+                    if blk.get("type") == "tool_use":
                         steps += 1
                         try:
                             await on_progress(_summ_tool(blk))
