@@ -57,12 +57,13 @@ def _worth_reflecting(text, reply):
 
 
 async def _reflect(channel, text, reply):
-    """Hand the completed task to the Analyst agent (reason → file + skillify), in parallel."""
+    """SILENT background Analyst — reasons, files facts + skillifies. Never posts to chat
+    (it works in the background, quietly making the agent smarter)."""
     from ..agents import analyst
     try:
         out = await analyst.reflect(text, reply)
         if out and out.strip().upper() not in ("NOTHING", ""):
-            await channel.send(f"🧠 _{out.strip()[:320]}_")
+            print(f"[analyst] {out.strip()[:200]}")     # to daemon log only
     except Exception:
         pass
 

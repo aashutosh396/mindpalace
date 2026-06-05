@@ -221,6 +221,17 @@ def _summ_tool(blk: dict) -> str:
     return f"⚙️ {name}"
 
 
+MAX_CONCURRENT = 2     # hard cap on simultaneous `claude` subprocesses — prevents CPU storms
+_sem = None
+
+
+def _semaphore():
+    global _sem
+    if _sem is None:
+        _sem = asyncio.Semaphore(MAX_CONCURRENT)
+    return _sem
+
+
 async def ask_async_streaming(text, history, on_progress, system=None,
                               permissions="full", allowed_tools=None, max_steps=10) -> str:
     """Run the brain with streamed events; relay each tool step via on_progress(str).
@@ -228,13 +239,16 @@ async def ask_async_streaming(text, history, on_progress, system=None,
     import json as _json
     prompt = build_prompt(text, history, system)
     args = _args(prompt, permissions, allowed_tools) + ["--output-format", "stream-json", "--verbose"]
+    final, steps = "", 0
+    sem = _semaphore()
+    await sem.acquire()                          # cap concurrent claude procs
     try:
         proc = await asyncio.create_subprocess_exec(
             *args, cwd=str(config.home()), env=_env(),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     except Exception as e:
+        sem.release()
         return f"(error: {str(e)[:160]})"
-    final, steps = "", 0
 
     async def _read():
         nonlocal final, steps
@@ -273,8 +287,10 @@ async def ask_async_streaming(text, history, on_progress, system=None,
         await asyncio.wait_for(_read(), timeout=TIMEOUT)
     except asyncio.TimeoutError:
         proc.kill()
+        sem.release()
         return final or f"(timed out after {TIMEOUT}s — break it into steps)"
     await proc.wait()
+    sem.release()
     if final:
         return final
     # stream gave nothing (format mismatch / error) → fall back to plain capture
@@ -284,15 +300,16 @@ async def ask_async_streaming(text, history, on_progress, system=None,
 async def ask_async(text: str, history: list[dict], system: str | None = None,
                     permissions: str = "full", allowed_tools: str | None = None) -> str:
     prompt = build_prompt(text, history, system)
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *_args(prompt, permissions, allowed_tools), cwd=str(config.home()), env=_env(),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT)
-        return (out.decode(errors="replace").strip()
-                or f"(empty; {err.decode(errors='replace')[:200]})")
-    except asyncio.TimeoutError:
-        proc.kill()
-        return f"(timed out after {TIMEOUT}s — break it into smaller steps)"
-    except Exception as e:
-        return f"(error: {str(e)[:160]})"
+    async with _semaphore():                     # cap concurrent claude procs
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *_args(prompt, permissions, allowed_tools), cwd=str(config.home()), env=_env(),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT)
+            return (out.decode(errors="replace").strip()
+                    or f"(empty; {err.decode(errors='replace')[:200]})")
+        except asyncio.TimeoutError:
+            proc.kill()
+            return f"(timed out after {TIMEOUT}s — break it into smaller steps)"
+        except Exception as e:
+            return f"(error: {str(e)[:160]})"
