@@ -221,14 +221,13 @@ def _summ_tool(blk: dict) -> str:
     return f"⚙️ {name}"
 
 
-MAX_CONCURRENT = 2     # hard cap on simultaneous `claude` subprocesses — prevents CPU storms
-_sem = None
+_sem = None     # caps simultaneous `claude` procs (parallel agents); set via config.concurrency()
 
 
 def _semaphore():
     global _sem
     if _sem is None:
-        _sem = asyncio.Semaphore(MAX_CONCURRENT)
+        _sem = asyncio.Semaphore(config.concurrency())   # default 8
     return _sem
 
 

@@ -27,6 +27,7 @@ def _status():
         print(f"  daemon    : {'running' if service.is_running() else 'stopped'}")
         hb = config.heartbeat_minutes()
         print(f"  heartbeat : {'every ' + str(hb) + ' min' if hb else 'off'}")
+        print(f"  concurrency: {config.concurrency()} parallel agents")
         print("  terminal  : always available (`mindpalace`)")
     else:
         print("  (not initialized — run `mindpalace` to set up)")
@@ -108,6 +109,14 @@ def main(argv=None):
     if cmd == "notify":
         from .core import notify
         notify.main(argv[1:]); return
+    if cmd == "concurrency":
+        if len(argv) > 1 and argv[1].isdigit():
+            cfg = config.load_config(); cfg["concurrency"] = max(1, int(argv[1]))
+            config.save_config(cfg)
+            print(f"concurrency = {cfg['concurrency']} parallel agents (restart the daemon to apply)")
+        else:
+            print(f"concurrency: {config.concurrency()} parallel agents  ·  set with `mindpalace concurrency <n>`")
+        return
     if cmd == "heartbeat":
         if len(argv) > 1 and argv[1].isdigit():
             cfg = config.load_config(); cfg["heartbeat_minutes"] = int(argv[1])

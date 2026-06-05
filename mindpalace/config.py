@@ -129,6 +129,14 @@ def remove_admin(uid) -> bool:
 
 
 # ---- webhooks (post updates to channels from anywhere, incl. cron out-of-process) ----
+def concurrency() -> int:
+    """Max simultaneous claude reasoning processes (parallel agents). Default 8."""
+    try:
+        return max(1, int(load_config().get("concurrency", 8)))
+    except (TypeError, ValueError):
+        return 8
+
+
 def heartbeat_minutes() -> int:
     try:
         return int(load_config().get("heartbeat_minutes", 30))   # 0 = off
