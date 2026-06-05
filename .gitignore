@@ -1,0 +1,19 @@
+# mindpalace core repo — NEVER commit user data or secrets.
+# All instance data lives OUTSIDE this repo (default ~/.mindpalace).
+
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.DS_Store
+
+# never, ever
+*.token
+*secret*
+*.pem
+*.key
+.claude_token
+config.json

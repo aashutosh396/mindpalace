@@ -1,0 +1,40 @@
+[project]
+name = "mindpalace"
+version = "0.1.0"
+description = "A self-learning, always-on personal agent that runs on your Claude Max subscription. Ships generic, sharpens into your exact world over time."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "aashutosh396" }]
+keywords = ["agent", "claude", "assistant", "self-learning", "discord"]
+
+# Core (terminal gateway) = the `claude` CLI + rich for the polished shell UI.
+# The Discord gateway is optional — install with:  pip install "mindpalace[discord]"
+dependencies = ["rich>=13", "prompt_toolkit>=3"]
+
+[project.optional-dependencies]
+discord = ["discord.py>=2.3"]
+
+[project.scripts]
+mindpalace = "mindpalace.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/aashutosh396/mindpalace"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+  "mindpalace",
+  "mindpalace.core",
+  "mindpalace.agents",
+  "mindpalace.gateways",
+  "mindpalace.memory",
+  "mindpalace.plugins",
+  "mindpalace.plugins.contrib",
+]
+
+[tool.setuptools.package-data]
+mindpalace = ["skills/global/*.md"]

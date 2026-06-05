@@ -1,0 +1,21 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: pip install .
+      - name: Compile-check
+        run: python -m compileall mindpalace
+      - name: Import smoke
+        run: python -c "import mindpalace.cli; from mindpalace.core import brain, daemon; from mindpalace.agents import analyst; from mindpalace.plugins import load; print('ok')"
+      - name: CLI runs
+        run: MINDPALACE_HOME=/tmp/mp mindpalace version
