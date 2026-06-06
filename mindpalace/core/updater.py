@@ -114,6 +114,30 @@ def pull() -> tuple[bool, str]:
     return False, out
 
 
+def _running_from_repo() -> bool:
+    """True if the live package IS the checkout (Mac dev). False = copy-install (pipx),
+    where the venv holds a snapshot and a pull alone won't update the running code."""
+    try:
+        return Path(__file__).resolve().is_relative_to(repo_dir().resolve())
+    except Exception:                            # noqa: BLE001
+        return False
+
+
+def sync_venv() -> tuple[bool, str]:
+    """On copy-installs (pipx hosts like gimi) reinstall the freshly-pulled checkout into
+    the running venv, else the new code never goes live. No-op on run-from-checkout hosts."""
+    if _running_from_repo():
+        return True, "run-from-checkout; no reinstall needed"
+    try:
+        p = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--force-reinstall",
+             "--no-deps", str(repo_dir())],
+            capture_output=True, text=True, timeout=300)
+        return p.returncode == 0, (p.stdout + p.stderr).strip()[-600:]
+    except Exception as e:                       # noqa: BLE001
+        return False, str(e)
+
+
 def restart_detached(delay: int = 3) -> None:
     """Spawn a detached helper that restarts the daemon after a short delay, so the
     confirmation message lands before we drop the connection."""
@@ -135,6 +159,11 @@ def accept() -> str:
         clear_pending()
         return ("⚠️ Couldn't auto-update — looks like there are local changes in the way. "
                 "I've left things as they are; this one needs a hand.\n```\n" + out[-600:] + "\n```")
+    synced, sout = sync_venv()
+    if not synced:
+        clear_pending()
+        return ("⚠️ Pulled the update but couldn't load it into my runtime — needs a hand."
+                "\n```\n" + sout + "\n```")
     clear_pending()
     restart_detached()
     return "✅ Update pulled. Restarting myself now — back in a few seconds. 🔄"
