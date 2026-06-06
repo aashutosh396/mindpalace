@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -102,8 +103,48 @@ def check() -> dict | None:
             "upstream": upstream, "log": subjects}
 
 
+# conventional-commit type → plain-English label a non-technical owner gets
+_TYPE_LABEL = {
+    "feat": "New", "fix": "Fixed", "perf": "Faster", "refactor": "Improved",
+    "docs": "Docs", "style": "Polish", "test": "Tests", "chore": "Maintenance",
+    "build": "Build", "ci": "CI", "revert": "Reverted",
+}
+_PREFIX = re.compile(r"^(\w+)(?:\([^)]*\))?!?:\s*(.+)$")   # type(scope): rest
+
+
+def _humanize(subject: str) -> str:
+    """Turn a raw commit subject into a plain-English line — no type(scope): noise."""
+    s = (subject or "").strip()
+    m = _PREFIX.match(s)
+    if m:
+        typ, rest = m.group(1).lower(), m.group(2).strip()
+        rest = rest[:1].upper() + rest[1:] if rest else rest
+        label = _TYPE_LABEL.get(typ)
+        return f"{label}: {rest}" if label else rest
+    return s[:1].upper() + s[1:] if s else s
+
+
+def summarize_changes(subjects: list[str]) -> list[str]:
+    """High-level, deduped bullets describing what changed (max 4)."""
+    seen, out = set(), []
+    for s in subjects or []:
+        h = _humanize(s)
+        k = h.lower()
+        if h and k not in seen:
+            seen.add(k)
+            out.append(h)
+    return out[:4]
+
+
 def notice_text(info: dict) -> str:
-    return "👋 Hey, there's a new update available. Want me to install it? Just say **yes**."
+    bullets = summarize_changes(info.get("log") or [])
+    lines = ["👋 Hey, there's a new update available. Want me to install it?"]
+    if bullets:
+        lines.append("")
+        lines += [f"- {b}" for b in bullets]
+        lines.append("")
+    lines.append("Just say **yes** to update.")
+    return "\n".join(lines)
 
 
 def pull() -> tuple[bool, str]:

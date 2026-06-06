@@ -43,6 +43,30 @@ def _chunks(s, n=1900):
     return [s[i:i + n] for i in range(0, len(s), n)] or ["(empty)"]
 
 
+_IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".heic")
+
+
+async def _save_images(msg) -> list[str]:
+    """Download image attachments to state/incoming/ and return their local paths.
+    The brain reads them with the Read tool (which views images), so it can actually
+    'see' what the owner sent instead of saying the attachment didn't load."""
+    paths = []
+    for a in getattr(msg, "attachments", []):
+        ct = (a.content_type or "").lower()
+        name = (a.filename or "").lower()
+        if not (ct.startswith("image/") or name.endswith(_IMG_EXT)):
+            continue
+        dest = config.state_dir() / "incoming"
+        dest.mkdir(parents=True, exist_ok=True)
+        p = dest / f"{msg.id}_{a.filename or 'image'}"
+        try:
+            await a.save(str(p))
+            paths.append(str(p))
+        except Exception:
+            pass
+    return paths
+
+
 _REFLECT_KEYWORDS = ("ssh", "login", "log in", "password", "passwd", "cred", "secret", "token",
                      "api key", "apikey", "deploy", "server", "vps", "host", "port", "database",
                      " db ", "project", "webhook", "domain", "dns", "access", "setup", "set up",
@@ -216,8 +240,15 @@ def run():
                 text = msg.content.replace(f"<@{client.user.id}>", "").replace(
                     f"<@!{client.user.id}>", "").strip()
 
-            if not text:
+            # pull in any attached images so the brain can actually see them
+            images = await _save_images(msg)
+            if not text and not images:
                 return
+            if images:
+                listing = ", ".join(images)
+                text = (text or "(no caption)") + (
+                    f"\n\n[The owner attached {len(images)} image(s). "
+                    f"View them with the Read tool before replying: {listing}]")
 
             # pending git update + owner says "yes" → pull + self-restart (deterministic,
             # never goes to the brain). Only in the home channel's main bot.
