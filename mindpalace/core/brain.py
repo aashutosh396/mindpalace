@@ -196,28 +196,37 @@ def _short(p: str) -> str:
 
 
 def _summ_tool(blk: dict) -> str:
-    """Natural-language narration of a tool step (what it's doing, in human terms)."""
+    """Plain-English narration of a tool step — friendly for non-technical people.
+    Never echoes raw shell commands or file paths; describes the intent instead."""
     name = blk.get("name", "tool")
     inp = blk.get("input", {}) or {}
     fp = inp.get("file_path", "") or ""
     low = fp.lower()
     if name in ("Write", "Edit") and fp:
-        if "/accounts/" in low:  return f"💾 saving credentials → {_short(fp)}"
-        if "/infra/" in low:     return f"🗄 recording the server → {_short(fp)}"
-        if "/projects/" in low:  return f"📁 updating the project → {_short(fp)}"
-        if "/runbooks/" in low:  return f"📓 writing a runbook → {_short(fp)}"
-        if low.endswith("log.md"): return "🧾 logging it to LOG.md"
-        if "/skills/" in low:    return f"🧠 drafting a skill → {_short(fp)}"
-        if "memory" in low:      return "🧠 noting it to memory"
-        return f"📝 writing {_short(fp)}"
+        if "/accounts/" in low:  return "💾 saving a login for later"
+        if "/infra/" in low:     return "🗄 noting down the server details"
+        if "/projects/" in low:  return "📁 updating my notes on this project"
+        if "/runbooks/" in low:  return "📓 writing down the steps so I remember"
+        if low.endswith("log.md"): return "🧾 jotting this in my journal"
+        if "/skills/" in low:    return "🧠 learning a new trick"
+        if "memory" in low:      return "🧠 remembering this for next time"
+        return "📝 saving a note"
     if name == "Bash":
-        c = (inp.get("command", "") or "").strip()
-        if c.startswith("ssh"):  return f"🔌 connecting: `{c[:70]}`"
-        return f"🔧 running: `{c[:70]}`"
-    if name == "Read":          return f"📖 reading {_short(fp)}"
-    if name in ("Grep", "Glob"): return f"🔎 searching `{inp.get('pattern') or inp.get('path') or ''}`"
-    if name == "WebFetch":      return f"🌐 fetching {inp.get('url', '')[:60]}"
-    return f"⚙️ {name}"
+        c = (inp.get("command", "") or "").strip().lower()
+        if c.startswith("ssh") or " ssh " in c:        return "🔌 connecting to the server"
+        if any(c.startswith(x) for x in ("grep", "find", "ls", "rg", "cat", "head", "tail")):
+            return "🔎 looking through the files"
+        if c.startswith("rm") or " rm " in c:          return "🗑 tidying up some old files"
+        if c.startswith(("mv", "cp", "rsync")):        return "📦 moving things into place"
+        if "cron" in c or "crontab" in c:              return "⏰ setting up a schedule"
+        if c.startswith("git"):                        return "🌳 saving the changes"
+        if c.startswith(("curl", "wget")):             return "🌐 fetching something online"
+        return "🔧 working on it"
+    if name == "Read":          return "📖 reading through a file"
+    if name in ("Grep", "Glob"): return "🔎 searching for something"
+    if name == "WebFetch":      return "🌐 looking it up online"
+    if name == "WebSearch":     return "🌐 searching the web"
+    return "⚙️ working on it"
 
 
 _sem = None     # caps simultaneous `claude` procs (parallel agents); set via config.concurrency()
