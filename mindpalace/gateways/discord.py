@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from ..core import brain, jobs, heartbeat
+from ..core import brain, jobs, heartbeat, updater
 from .. import bots, config
 from ..memory import store as mem
 
@@ -130,9 +130,16 @@ def run():
         """Drive one bot's brain; STREAM its steps live; reply; persist; file in background."""
         history = _load(name)
 
+        last = {"line": None, "msg": None, "n": 1}     # dedup: repeat step → edit + grow dots
+
         async def on_progress(line):
             try:
-                await channel.send(f"_{line}_")        # live step, e.g. 🔧 Bash: ssh …
+                if line == last["line"] and last["msg"] is not None:
+                    last["n"] += 1                     # same step fired again → don't spam
+                    await last["msg"].edit(content=f"_{line} {'.' * last['n']}_")
+                else:
+                    last["line"], last["n"] = line, 1
+                    last["msg"] = await channel.send(f"_{line}_")  # new step, e.g. 🔌 connecting …
             except Exception:
                 pass
 
@@ -212,6 +219,14 @@ def run():
             if not text:
                 return
 
+            # pending git update + owner says "yes" → pull + self-restart (deterministic,
+            # never goes to the brain). Only in the home channel's main bot.
+            if is_main and in_home and updater.read_pending() and updater.is_affirmative(text):
+                async with msg.channel.typing():
+                    result = await asyncio.to_thread(updater.accept)
+                await msg.channel.send(result)
+                return
+
             reply = await _run_brain(msg.channel, name, text, system, perms, allowed)
 
             # supervision: a scoped bot finished a task in the HOME channel → main reports back
@@ -246,6 +261,7 @@ def run():
             raise SystemExit("No bot tokens — run `mindpalace setup` / `mindpalace add-bot`.")
         tasks.append(jobs.watch_loop(report))   # async dispatch: run queued jobs, report back
         tasks.append(heartbeat.loop(report, config.heartbeat_minutes()))   # autonomous self-tick
+        tasks.append(updater.loop(report, updater.interval_minutes()))     # git update watcher
         await asyncio.gather(*tasks)
 
     asyncio.run(_main())

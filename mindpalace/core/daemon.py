@@ -44,7 +44,7 @@ def run():
         from ..gateways import discord       # bot + job watcher run together
         discord.run()
     else:
-        from . import heartbeat
+        from . import heartbeat, updater
 
         async def report(msg):
             from . import notify
@@ -53,6 +53,7 @@ def run():
         async def _go():
             await asyncio.gather(
                 jobs.watch_loop(report),
-                heartbeat.loop(report, config.heartbeat_minutes()))
-        print("daemon: job watcher + heartbeat (Discord not configured)")
+                heartbeat.loop(report, config.heartbeat_minutes()),
+                updater.loop(report, updater.interval_minutes()))
+        print("daemon: job watcher + heartbeat + update watcher (Discord not configured)")
         asyncio.run(_go())

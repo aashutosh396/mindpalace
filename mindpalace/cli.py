@@ -127,6 +127,32 @@ def main(argv=None):
             print(f"heartbeat: {config.heartbeat_minutes()} min  ·  set with `mindpalace heartbeat <minutes>` (0 = off)")
         return
 
+    # --- self-update (git) ---
+    if cmd == "update-interval":
+        if len(argv) > 1 and argv[1].isdigit():
+            cfg = config.load_config(); cfg["update_check_minutes"] = int(argv[1])
+            config.save_config(cfg)
+            print(f"update check every {argv[1]} min" if int(argv[1]) > 0 else "update checks off")
+            print("(restart the daemon for it to take effect)")
+        else:
+            from .core import updater
+            print(f"update check: {updater.interval_minutes()} min  ·  "
+                  "set with `mindpalace update-interval <minutes>` (0 = off)")
+        return
+    if cmd == "update":                         # manual: pull now + restart
+        from .core import updater
+        info = updater.check()
+        if not info:
+            print("already up to date."); return
+        print(f"{info['behind']} new change(s):")
+        for s in info["log"]:
+            print(f"  • {s}")
+        print(updater.accept())
+        return
+    if cmd == "restart":
+        from .core import service
+        service.stop(); service.spawn(); print("daemon restarted."); return
+
     # --- background daemon (discord bot + job watcher) ---
     if cmd == "daemon":                         # foreground; run by systemd/launchd or spawned
         from .core import daemon
