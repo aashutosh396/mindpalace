@@ -103,13 +103,7 @@ def check() -> dict | None:
 
 
 def notice_text(info: dict) -> str:
-    n = info["behind"]
-    head = f"🆕 An update is ready — {n} new change{'s' if n != 1 else ''} waiting for me."
-    if info.get("log"):
-        items = "\n".join(f"• {s}" for s in info["log"])
-        extra = "" if n <= len(info["log"]) else f"\n…and {n - len(info['log'])} more."
-        head += f"\n{items}{extra}"
-    return head + "\n\nWant me to update myself? Just say **yes** and I'll pull it in and restart."
+    return "👋 Hey, there's a new update available. Want me to install it? Just say **yes**."
 
 
 def pull() -> tuple[bool, str]:
