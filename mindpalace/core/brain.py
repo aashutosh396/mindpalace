@@ -249,48 +249,66 @@ async def ask_async_streaming(text, history, on_progress, system=None,
     final, steps = "", 0
     sem = _semaphore()
     await sem.acquire()                          # cap concurrent claude procs
+    proc = None
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *args, cwd=str(config.home()), env=_env(),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    except Exception as e:
-        sem.release()
-        return f"(error: {str(e)[:160]})"
+        try:
+            # limit=64 MB/line: stream-json echoes image tool-results as inline base64,
+            # which blows past asyncio's 64 KB default and would kill the read mid-stream.
+            proc = await asyncio.create_subprocess_exec(
+                *args, cwd=str(config.home()), env=_env(),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                limit=64 * 1024 * 1024)
+        except Exception as e:
+            return f"(error: {str(e)[:160]})"
 
-    async def _read():
-        nonlocal final, steps
-        async for raw in proc.stdout:
-            line = raw.decode(errors="replace").strip()
-            if not line:
-                continue
-            try:
-                ev = _json.loads(line)
-            except _json.JSONDecodeError:
-                continue
-            t = ev.get("type")
-            if t == "assistant":
-                # stream ONLY action/tool steps as live progress — NOT the model's prose text
-                # blocks (those become the final reply → would post twice).
-                for blk in ev.get("message", {}).get("content", []):
-                    if steps >= max_steps:
-                        break
-                    if blk.get("type") == "tool_use":
-                        steps += 1
-                        try:
-                            await on_progress(_summ_tool(blk))
-                        except Exception:
-                            pass
-            elif t == "result":
-                final = ev.get("result", "") or final
+        async def _read():
+            nonlocal final, steps
+            while True:
+                try:
+                    raw = await proc.stdout.readline()
+                except (asyncio.LimitOverrunError, ValueError):
+                    # one oversized line (rare): skip it, keep streaming the rest
+                    continue
+                if not raw:
+                    break                        # EOF
+                line = raw.decode(errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    ev = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                t = ev.get("type")
+                if t == "assistant":
+                    # stream ONLY action/tool steps as live progress — NOT the model's prose
+                    # text blocks (those become the final reply → would post twice).
+                    for blk in ev.get("message", {}).get("content", []):
+                        if steps >= max_steps:
+                            break
+                        if blk.get("type") == "tool_use":
+                            steps += 1
+                            try:
+                                await on_progress(_summ_tool(blk))
+                            except Exception:
+                                pass
+                elif t == "result":
+                    final = ev.get("result", "") or final
 
-    try:
-        await asyncio.wait_for(_read(), timeout=TIMEOUT)
-    except asyncio.TimeoutError:
-        proc.kill()
-        sem.release()
-        return final or f"(timed out after {TIMEOUT}s — break it into steps)"
-    await proc.wait()
-    sem.release()
+        try:
+            await asyncio.wait_for(_read(), timeout=TIMEOUT)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return final or f"(timed out after {TIMEOUT}s — break it into steps)"
+        except Exception:
+            # never let a stream hiccup swallow the reply (or strand the request)
+            if proc.returncode is None:
+                proc.kill()
+            if final:
+                return final
+            return await ask_async(text, history, system, permissions, allowed_tools)
+        await proc.wait()
+    finally:
+        sem.release()                            # ALWAYS free the permit — no leak on any path
     if final:
         return final
     # stream gave nothing (format mismatch / error) → fall back to plain capture
