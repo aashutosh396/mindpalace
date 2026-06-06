@@ -35,7 +35,7 @@ def _status():
 
 def _run():
     config.ensure_dirs()        # idempotent — creates vault etc. for existing installs
-    from . import service, daemon
+    from .core import service, daemon
     # Discord (if configured) runs as a BACKGROUND service so the terminal stays free.
     if daemon.discord_configured():
         if service.spawn():
