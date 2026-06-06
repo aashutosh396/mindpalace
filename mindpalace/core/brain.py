@@ -92,23 +92,32 @@ def _self_knowledge() -> str:
 
 def _voice() -> str:
     return (
-        "VOICE — talk like a sharp human friend, not a terminal. This governs every reply:\n"
-        "- Lead with the answer or result in ONE line. If it's done, say so and stop — no recap.\n"
-        "- Describe what you DID in plain language, like a person telling a friend what happened. "
-        "Never paste raw shell into a reply — no `cd /home/...`, `ssh ...`, `grep`, file paths, or "
-        "command blocks. That plumbing stays hidden. Only show a command or path if the owner "
-        "explicitly asks 'how did you do that' or 'what command'.\n"
-        "- When you reach for a tool, narrate the INTENT in human terms: "
-        "'connecting to your Hostinger VPS now…', 'jumping onto the bot box to check it', "
-        "'pulling up the project notes' — name what you're reaching for and why, not the mechanics.\n"
-        "- Do NOT repeat the same skeleton every time (no fixed 'What was wrong / Fix / Verified' "
-        "headers on a loop). That sameness is what makes replies monotonous and boring. Vary your "
-        "phrasing; write each reply fresh, like it was actually written for this moment.\n"
+        "VOICE — you talk like a sharp, witty friend who happens to be brilliant, NOT a terminal. "
+        "This governs every reply:\n"
+        "- Have a PERSONALITY. Be warm, a little funny, with real energy. React like a person — a "
+        "flash of relief when something finally works, a dry aside when something's silly. Never "
+        "stiff, never corporate, never a wall of headers. Think Hermes-agent, not help-desk bot.\n"
+        "- Lead with the answer or result in ONE line, said with a bit of life. If it's done, say "
+        "so and stop — no recap.\n"
+        "- Talk about what you DID in plain language, like telling a friend what happened. Never "
+        "paste raw shell into a reply — no `cd /home/...`, `ssh ...`, `grep`, file paths, or "
+        "command blocks. That plumbing stays hidden. Show a command or path ONLY if the owner asks "
+        "'how did you do that' or 'what command'.\n"
+        "- When you reach for a tool, narrate the INTENT like a human: 'hopping onto your Hostinger "
+        "box to check it', 'digging through the project notes', 'wiring up that schedule now' — what "
+        "you're reaching for and why, never the mechanics.\n"
+        "- VARY EVERYTHING. Never reuse the same phrasing or the same skeleton (no fixed 'What was "
+        "wrong / Fix / Verified' headers on a loop). If you'd repeat yourself, rephrase or collapse "
+        "it. Sameness is the #1 thing that makes replies boring — write each one fresh, for this "
+        "exact moment.\n"
+        "- Say status ONCE, with character ('still chewing on this, hang tight') — never loop the "
+        "same line on a timer.\n"
         "- Keep technical PRECISION (right facts, real outcomes) but drop technical NOISE "
         "(how-to mechanics nobody asked for).\n"
         "- Max ONE question at the end, and only when a real decision is needed. No 3-option menus, "
         "no upsell lists, no 'two loose ends I can clear'.\n"
-        "- Mobile-first: short lines, minimal markdown. Assume the owner reads on a phone."
+        "- Mobile-first: short lines, minimal markdown, light touch on emoji. Assume the owner reads "
+        "on a phone."
     )
 
 
@@ -218,38 +227,122 @@ def _short(p: str) -> str:
     return "/".join(p.rstrip("/").split("/")[-2:]) if p else p
 
 
-def _summ_tool(blk: dict) -> str:
-    """Plain-English narration of a tool step — friendly for non-technical people.
-    Never echoes raw shell commands or file paths; describes the intent instead."""
-    name = blk.get("name", "tool")
+# Every kind of step gets a POOL of human phrasings, not one canned line — so even when
+# the agent does the same kind of thing twice, you don't read the same words twice.
+_PHRASES = {
+    "w_account": ["💾 stashing that login somewhere safe", "🔐 filing those credentials away",
+                  "💾 saving the account details for later"],
+    "w_infra":   ["🗄 jotting down the server details", "🗄 noting how this box is set up",
+                  "🖥 saving what I learned about the machine"],
+    "w_project": ["📁 updating my notes on this project", "📁 keeping the project file current",
+                  "🗂 tidying up the project notes"],
+    "w_runbook": ["📓 writing down the steps so I remember", "📓 saving this as a runbook",
+                  "📝 capturing the how-to for next time"],
+    "w_log":     ["🧾 jotting this in the journal", "🧾 logging it for the record",
+                  "📒 adding a line to the log"],
+    "w_skill":   ["🧠 picking up a new trick", "✨ turning this into a reusable skill",
+                  "🧠 learning how to do this for next time"],
+    "w_memory":  ["🧠 committing this to memory", "🧠 making a mental note",
+                  "🧠 remembering this for next time"],
+    "w_note":    ["📝 scribbling a note", "✍️ writing that down", "📝 saving this"],
+    "read":      ["📖 having a read through", "👀 taking a look at this",
+                  "📖 catching up on what's in here"],
+    "search":    ["🔎 digging through the files", "🔎 hunting for what I need",
+                  "👀 poking around to find it", "🔍 scanning for the right bit"],
+    "ssh":       ["🔌 hopping onto the server", "🔌 jumping on the box now",
+                  "🛰 connecting to the remote machine"],
+    "move":      ["📦 shuffling things into place", "📦 moving stuff around",
+                  "🚚 putting things where they belong"],
+    "remove":    ["🧹 clearing out the old stuff", "🗑 tidying up some clutter", "🧹 cleaning house"],
+    "schedule":  ["⏰ wiring up a schedule", "⏰ setting it to run on its own", "🗓 putting it on a timer"],
+    "git":       ["🌳 saving the changes", "🌳 committing the work", "💾 locking in the changes"],
+    "net":       ["🌐 fetching something online", "🌐 pulling this off the web",
+                  "📡 grabbing it from the internet", "🔗 looking it up online"],
+    "pkg":       ["📦 grabbing the tools I need", "⬇️ installing a dependency",
+                  "🧰 setting up what's needed"],
+    "run":       ["⚙️ running the code", "🚀 firing this off", "⚙️ putting it to work"],
+    "service":   ["🔄 nudging the service", "🔁 giving it a restart", "🩺 checking on the service"],
+    "fs":        ["🗂 setting up the folders", "📂 getting the place ready", "🛠 laying the groundwork"],
+    "archive":   ["📦 zipping things up", "🗜 packing it all together", "📦 bundling the files"],
+    "inspect":   ["🩺 checking how things look", "📊 sizing up the situation",
+                  "🔬 taking a quick measurement"],
+    "bash":      ["🔧 working on it", "🛠 getting this done", "⚙️ handling it", "🔧 sorting this out"],
+    "misc":      ["⚙️ working on it", "🛠 on it", "⚙️ handling this"],
+}
+
+
+def _classify(blk: dict) -> str:
+    """Map a tool step to a category key — covers EVERY command, not just ssh, by
+    looking at the verb. Never returns the raw command; just the kind of thing it is."""
+    name = blk.get("name", "")
     inp = blk.get("input", {}) or {}
-    fp = inp.get("file_path", "") or ""
-    low = fp.lower()
-    if name in ("Write", "Edit") and fp:
-        if "/accounts/" in low:  return "💾 saving a login for later"
-        if "/infra/" in low:     return "🗄 noting down the server details"
-        if "/projects/" in low:  return "📁 updating my notes on this project"
-        if "/runbooks/" in low:  return "📓 writing down the steps so I remember"
-        if low.endswith("log.md"): return "🧾 jotting this in my journal"
-        if "/skills/" in low:    return "🧠 learning a new trick"
-        if "memory" in low:      return "🧠 remembering this for next time"
-        return "📝 saving a note"
+    fp = (inp.get("file_path", "") or "").lower()
+    if name in ("Write", "Edit"):
+        if "/accounts/" in fp:    return "w_account"
+        if "/infra/" in fp:       return "w_infra"
+        if "/projects/" in fp:    return "w_project"
+        if "/runbooks/" in fp:    return "w_runbook"
+        if fp.endswith("log.md"): return "w_log"
+        if "/skills/" in fp:      return "w_skill"
+        if "memory" in fp:        return "w_memory"
+        return "w_note"
+    if name == "Read":            return "read"
+    if name in ("Grep", "Glob"):  return "search"
+    if name in ("WebFetch", "WebSearch"): return "net"
     if name == "Bash":
         c = (inp.get("command", "") or "").strip().lower()
-        if c.startswith("ssh") or " ssh " in c:        return "🔌 connecting to the server"
-        if any(c.startswith(x) for x in ("grep", "find", "ls", "rg", "cat", "head", "tail")):
-            return "🔎 looking through the files"
-        if c.startswith("rm") or " rm " in c:          return "🗑 tidying up some old files"
-        if c.startswith(("mv", "cp", "rsync")):        return "📦 moving things into place"
-        if "cron" in c or "crontab" in c:              return "⏰ setting up a schedule"
-        if c.startswith("git"):                        return "🌳 saving the changes"
-        if c.startswith(("curl", "wget")):             return "🌐 fetching something online"
-        return "🔧 working on it"
-    if name == "Read":          return "📖 reading through a file"
-    if name in ("Grep", "Glob"): return "🔎 searching for something"
-    if name == "WebFetch":      return "🌐 looking it up online"
-    if name == "WebSearch":     return "🌐 searching the web"
-    return "⚙️ working on it"
+        parts = c.split()
+        first = parts[0] if parts else ""
+        if first in ("sudo", "env") and len(parts) > 1:    # skip a leading sudo/env
+            first = parts[1]
+        if first == "ssh" or " ssh " in c:                 return "ssh"
+        if first in ("scp", "rsync") or "rsync" in c:      return "move"
+        if first == "git":                                 return "git"
+        if first in ("curl", "wget"):                      return "net"
+        if first in ("rm", "rmdir"):                       return "remove"
+        if first in ("mv", "cp"):                          return "move"
+        if "crontab" in c or "cron" in c or first == "at": return "schedule"
+        if first in ("pip", "pip3", "pipx", "npm", "yarn", "pnpm", "apt", "apt-get",
+                     "brew", "cargo", "gem", "poetry"):    return "pkg"
+        if first in ("python", "python3", "node", "ruby", "go", "bash", "sh",
+                     "make", "pytest", "deno"):            return "run"
+        if first in ("systemctl", "service", "launchctl", "docker", "pm2",
+                     "supervisorctl", "kill", "pkill"):    return "service"
+        if first in ("mkdir", "touch", "chmod", "chown", "ln"): return "fs"
+        if first in ("tar", "zip", "unzip", "gzip", "gunzip"):  return "archive"
+        if first in ("ls", "find", "grep", "rg", "cat", "head", "tail",
+                     "less", "wc", "tree", "stat", "awk", "sed"): return "search"
+        if first in ("ps", "df", "du", "top", "free", "uname", "whoami",
+                     "which", "date", "uptime", "echo"):   return "inspect"
+        return "bash"
+    return "misc"
+
+
+class _Narrator:
+    """Turns the stream of tool steps into varied, human progress lines. Collapses a run
+    of the same KIND of step (no '🔎 looking' five times), and rotates wording within each
+    kind so the exact same line never lands twice — the cure for robotic, repetitive narration."""
+
+    def __init__(self):
+        self._rot: dict[str, int] = {}
+        self._last_cat = None
+        self._last_line = None
+
+    def line(self, blk: dict):
+        cat = _classify(blk)
+        if cat == self._last_cat:
+            return None                                   # collapse consecutive same-kind steps
+        self._last_cat = cat
+        pool = _PHRASES.get(cat) or _PHRASES["misc"]
+        i = self._rot.get(cat, 0) % len(pool)
+        out = pool[i]
+        self._rot[cat] = i + 1
+        if out == self._last_line and len(pool) > 1:      # never the exact same words twice running
+            i = (i + 1) % len(pool)
+            out = pool[i]
+            self._rot[cat] = i + 1
+        self._last_line = out
+        return out
 
 
 _sem = None     # caps simultaneous `claude` procs (parallel agents); set via config.concurrency()
@@ -270,6 +363,7 @@ async def ask_async_streaming(text, history, on_progress, system=None,
     prompt = build_prompt(text, history, system)
     args = _args(prompt, permissions, allowed_tools) + ["--output-format", "stream-json", "--verbose"]
     final, steps = "", 0
+    narrator = _Narrator()                       # varied, de-duped human progress lines
     sem = _semaphore()
     await sem.acquire()                          # cap concurrent claude procs
     proc = None
@@ -309,9 +403,12 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                         if steps >= max_steps:
                             break
                         if blk.get("type") == "tool_use":
+                            line = narrator.line(blk)
+                            if line is None:
+                                continue          # collapsed a repeat step — don't spam it
                             steps += 1
                             try:
-                                await on_progress(_summ_tool(blk))
+                                await on_progress(line)
                             except Exception:
                                 pass
                 elif t == "result":
