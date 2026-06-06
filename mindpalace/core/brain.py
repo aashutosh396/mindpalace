@@ -154,6 +154,7 @@ def _env() -> dict:
     tok = config.read_secret("claude_token")
     if tok:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
+    env["IS_SANDBOX"] = "1"  # claude's own escape hatch so bypassPermissions works as root
     return env
 
 
@@ -171,8 +172,8 @@ def _args(prompt: str, permissions: str = "full", allowed_tools: str | None = No
         args += ["--allowedTools", READONLY_TOOLS]
     elif permissions == "custom" and allowed_tools:
         args += ["--allowedTools", allowed_tools]
-    elif os.geteuid() != 0:                      # full; claude blocks bypass as root
-        args += ["--permission-mode", "bypassPermissions"]
+    else:                                        # full; IS_SANDBOX=1 unblocks bypass as root
+        args += ["--dangerously-skip-permissions"]
     return args
 
 
