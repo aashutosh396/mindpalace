@@ -10,12 +10,52 @@ Commands:  /exit  /quit  /status  /help   (Ctrl-D to leave)
 from __future__ import annotations
 
 import json
+import os
+import sys
+import time
 
-from ..core import brain
+from ..core import brain, updater
 from .. import config
 from ..memory import store as mem
 
 KEEP = 24
+
+
+def _check_for_update(force: bool = False) -> str | None:
+    """Poll git for new commits, at most once per `update_check_minutes` (0 = off).
+    If the remote is ahead, drop the pending marker and return a friendly notice to print;
+    otherwise clear it and return None. Self-rate-limits via state on the function object,
+    so it's cheap to call every REPL turn. `force` ignores the interval (used at startup)."""
+    interval = updater.interval_minutes()
+    if interval <= 0:
+        return None
+    now = time.time()
+    last = getattr(_check_for_update, "_last", 0.0)
+    if not force and now - last < interval * 60:
+        return None
+    _check_for_update._last = now
+    try:
+        info = updater.check()
+    except Exception:                       # network/git hiccup — stay quiet, retry next interval
+        return None
+    if not info:
+        updater.clear_pending()
+        return None
+    updater.write_pending({"remote_sha": info["remote_sha"], "behind": info["behind"]})
+    return updater.notice_text(info)
+
+
+def _apply_update(printer) -> None:
+    """Owner said yes in the terminal: fast-forward pull, then re-exec this process so the
+    new code loads. Leaves things untouched if local edits block the pull."""
+    ok, out = updater.pull()
+    updater.clear_pending()
+    if not ok:
+        printer("⚠️ Couldn't auto-update — looks like there are local changes in the way. "
+                "Left things as they are; this one needs a hand.")
+        return
+    printer("✅ Update pulled. Reloading myself now — one sec… 🔄")
+    os.execvp(sys.argv[0], sys.argv)        # replace the running process with fresh code
 
 
 def _hist():
@@ -99,7 +139,18 @@ def run():
         title="[bold cyan]◈ mindpalace[/]", title_align="left",
         border_style="cyan", padding=(1, 2)))
     history = _load()
+
+    def _notice(msg):
+        console.print(Panel(Markdown(msg), title="[bold yellow]update[/]",
+                            title_align="left", border_style="yellow", padding=(0, 1)))
+
+    startup = _check_for_update(force=True)         # surface a waiting update right away
+    if startup:
+        _notice(startup)
     while True:
+        notice = _check_for_update()                # ~every interval: nag while behind
+        if notice:
+            _notice(notice)
         if boxed:
             text = boxed()
             if text is None:
@@ -122,6 +173,10 @@ def run():
             cfg = config.load_config()
             console.print(f"[dim]data {config.home()} · gateway {cfg.get('gateway')}[/]")
             continue
+        # pending update + owner says "yes" → pull + reload (never goes to the brain)
+        if updater.read_pending() and updater.is_affirmative(text):
+            _apply_update(lambda m: console.print(f"[yellow]{m}[/]"))
+            continue
         with console.status(f"[dim]{name} is thinking…[/]", spinner="dots"):
             reply = brain.ask_sync(text, history)
         console.print(Panel(Markdown(reply), title=f"[bold green]{name}[/]",
@@ -135,7 +190,13 @@ def run():
 def _run_plain(name):
     print(f"\n{name} — terminal chat. /exit to leave.\n")
     history = _load()
+    startup = _check_for_update(force=True)
+    if startup:
+        print(f"\n{startup}\n")
     while True:
+        notice = _check_for_update()
+        if notice:
+            print(f"\n{notice}\n")
         try:
             text = input("you > ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -144,6 +205,9 @@ def _run_plain(name):
             continue
         if text in ("/exit", "/quit"):
             print("bye."); break
+        if updater.read_pending() and updater.is_affirmative(text):
+            _apply_update(print)
+            continue
         print("…thinking", end="\r")
         reply = brain.ask_sync(text, history)
         print(" " * 12, end="\r")
