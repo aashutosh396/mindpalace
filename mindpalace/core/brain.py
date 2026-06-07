@@ -279,13 +279,17 @@ def _env() -> dict:
 READONLY_TOOLS = "Read,Glob,Grep,WebFetch,WebSearch"
 
 
-def _args(prompt: str, permissions: str = "full", allowed_tools: str | None = None) -> list[str]:
+def _args(prompt: str, permissions: str = "full", allowed_tools: str | None = None,
+          model: str | None = None) -> list[str]:
     """Per-bot tool fence (the REAL permission limit, enforced by the CLI):
        full     → bypassPermissions (full bash/file power)
        readonly → only read/search tools; cannot Bash/Write/Edit
        custom   → exactly the allowed_tools list (comma-separated)
+    model: optional model override (e.g. a cheaper one for background work).
     """
     args = [claude_bin(), "-p", prompt]
+    if model:
+        args += ["--model", model]
     if permissions == "readonly":
         args += ["--allowedTools", READONLY_TOOLS]
     elif permissions == "custom" and allowed_tools:
@@ -697,12 +701,13 @@ async def ask_async_streaming(text, history, on_progress, system=None,
 
 
 async def ask_async(text: str, history: list[dict], system: str | None = None,
-                    permissions: str = "full", allowed_tools: str | None = None) -> str:
+                    permissions: str = "full", allowed_tools: str | None = None,
+                    model: str | None = None) -> str:
     prompt = build_prompt(text, history, system)
     async with _semaphore():                     # cap concurrent claude procs
         try:
             proc = await asyncio.create_subprocess_exec(
-                *_args(prompt, permissions, allowed_tools), cwd=str(config.home()), env=_env(),
+                *_args(prompt, permissions, allowed_tools, model), cwd=str(config.home()), env=_env(),
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             out, err = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT)
             return (out.decode(errors="replace").strip()

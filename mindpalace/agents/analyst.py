@@ -24,8 +24,12 @@ ROLE = (
 
 
 def _system() -> str:
-    # full operating context (doctrine, vault rules, skills, capabilities) + the analyst role
-    return brain.system_prompt() + "\n\n" + ROLE
+    # LEAN context — only what's needed to file facts + skillify (vault rules, self-knowledge,
+    # skills doctrine). Drops voice/capabilities/automation/async blocks the analyst never uses,
+    # so every background call (now on the cheaper model) carries far fewer tokens.
+    from ..core.brain import _doctrine, _self_knowledge, SELF_LEARN
+    from .. import skills
+    return "\n\n".join([ROLE, _doctrine(), _self_knowledge(), skills.SKILL_INSTRUCTIONS, SELF_LEARN])
 
 
 async def reflect(owner_text: str, agent_reply: str) -> str:
@@ -58,7 +62,8 @@ async def reflect(owner_text: str, agent_reply: str) -> str:
         "Reply ONE natural line on what you saved/created/patched (e.g. \"saved repairmate creds → "
         "accounts/, patched skill ssh-to-host\"), or exactly NOTHING."
     )
-    return await brain.ask_async(task, [], system=_system(), permissions="full")
+    return await brain.ask_async(task, [], system=_system(), permissions="full",
+                                 model=config.background_model())
 
 
 async def compact() -> str:
@@ -85,7 +90,8 @@ async def compact() -> str:
         "Overwrite all three with clean markdown. Reply ONE short line on what you consolidated "
         "(e.g. \"refreshed CORE 1.4k; USER 3k->2k, merged 2 dupes\"), or exactly NOTHING."
     )
-    return await brain.ask_async(task, [], system=_system(), permissions="full")
+    return await brain.ask_async(task, [], system=_system(), permissions="full",
+                                 model=config.background_model())
 
 
 async def curate() -> str:
@@ -107,7 +113,8 @@ async def curate() -> str:
         "Be conservative — never lose a genuinely reusable procedure. Reply ONE line on what you "
         "consolidated/archived, or exactly NOTHING."
     )
-    return await brain.ask_async(task, [], system=_system(), permissions="full")
+    return await brain.ask_async(task, [], system=_system(), permissions="full",
+                                 model=config.background_model())
 
 
 async def review() -> str:
@@ -119,4 +126,5 @@ async def review() -> str:
         "proposed next action. Do NOT take destructive/irreversible actions unprompted — propose "
         "them. If all quiet, reply EXACTLY: NOTHING"
     )
-    return await brain.ask_async(task, [], system=_system(), permissions="full")
+    return await brain.ask_async(task, [], system=_system(), permissions="full",
+                                 model=config.background_model())

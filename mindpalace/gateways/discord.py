@@ -229,11 +229,11 @@ def run():
         history += [{"role": "Owner", "content": text}, {"role": "Assistant", "content": reply}]
         _save(name, history)
         mem.save_exchange(text, reply)
-        # background analyst: reason → file facts + skillify reusable procedures (runs in parallel)
-        if _worth_reflecting(text, reply):
-            asyncio.create_task(_reflect(channel, text, reply))
-        # every N exchanges: consolidate long-term + refresh the tiny working memory (CORE.md)
+        # Background work runs on the cheaper model AND on a cadence (not every message) to
+        # protect the Max budget — reflection used to be a 2nd full Opus call per message.
         n = _bump_counter(name)
+        if config.reflect_every() and n % config.reflect_every() == 0:
+            asyncio.create_task(_reflect(channel, text, reply))
         if config.compact_every() and n % config.compact_every() == 0 and (
                 _memory_heavy() or not config.CORE_FILE().exists()):
             asyncio.create_task(_compact(channel))
