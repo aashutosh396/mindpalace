@@ -49,11 +49,13 @@ def _async_ops() -> str:
         "A background watcher runs it and reports the result to the home channel — so you "
         "stay free to chat. Use this for anything long.\n"
         "- Post a proactive update to the owner any time:  python3 -m mindpalace.notify 'message'\n"
-        "- As you work, drop SHORT, casual updates in your OWN words — a handful of words each, "
-        "in the moment ('lemme ping it…', 'reachable ✅', 'noting it in your vault'). These stream "
-        "to the owner live, so they read like a friend thinking out loud, not a status code. Keep "
-        "them tiny and human; NEVER dump commands or paths. Your final answer is separate — give "
-        "the result + next step there, and don't replay the play-by-play in it.\n"
+        "- LIVE NARRATION (important): right BEFORE your first action, write ONE short casual line "
+        "in your own words saying what you're about to do ('lemme check your Downloads…'). Before "
+        "each further action, drop another tiny in-the-moment line ('found 6 strays', 'tucking "
+        "these notes away'). These stream to the owner live, so they read like a friend thinking "
+        "out loud — not a status code. A handful of words each; NEVER dump commands or paths. Your "
+        "FINAL answer is a separate message at the end (the result + next step) — don't replay the "
+        "play-by-play in it.\n"
     )
 
 
@@ -304,8 +306,8 @@ def _classify(blk: dict) -> str:
         first = parts[0] if parts else ""
         if first in ("sudo", "env") and len(parts) > 1:    # skip a leading sudo/env
             first = parts[1]
-        if first == "ssh" or " ssh " in c:                 return "ssh"
-        if first in ("scp", "rsync") or "rsync" in c:      return "move"
+        if first == "ssh":                                 return "ssh"
+        if first in ("scp", "rsync"):                      return "move"
         if first == "git":                                 return "git"
         if first in ("curl", "wget"):                      return "net"
         if first in ("rm", "rmdir"):                       return "remove"
@@ -372,7 +374,8 @@ async def ask_async_streaming(text, history, on_progress, system=None,
     prompt = build_prompt(text, history, system)
     args = _args(prompt, permissions, allowed_tools) + ["--output-format", "stream-json", "--verbose"]
     final, steps = "", 0
-    narrator = _Narrator()                       # varied, de-duped human progress lines
+    pending = None                               # last text block, held back (may be the final answer)
+    narrator = _Narrator()                       # canned fallback for silent tool steps
     sem = _semaphore()
     await sem.acquire()                          # cap concurrent claude procs
     proc = None
@@ -388,7 +391,7 @@ async def ask_async_streaming(text, history, on_progress, system=None,
             return f"(error: {str(e)[:160]})"
 
         async def _read():
-            nonlocal final, steps
+            nonlocal final, steps, pending
             while True:
                 try:
                     raw = await proc.stdout.readline()
@@ -406,36 +409,46 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                     continue
                 t = ev.get("type")
                 if t == "assistant":
-                    content = ev.get("message", {}).get("content", [])
-                    texts = [(b.get("text") or "").strip()
-                             for b in content if b.get("type") == "text"]
-                    texts = [x for x in texts if x]
-                    tools = [b for b in content if b.get("type") == "tool_use"]
-                    # Stream the model's OWN words as live commentary — but ONLY for messages
-                    # that also fire a tool. A pure-text message is the final answer; it comes
-                    # back via the `result` event, so streaming it would post it twice.
-                    if tools:
-                        emitted = False
-                        for txt in texts:
-                            if steps >= max_steps:
-                                break
-                            steps += 1
-                            emitted = True
-                            try:
-                                await on_progress(_trim(txt))
-                            except Exception:
-                                pass
-                        if not emitted and steps < max_steps:
-                            # model acted without saying anything → one short human fallback
-                            line = narrator.line(tools[0])
-                            if line is not None:
+                    # Walk the blocks in order, streaming the model's OWN words as live
+                    # commentary. A text block is held in `pending` for one beat: if anything
+                    # follows it (more text, or an action) it was narration → emit it; if
+                    # nothing follows, it's the FINAL answer → leave it (the `result` event
+                    # carries it, so emitting here would double-post). A tool with no narration
+                    # in front of it falls back to one short, accurate canned line.
+                    for blk in ev.get("message", {}).get("content", []):
+                        if steps >= max_steps:
+                            break
+                        bt = blk.get("type")
+                        if bt == "text":
+                            txt = (blk.get("text") or "").strip()
+                            if not txt:
+                                continue
+                            if pending is not None:          # earlier text wasn't final → show it
                                 steps += 1
                                 try:
-                                    await on_progress(line)
+                                    await on_progress(_trim(pending))
                                 except Exception:
                                     pass
+                            pending = txt
+                        elif bt == "tool_use":
+                            if pending is not None:          # narration precedes this action
+                                steps += 1
+                                try:
+                                    await on_progress(_trim(pending))
+                                except Exception:
+                                    pass
+                                pending = None
+                            else:                            # silent action → accurate fallback
+                                line = narrator.line(blk)
+                                if line is not None:
+                                    steps += 1
+                                    try:
+                                        await on_progress(line)
+                                    except Exception:
+                                        pass
                 elif t == "result":
                     final = ev.get("result", "") or final
+                    # `pending` (the last unfollowed text) is the final answer — never streamed.
 
         try:
             await asyncio.wait_for(_read(), timeout=TIMEOUT)

@@ -121,6 +121,19 @@ def _make_boxed_input():
     return ask
 
 
+def _stream_reply(text, history, show):
+    """Drive the SAME brain Discord uses, printing each live step via show(line).
+    Keeps terminal and Discord behaviour identical — one base, one evolving intelligence."""
+    import asyncio
+
+    async def _go():
+        async def on_progress(line):
+            show(line)
+        return await brain.ask_async_streaming(text, history, on_progress)
+
+    return asyncio.run(_go())
+
+
 def run():
     name = _agent_name()
     try:
@@ -177,8 +190,8 @@ def run():
         if updater.read_pending() and updater.is_affirmative(text):
             _apply_update(lambda m: console.print(f"[yellow]{m}[/]"))
             continue
-        with console.status(f"[dim]{name} is thinking…[/]", spinner="dots"):
-            reply = brain.ask_sync(text, history)
+        console.print(f"[dim]{name} is on it…[/]")
+        reply = _stream_reply(text, history, lambda l: console.print(f"[dim]  {l}[/]"))
         console.print(Panel(Markdown(reply), title=f"[bold green]{name}[/]",
                             title_align="left", border_style="green", padding=(0, 1)))
         history += [{"role": "Owner", "content": text},
@@ -208,9 +221,7 @@ def _run_plain(name):
         if updater.read_pending() and updater.is_affirmative(text):
             _apply_update(print)
             continue
-        print("…thinking", end="\r")
-        reply = brain.ask_sync(text, history)
-        print(" " * 12, end="\r")
+        reply = _stream_reply(text, history, lambda l: print(f"  {l}"))
         print(f"\n{name} > {reply}\n")
         history += [{"role": "Owner", "content": text},
                     {"role": "Assistant", "content": reply}]
