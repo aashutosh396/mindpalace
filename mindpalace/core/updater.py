@@ -137,16 +137,13 @@ def summarize_changes(subjects: list[str]) -> list[str]:
 
 
 def notice_text(info: dict) -> str:
+    # Rendered as a Discord ```diff``` block: @@…@@ → teal header/footer bars, + → green feature
+    # lines. Gaps above/below the feature list give it breathing room.
     bullets = summarize_changes(info.get("log") or [])
-    lines = ["## 🔔 Update available", "", "There's a new version ready. Want me to install it?"]
-    if bullets:
-        lines.append("")
-        lines.append("**What's new:**")
-        lines += [f"• {b}" for b in bullets]
-    lines.append("")
-    lines.append("Reply **yes** and I'll update + restart myself. 🔄")
-    # one prominent Discord blockquote box — every line quoted so it renders as a single panel
-    return "\n".join((f"> {ln}" if ln else ">") for ln in lines)
+    lines = ["```diff", "@@   🔔  UPDATE AVAILABLE   @@", ""]
+    lines += [f"+ {b}" for b in bullets] if bullets else ["+ improvements and fixes"]
+    lines += ["", '@@   reply "yes"  →  I pull + restart 🔄   @@', "```"]
+    return "\n".join(lines)
 
 
 def pull() -> tuple[bool, str]:
