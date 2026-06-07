@@ -193,13 +193,51 @@ def restart_detached(delay: int = 3) -> None:
         env={**os.environ, "MINDPALACE_HOME": str(config.home())})
 
 
+CRITICAL_FILES = (
+    "mindpalace/core/brain.py", "mindpalace/core/daemon.py", "mindpalace/core/updater.py",
+    "mindpalace/core/service.py", "mindpalace/gateways/discord.py", "mindpalace/gateways/terminal.py",
+    "mindpalace/config.py", "mindpalace/cli.py", "mindpalace/agents/analyst.py",
+    "mindpalace/memory/store.py", "mindpalace/skills.py",
+)
+
+
+def _head_sha() -> str:
+    rc, out = _git("rev-parse", "HEAD")
+    return out.strip() if rc == 0 else ""
+
+
+def _compile_critical() -> tuple[bool, str]:
+    """Syntax-check the files the daemon needs to boot. A bad pull that won't parse must NOT
+    go live — better to roll back and stay on the working version than brick the bot."""
+    import py_compile
+    errs = []
+    for rel in CRITICAL_FILES:
+        p = repo_dir() / rel
+        if not p.exists():
+            continue
+        try:
+            py_compile.compile(str(p), doraise=True)
+        except py_compile.PyCompileError as e:
+            errs.append(str(e))
+    return (not errs, "\n".join(errs)[-800:])
+
+
 def accept() -> str:
     """Owner said yes: pull + restart. Returns the message to post."""
+    before = _head_sha()                          # for rollback if the pull won't parse
     ok, out = pull()
     if not ok:
         clear_pending()
         return ("⚠️ Couldn't auto-update — looks like there are local changes in the way. "
                 "I've left things as they are; this one needs a hand.\n```\n" + out[-600:] + "\n```")
+    cok, cerr = _compile_critical()              # safety gate BEFORE we reload into the new code
+    if not cok:
+        if before:
+            _git("reset", "--hard", before)      # restore the working version
+        clear_pending()
+        return ("⚠️ An update came in but it failed my safety check (won't parse), so I rolled it "
+                "back and stayed on the version that works. A human should look.\n```\n"
+                + cerr + "\n```")
     synced, sout = sync_venv()
     if not synced:
         clear_pending()

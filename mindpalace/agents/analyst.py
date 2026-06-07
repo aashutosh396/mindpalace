@@ -29,19 +29,34 @@ def _system() -> str:
 
 
 async def reflect(owner_text: str, agent_reply: str) -> str:
+    from .. import config
     task = (
-        "[REFLECTION — reason about the task just completed, then act.]\n"
+        "[REFLECTION — reason about the task just completed, then act. Be ACTIVE: most real "
+        "tasks leave at least one durable fact or skill behind. A pass that saves nothing is a "
+        "missed learning opportunity, not a neutral outcome — but never invent something to save.]\n"
         f"OWNER: {owner_text}\nAGENT: {agent_reply}\n\n"
         "1. FILE durable facts into the vault: infra/<host>.md, accounts/<owner>.md, "
         "projects/<slug>.md, runbooks/<name>.md; raw secrets/tokens → secrets/ (referenced, not "
         "pasted); append one line to vault/LOG.md. Cross-link (a cred to its project, a host to "
         "its project).\n"
-        "2. SKILLIFY: was a REUSABLE procedure done with no matching skill yet (e.g. opening an "
-        "SSH connection to a host, a deploy, a backup, a cron setup)? If yes, CREATE a user skill "
-        "at skills/<verb>-<noun>.md (frontmatter: name, description, derived_from a global if "
-        "relevant, created, use_count: 1) capturing the exact steps for instant reuse.\n"
-        "Reply ONE natural line on what you saved/created (e.g. \"saved repairmate creds → "
-        "accounts/, created skill ssh-repairmate\"), or exactly NOTHING."
+        "   WRITE FACTS AS DECLARATIVE STATE, not commands: 'Owner prefers terse replies' ✓ not "
+        "'Always be terse' ✗; 'Backups run nightly at 2am' ✓. If a fact will be stale in a week, "
+        "it does NOT belong in memory — no PR numbers, SHAs, 'phase N done', or one-off run details.\n"
+        "2. SKILLIFY (procedural memory). Was a REUSABLE procedure done — ssh to a host, a deploy, "
+        "a backup, a cron setup, a scrape? Capture it, in this PREFERENCE ORDER (only escalate if "
+        "nothing earlier fits):\n"
+        "   a) PATCH an existing user skill that already covers this class of task;\n"
+        "   b) add a supporting reference/template/script file beside an existing skill;\n"
+        f"   c) only if nothing fits, CREATE a new user skill at {config.user_skills()}/<verb>-<noun>.md "
+        "(frontmatter: name, description, derived_from a global or \"scratch\", created, use_count: 1).\n"
+        "   NAMING: skills must be CLASS-LEVEL and reusable ('deploy-django-app', 'ssh-to-host') — "
+        "NEVER a one-off artifact ('fix-bug-1234', 'debug-today', a PR number, an error string, or a "
+        "bare library name).\n"
+        "   NEGATIVE-KNOWLEDGE GUARDRAIL (critical): do NOT save environment-specific failures, "
+        "transient errors, or 'tool/service X is broken' as durable facts or skills. Those harden "
+        "into refusals the agent cites against itself for months after the problem is long fixed.\n"
+        "Reply ONE natural line on what you saved/created/patched (e.g. \"saved repairmate creds → "
+        "accounts/, patched skill ssh-to-host\"), or exactly NOTHING."
     )
     return await brain.ask_async(task, [], system=_system(), permissions="full")
 
@@ -58,6 +73,10 @@ async def compact() -> str:
         f"fidelity profile of the owner (keep under ~{ub} chars); MEMORY.md ({config.MEMORY_FILE()}) "
         f"= durable facts / conventions / gotchas (under ~{mb} chars). Merge duplicates, resolve "
         "contradictions in favour of the NEWEST info, drop ephemera.\n"
+        "   DIALECTIC PASS on the owner profile: don't just append — (i) derive new inferences about "
+        "how they think/work from recent exchanges, (ii) self-audit for gaps or vagueness, (iii) "
+        "CHECK new inferences against what's already there and RECONCILE contradictions (newest wins) "
+        "so stale or conflicting beliefs about the owner never coexist.\n"
         f"2. WORKING memory (rewrite IN PLACE): CORE.md ({config.CORE_FILE()}) — this loads on EVERY "
         f"prompt, so keep it UNDER ~{cb} characters, high-signal only. Two parts: (a) the owner's "
         "ESSENCE in a few tight lines — who they are, how they work, voice, key preferences, what's "
