@@ -20,12 +20,20 @@ SKILL_INTERVAL = 10    # every N exchanges: formalize a reusable skill
 TIMEOUT = 600          # seconds before giving up on one turn
 
 
-SELF_LEARN = f"""
-SELF-LEARNING (you persist across every session — use your bash tools):
-  {config.MEMORY_FILE()}   — durable facts, conventions, infra, gotchas
-  {config.USER_FILE()}     — owner preferences, communication style, habits
-Append a fact:  printf '\\n- %s: <fact>\\n' "$(date +%F)" >> {config.MEMORY_FILE()}
-Save only durable, reusable facts — skip ephemeral/session-specific noise.
+SELF_LEARN = """
+SELF-LEARNING & PROFILING (you persist across every session — build a picture of the owner):
+- The MOMENT the owner reveals something durable about THEMSELVES — their name/what to call them,
+  preferences, how they work, their org, projects, tools, environment — save it LIVE, right then:
+      python3 -m mindpalace.remember user "<fact about them>"
+  It lands in USER.md (your profile of them); the owner sees a "⚡ learning about you" chip.
+- A durable general fact / convention / gotcha (NOT about the person) →
+      python3 -m mindpalace.remember "<fact>"
+  It lands in MEMORY.md.
+- Do this PROACTIVELY, in-conversation — never wait for the end of the task — so you never re-ask
+  what you've already been told. Drop a natural one-liner in your reply when you've saved something
+  that matters ("noted — I'll call you Aashu from now on").
+- Save only durable, reusable facts; skip ephemeral/session noise. USER.md + MEMORY.md load into
+  every future session, so this is how you stop starting from scratch.
 """.strip()
 
 
@@ -286,8 +294,9 @@ def _short(p: str) -> str:
 # count) — never raw shell, flags, or full paths.
 _VERB = {
     "read": "reading", "search": "searching", "skill_use": "using skill",
+    "w_user": "learning about you", "notify": "messaging you",
     "w_account": "saving", "w_infra": "noting", "w_project": "updating", "w_runbook": "writing",
-    "w_log": "logging", "w_skill": "skill saved", "w_memory": "noting", "w_note": "saving",
+    "w_log": "logging", "w_skill": "skill saved", "w_memory": "remembering", "w_note": "saving",
     "ssh": "connecting", "move": "moving", "remove": "clearing", "schedule": "scheduling",
     "git": "saving", "net": "fetching", "pkg": "installing", "run": "running",
     "service": "restarting", "fs": "setting up", "archive": "packing", "inspect": "checking",
@@ -298,7 +307,7 @@ _TARGET = {
     "w_account": "a login", "w_infra": "the server notes", "w_project": "the project notes",
     "w_runbook": "a runbook", "w_log": "the journal", "w_skill": "a new skill",
     "skill_use": "a skill", "w_memory": "to memory", "w_note": "a note",
-    "read": "a file", "search": "the files",
+    "w_user": "you", "notify": "you", "read": "a file", "search": "the files",
     "ssh": "the remote machine", "move": "files into place", "remove": "old files",
     "schedule": "a timer", "git": "the changes", "net": "online", "pkg": "a dependency",
     "run": "a script", "service": "the service", "fs": "the folders", "archive": "the files",
@@ -336,6 +345,9 @@ def _classify(blk: dict) -> str:
         first = parts[0] if parts else ""
         if first in ("sudo", "env") and len(parts) > 1:    # skip a leading sudo/env
             first = parts[1]
+        if "mindpalace.remember" in c:
+            return "w_user" if any(f" {x}" in c for x in ("user", "+user", "--user", "-u")) else "w_memory"
+        if "mindpalace.notify" in c:                        return "notify"
         if first == "ssh" or "ssh" in parts:               return "ssh"
         if first in ("scp", "rsync"):                      return "move"
         if first == "git":                                 return "git"
@@ -477,6 +489,13 @@ def _ssh_target(c: str) -> str:
     return f"{label} (via {via})" if via else label
 
 
+def _quoted(c: str) -> str | None:
+    """First quoted string in a command — the fact/message passed to remember/notify."""
+    import re
+    m = re.search(r'"([^"]+)"|\'([^\']+)\'', c)
+    return (m.group(1) or m.group(2)) if m else None
+
+
 def _skill_name(fp: str) -> str:
     """Friendly skill name from a skill file path — '<name>/SKILL.md' → '<name>'."""
     p = fp.rstrip("/").split("/")
@@ -508,7 +527,12 @@ def _chip(blk: dict) -> str:
         target = (inp.get("query", "") or "").strip()[:48] or None
     elif name == "Bash":
         cmd = (inp.get("command", "") or "").strip()
-        target = _ssh_target(cmd) if cat == "ssh" else _bash_target(cat, cmd)
+        if cat == "ssh":
+            target = _ssh_target(cmd)
+        elif "mindpalace.remember" in cmd or "mindpalace.notify" in cmd:
+            target = _quoted(cmd)                # show the fact/message itself
+        else:
+            target = _bash_target(cat, cmd)
     if not target:
         if cat in ("bash", "misc"):              # unknown command → no guessed target
             return f"⚡ {verb}"
