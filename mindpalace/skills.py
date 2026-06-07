@@ -87,11 +87,17 @@ def index_block() -> str:
 
 
 SKILL_INSTRUCTIONS = f"""
-SKILLS & LEARNING:
+SKILLS & LEARNING (be a Hermes-style agent that grows — capture what you do):
 - Before a multi-step task, SEARCH for a matching skill (yours first, then the bundled library
-  via `grep -ril <keyword> {config.GLOBAL_SKILLS}`), and read its SKILL.md before acting.
-- When you USE a reference skill, DRAFT a tailored user skill for this owner at
-  {config.user_skills()}/<verb>-<noun>.md (do NOT edit bundled skills). Frontmatter:
-  name, description, derived_from: <skill>, created, use_count.
-- When you discover a durable, reusable procedure with no skill yet, write a new user skill.
+  via `grep -ril <keyword> {config.GLOBAL_SKILLS}`), and read its SKILL.md before acting. (The owner
+  sees a "⚡ using skill · <name>" chip when you read one, so reach for them.)
+- CAPTURE PROACTIVELY: whenever you do a concrete, repeatable task — even a "simple" one like an
+  ssh routine, a download, a deploy, a fix, a scrape — and there's no skill for it yet, WRITE a
+  tailored user skill at {config.user_skills()}/<verb>-<noun>.md so next time is faster. Don't wait
+  to be asked. (Skip only truly one-off trivia that will never recur.)
+- When you USE a reference skill, also draft a tailored user skill from it (do NOT edit bundled
+  skills). Frontmatter: name, description, derived_from: <skill or "scratch">, created, use_count.
+- ANNOUNCE IT: when you create a new skill, tell the owner in your reply in one short line —
+  e.g. "📓 Saved a skill: <name> — I'll be faster at this next time." (The "⚡ skill saved · <name>"
+  chip shows live as you write it; the reply line confirms it stuck.)
 """.strip()

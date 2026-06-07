@@ -171,6 +171,31 @@ def _doctrine() -> str:
     )
 
 
+def _automation() -> str:
+    qd = config.home() / "jobs" / "queue"
+    ws = config.workspace_dir()
+    return (
+        "AUTOMATION — pick the LIGHTEST tier that fits, escalate only when the task truly needs it. "
+        "Don't over-engineer a one-off; don't cram a stateful job into a fragile one-liner:\n"
+        "1) SIMPLE / stateless (a periodic command, reminder, backup) → a cron entry or a queued "
+        f"script in {qd}/<name>.sh. No project, no state. This is the DEFAULT — start here.\n"
+        "2) NEEDS CODE + CONTEXT (real logic, dependencies, several files, will evolve) → make it a "
+        f"PROJECT in {ws}/<slug>/ (own venv, .gitignore, .env/.env.example, README; Python/Django "
+        "split as in the workspace rules), write the scripts there, then schedule them. Map it like "
+        "any project: pointer note in vault/projects/<slug>.md + a LOG line.\n"
+        "3) LONG-LIVED / STATEFUL (scrapers, pipelines — anything that must resume, dedupe, "
+        "accumulate data, or report progress over time) → a tier-2 project PLUS a tracking store "
+        "inside it: a JSON file for light state, SQLite for larger / queryable / concurrent state "
+        "(choose by complexity). Make every run IDEMPOTENT and RESUMABLE from that store; keep "
+        "data/state files gitignored inside the project.\n"
+        "Practical rules that make scheduled work actually run: cron must invoke the project's OWN "
+        "venv python by ABSOLUTE path (never system python); guard against overlapping runs (a "
+        "lockfile, or SQLite WAL mode); run long work in the background (queue/cron), never inline — "
+        "reply that you set it up, then let it report meaningful updates (not spam) via "
+        "`python3 -m mindpalace.notify 'msg'`."
+    )
+
+
 def system_prompt() -> str:
     blocks = [
         "You are mindpalace — the owner's always-on, self-learning personal agent. "
@@ -181,6 +206,7 @@ def system_prompt() -> str:
         _self_knowledge(),
         _capabilities(),
         _async_ops(),
+        _automation(),
         skills.SKILL_INSTRUCTIONS,
         SELF_LEARN,
     ]
@@ -259,9 +285,9 @@ def _short(p: str) -> str:
 # action; the target is a CLEAN, human description (a folder/file name, a package, a
 # count) — never raw shell, flags, or full paths.
 _VERB = {
-    "read": "reading", "search": "searching",
+    "read": "reading", "search": "searching", "skill_use": "using skill",
     "w_account": "saving", "w_infra": "noting", "w_project": "updating", "w_runbook": "writing",
-    "w_log": "logging", "w_skill": "learning", "w_memory": "noting", "w_note": "saving",
+    "w_log": "logging", "w_skill": "skill saved", "w_memory": "noting", "w_note": "saving",
     "ssh": "connecting", "move": "moving", "remove": "clearing", "schedule": "scheduling",
     "git": "saving", "net": "fetching", "pkg": "installing", "run": "running",
     "service": "restarting", "fs": "setting up", "archive": "packing", "inspect": "checking",
@@ -271,7 +297,8 @@ _VERB = {
 _TARGET = {
     "w_account": "a login", "w_infra": "the server notes", "w_project": "the project notes",
     "w_runbook": "a runbook", "w_log": "the journal", "w_skill": "a new skill",
-    "w_memory": "to memory", "w_note": "a note", "read": "a file", "search": "the files",
+    "skill_use": "a skill", "w_memory": "to memory", "w_note": "a note",
+    "read": "a file", "search": "the files",
     "ssh": "the remote machine", "move": "files into place", "remove": "old files",
     "schedule": "a timer", "git": "the changes", "net": "online", "pkg": "a dependency",
     "run": "a script", "service": "the service", "fs": "the folders", "archive": "the files",
@@ -300,7 +327,7 @@ def _classify(blk: dict) -> str:
         if "/skills/" in fp:      return "w_skill"
         if "memory" in fp:        return "w_memory"
         return "w_note"
-    if name == "Read":            return "read"
+    if name == "Read":            return "skill_use" if "/skills/" in fp else "read"
     if name in ("Grep", "Glob"):  return "search"
     if name in ("WebFetch", "WebSearch"): return "net"
     if name == "Bash":
@@ -450,6 +477,15 @@ def _ssh_target(c: str) -> str:
     return f"{label} (via {via})" if via else label
 
 
+def _skill_name(fp: str) -> str:
+    """Friendly skill name from a skill file path — '<name>/SKILL.md' → '<name>'."""
+    p = fp.rstrip("/").split("/")
+    stem = p[-1].rsplit(".", 1)[0] if p else ""
+    if stem.upper() == "SKILL" and len(p) >= 2:       # .../<name>/SKILL.md
+        stem = p[-2]
+    return stem or "a skill"
+
+
 def _chip(blk: dict) -> str:
     """A Hermes-style step chip: '⚡ <verb> · <target>'. Humanized, never raw shell."""
     cat = _classify(blk)
@@ -459,7 +495,9 @@ def _chip(blk: dict) -> str:
     target = None
     if name in ("Read", "Write", "Edit"):
         fp = inp.get("file_path", "") or ""
-        if fp and cat in ("read", "w_note"):
+        if cat in ("skill_use", "w_skill"):
+            target = _skill_name(fp)
+        elif fp and cat in ("read", "w_note"):
             target = _base(fp)
     elif name in ("Grep", "Glob"):
         target = (inp.get("pattern") or inp.get("glob") or "").strip() or None
