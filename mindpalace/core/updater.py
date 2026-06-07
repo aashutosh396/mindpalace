@@ -138,13 +138,15 @@ def summarize_changes(subjects: list[str]) -> list[str]:
 
 def notice_text(info: dict) -> str:
     bullets = summarize_changes(info.get("log") or [])
-    lines = ["👋 Hey, there's a new update available. Want me to install it?"]
+    lines = ["## 🔔 Update available", "", "There's a new version ready. Want me to install it?"]
     if bullets:
         lines.append("")
-        lines += [f"- {b}" for b in bullets]
-        lines.append("")
-    lines.append("Just say **yes** to update.")
-    return "\n".join(lines)
+        lines.append("**What's new:**")
+        lines += [f"• {b}" for b in bullets]
+    lines.append("")
+    lines.append("Reply **yes** and I'll update + restart myself. 🔄")
+    # one prominent Discord blockquote box — every line quoted so it renders as a single panel
+    return "\n".join((f"> {ln}" if ln else ">") for ln in lines)
 
 
 def pull() -> tuple[bool, str]:

@@ -49,7 +49,13 @@ def _capabilities() -> str:
         "- You may schedule recurring work (cron), run backups, and spawn helper tasks.\n"
         "- Anything machine-specific (servers, keys, hosts) you LEARN and store in memory — "
         "it is never hardcoded in your core.\n"
-        "Act only on the owner's explicit request; these powers are real and can be destructive."
+        "Act only on the owner's explicit request; these powers are real and can be destructive.\n"
+        "SAFETY GUARD: a hook runs before every command. It auto-creates a backup (DB copy / git "
+        "bundle, in backups/) before irreversible DB changes, force-pushes, or hard resets, then "
+        "lets them through — so don't skip destructive DB work out of fear, it's snapshotted. It "
+        "HARD-BLOCKS only the unrecoverable (rm -rf on system/home paths, mkfs, dd to a disk, fork "
+        "bombs). If something is blocked, it's by design: find a safer path or ask the owner to do "
+        "it by hand — don't try to defeat the guard."
     )
 
 
@@ -250,7 +256,18 @@ def claude_bin() -> str:
     return config.load_config().get("claude", {}).get("bin") or shutil.which("claude") or "claude"
 
 
+_guard_ready = False
+
+
 def _env() -> dict:
+    global _guard_ready
+    if not _guard_ready:                          # install the PreToolUse safety hook once
+        try:
+            from .. import guard
+            guard.ensure_installed()
+        except Exception:
+            pass
+        _guard_ready = True
     env = dict(os.environ)
     tok = config.read_secret("claude_token")
     if tok:
