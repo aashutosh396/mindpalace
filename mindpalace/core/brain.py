@@ -232,47 +232,27 @@ def _short(p: str) -> str:
     return "/".join(p.rstrip("/").split("/")[-2:]) if p else p
 
 
-# Every kind of step gets a POOL of human phrasings, not one canned line — so even when
-# the agent does the same kind of thing twice, you don't read the same words twice.
-_PHRASES = {
-    "w_account": ["💾 stashing that login somewhere safe", "🔐 filing those credentials away",
-                  "💾 saving the account details for later"],
-    "w_infra":   ["🗄 jotting down the server details", "🗄 noting how this box is set up",
-                  "🖥 saving what I learned about the machine"],
-    "w_project": ["📁 updating my notes on this project", "📁 keeping the project file current",
-                  "🗂 tidying up the project notes"],
-    "w_runbook": ["📓 writing down the steps so I remember", "📓 saving this as a runbook",
-                  "📝 capturing the how-to for next time"],
-    "w_log":     ["🧾 jotting this in the journal", "🧾 logging it for the record",
-                  "📒 adding a line to the log"],
-    "w_skill":   ["🧠 picking up a new trick", "✨ turning this into a reusable skill",
-                  "🧠 learning how to do this for next time"],
-    "w_memory":  ["🧠 committing this to memory", "🧠 making a mental note",
-                  "🧠 remembering this for next time"],
-    "w_note":    ["📝 scribbling a note", "✍️ writing that down", "📝 saving this"],
-    "read":      ["📖 having a read through", "👀 taking a look at this",
-                  "📖 catching up on what's in here"],
-    "search":    ["🔎 digging through the files", "🔎 hunting for what I need",
-                  "👀 poking around to find it", "🔍 scanning for the right bit"],
-    "ssh":       ["🔌 hopping onto the server", "🔌 jumping on the box now",
-                  "🛰 connecting to the remote machine"],
-    "move":      ["📦 shuffling things into place", "📦 moving stuff around",
-                  "🚚 putting things where they belong"],
-    "remove":    ["🧹 clearing out the old stuff", "🗑 tidying up some clutter", "🧹 cleaning house"],
-    "schedule":  ["⏰ wiring up a schedule", "⏰ setting it to run on its own", "🗓 putting it on a timer"],
-    "git":       ["🌳 saving the changes", "🌳 committing the work", "💾 locking in the changes"],
-    "net":       ["🌐 fetching something online", "🌐 pulling this off the web",
-                  "📡 grabbing it from the internet", "🔗 looking it up online"],
-    "pkg":       ["📦 grabbing the tools I need", "⬇️ installing a dependency",
-                  "🧰 setting up what's needed"],
-    "run":       ["⚙️ running the code", "🚀 firing this off", "⚙️ putting it to work"],
-    "service":   ["🔄 nudging the service", "🔁 giving it a restart", "🩺 checking on the service"],
-    "fs":        ["🗂 setting up the folders", "📂 getting the place ready", "🛠 laying the groundwork"],
-    "archive":   ["📦 zipping things up", "🗜 packing it all together", "📦 bundling the files"],
-    "inspect":   ["🩺 checking how things look", "📊 sizing up the situation",
-                  "🔬 taking a quick measurement"],
-    "bash":      ["🔧 working on it", "🛠 getting this done", "⚙️ handling it", "🔧 sorting this out"],
-    "misc":      ["⚙️ working on it", "🛠 on it", "⚙️ handling this"],
+# Hermes-style step "chips": ⚡ <verb> · <humanized target>. The verb is the kind of
+# action; the target is a CLEAN, human description (a folder/file name, a package, a
+# count) — never raw shell, flags, or full paths.
+_VERB = {
+    "read": "reading", "search": "searching",
+    "w_account": "saving", "w_infra": "noting", "w_project": "updating", "w_runbook": "writing",
+    "w_log": "logging", "w_skill": "learning", "w_memory": "noting", "w_note": "saving",
+    "ssh": "connecting", "move": "moving", "remove": "clearing", "schedule": "scheduling",
+    "git": "saving", "net": "fetching", "pkg": "installing", "run": "running",
+    "service": "restarting", "fs": "setting up", "archive": "packing", "inspect": "checking",
+    "bash": "working", "misc": "working",
+}
+# Fallback target when nothing cleaner can be pulled from the step.
+_TARGET = {
+    "w_account": "a login", "w_infra": "the server notes", "w_project": "the project notes",
+    "w_runbook": "a runbook", "w_log": "the journal", "w_skill": "a new skill",
+    "w_memory": "to memory", "w_note": "a note", "read": "a file", "search": "the files",
+    "ssh": "the remote machine", "move": "files into place", "remove": "old files",
+    "schedule": "a timer", "git": "the changes", "net": "online", "pkg": "a dependency",
+    "run": "a script", "service": "the service", "fs": "the folders", "archive": "the files",
+    "inspect": "the system", "bash": "on it", "misc": "on it",
 }
 
 
@@ -329,31 +309,72 @@ def _classify(blk: dict) -> str:
     return "misc"
 
 
-class _Narrator:
-    """Turns the stream of tool steps into varied, human progress lines. Collapses a run
-    of the same KIND of step (no '🔎 looking' five times), and rotates wording within each
-    kind so the exact same line never lands twice — the cure for robotic, repetitive narration."""
+def _base(tok: str) -> str:
+    """Last path component, unquoted — turns /Users/x/Downloads into 'Downloads'.
+    Returns '' for a bare '/' or '~' so the caller skips it for a more meaningful token."""
+    t = tok.strip("'\"").rstrip("/")
+    return t.split("/")[-1]
 
-    def __init__(self):
-        self._rot: dict[str, int] = {}
-        self._last_cat = None
-        self._last_line = None
 
-    def line(self, blk: dict):
-        cat = _classify(blk)
-        if cat == self._last_cat:
-            return None                                   # collapse consecutive same-kind steps
-        self._last_cat = cat
-        pool = _PHRASES.get(cat) or _PHRASES["misc"]
-        i = self._rot.get(cat, 0) % len(pool)
-        out = pool[i]
-        self._rot[cat] = i + 1
-        if out == self._last_line and len(pool) > 1:      # never the exact same words twice running
-            i = (i + 1) % len(pool)
-            out = pool[i]
-            self._rot[cat] = i + 1
-        self._last_line = out
-        return out
+def _bash_target(cat: str, c: str) -> str | None:
+    """Pull a CLEAN human target out of a shell command — a name/basename, never the
+    raw command, flags, or a full path. Returns None to use the category default."""
+    toks = [t for t in c.split() if not t.startswith("-")]
+    if cat == "pkg":
+        skip = {"sudo", "env", "pip", "pip3", "pipx", "npm", "yarn", "pnpm", "apt", "apt-get",
+                "brew", "cargo", "gem", "poetry", "install", "add", "i", "global", "update", "-y"}
+        for t in toks:
+            if t.lower() not in skip:
+                return _base(t)
+        return None
+    if cat == "run":
+        for t in toks:
+            if t.endswith((".py", ".js", ".sh", ".rb", ".go", ".ts")):
+                return _base(t)
+        return None
+    if cat == "service":
+        skip = {"sudo", "systemctl", "service", "launchctl", "docker", "pm2", "supervisorctl",
+                "restart", "start", "stop", "status", "reload", "enable", "disable", "kill", "pkill"}
+        for t in toks:
+            if t.lower() not in skip:
+                return _base(t)
+        return None
+    if cat == "net":
+        for t in toks:
+            if "://" in t or ("." in t and "/" in t):
+                return t.split("://")[-1].split("/")[0].strip("'\"") or None
+        return None
+    # search / inspect / move / remove / fs / archive / git / schedule: last path-ish token
+    for t in reversed(toks):
+        if "/" in t or "~" in t or "." in t:
+            b = _base(t)
+            if b and b not in (".", "~"):
+                return b
+    return None
+
+
+def _chip(blk: dict) -> str:
+    """A Hermes-style step chip: '⚡ <verb> · <target>'. Humanized, never raw shell."""
+    cat = _classify(blk)
+    name = blk.get("name", "")
+    inp = blk.get("input", {}) or {}
+    verb = _VERB.get(cat, "working")
+    target = None
+    if name in ("Read", "Write", "Edit"):
+        fp = inp.get("file_path", "") or ""
+        if fp and cat in ("read", "w_note"):
+            target = _base(fp)
+    elif name in ("Grep", "Glob"):
+        target = (inp.get("pattern") or inp.get("glob") or "").strip() or None
+    elif name == "WebFetch":
+        u = inp.get("url", "") or ""
+        target = u.split("://")[-1].split("/")[0] if u else None
+    elif name == "WebSearch":
+        target = (inp.get("query", "") or "").strip()[:48] or None
+    elif name == "Bash":
+        target = _bash_target(cat, (inp.get("command", "") or "").strip())
+    target = target or _TARGET.get(cat, "on it")
+    return f"⚡ {verb} · {_trim(target, 60)}"
 
 
 _sem = None     # caps simultaneous `claude` procs (parallel agents); set via config.concurrency()
@@ -367,15 +388,17 @@ def _semaphore():
 
 
 async def ask_async_streaming(text, history, on_progress, system=None,
-                              permissions="full", allowed_tools=None, max_steps=10) -> str:
-    """Run the brain with streamed events; relay each tool step via on_progress(str).
+                              permissions="full", allowed_tools=None, max_steps=20) -> str:
+    """Run the brain with streamed events; relay live commentary via on_progress(str):
+    the model's own prose lines + a Hermes-style '⚡ verb · target ✅' chip per tool step.
     Returns the final reply. Falls back to non-streaming if the stream yields nothing."""
     import json as _json
     prompt = build_prompt(text, history, system)
     args = _args(prompt, permissions, allowed_tools) + ["--output-format", "stream-json", "--verbose"]
     final, steps = "", 0
     pending = None                               # last text block, held back (may be the final answer)
-    narrator = _Narrator()                       # canned fallback for silent tool steps
+    chips: dict = {}                             # tool_use id -> chip text, emitted when the step finishes
+    last_chip = None                             # dedup identical back-to-back chips
     sem = _semaphore()
     await sem.acquire()                          # cap concurrent claude procs
     proc = None
@@ -391,7 +414,7 @@ async def ask_async_streaming(text, history, on_progress, system=None,
             return f"(error: {str(e)[:160]})"
 
         async def _read():
-            nonlocal final, steps, pending
+            nonlocal final, steps, pending, last_chip
             while True:
                 try:
                     raw = await proc.stdout.readline()
@@ -409,12 +432,10 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                     continue
                 t = ev.get("type")
                 if t == "assistant":
-                    # Walk the blocks in order, streaming the model's OWN words as live
-                    # commentary. A text block is held in `pending` for one beat: if anything
-                    # follows it (more text, or an action) it was narration → emit it; if
-                    # nothing follows, it's the FINAL answer → leave it (the `result` event
-                    # carries it, so emitting here would double-post). A tool with no narration
-                    # in front of it falls back to one short, accurate canned line.
+                    # Prose = the model's OWN words, held one beat so the FINAL answer (which
+                    # also returns via `result`) isn't double-posted. Each tool call becomes a
+                    # Hermes-style chip, stored now and emitted when the step FINISHES so it can
+                    # carry a ✅/⚠️ tick (see the tool_result handler below).
                     for blk in ev.get("message", {}).get("content", []):
                         if steps >= max_steps:
                             break
@@ -431,23 +452,34 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                                     pass
                             pending = txt
                         elif bt == "tool_use":
-                            if pending is not None:          # narration precedes this action
+                            if pending is not None:          # flush narration before the action
                                 steps += 1
                                 try:
                                     await on_progress(_trim(pending))
                                 except Exception:
                                     pass
                                 pending = None
-                            else:                            # silent action → accurate fallback
-                                line = narrator.line(blk)
-                                if line is not None:
-                                    steps += 1
-                                    try:
-                                        await on_progress(line)
-                                    except Exception:
-                                        pass
+                            chips[blk.get("id", "")] = _chip(blk)
+                elif t == "user":
+                    # a tool finished → emit its chip with a result tick (✅ ok / ⚠️ error)
+                    for blk in ev.get("message", {}).get("content", []):
+                        if not isinstance(blk, dict) or blk.get("type") != "tool_result":
+                            continue
+                        chip = chips.pop(blk.get("tool_use_id", ""), None)
+                        if not chip or steps >= max_steps:
+                            continue
+                        out = chip + (" ⚠️" if blk.get("is_error") else " ✅")
+                        if out == last_chip:                 # don't repeat an identical step line
+                            continue
+                        last_chip = out
+                        steps += 1
+                        try:
+                            await on_progress(out)
+                        except Exception:
+                            pass
                 elif t == "result":
                     final = ev.get("result", "") or final
+                    # `pending` (the last unfollowed text) is the final answer — never streamed.
                     # `pending` (the last unfollowed text) is the final answer — never streamed.
 
         try:
