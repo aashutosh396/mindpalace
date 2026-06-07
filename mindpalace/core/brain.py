@@ -365,6 +365,68 @@ def _bash_target(cat: str, c: str) -> str | None:
     return None
 
 
+_HOST_CACHE: dict = {}
+
+
+def _ssh_host(c: str) -> str | None:
+    """Pull the host out of an ssh command — prefer user@HOST, else a dotted host token."""
+    toks = c.split()
+    for t in toks:
+        if "@" in t and "://" not in t:
+            return t.split("@", 1)[1].strip("'\"/")
+    for t in toks:
+        if t in ("ssh", "sudo", "timeout", "env") or t.startswith("-") or "/" in t:
+            continue
+        if "." in t and any(ch.isalnum() for ch in t):
+            return t.strip("'\"")
+    return None
+
+
+def _via(host: str, c: str) -> str | None:
+    """How we reach the host — 'Tailscale' / 'LAN' — or None if it's just a plain host."""
+    if ".ts.net" in host or "tailscale" in c:
+        return "Tailscale"
+    p = host.split(".")
+    if len(p) == 4 and p[0] == "100":                 # Tailscale CGNAT range 100.64.0.0/10
+        try:
+            return "Tailscale" if 64 <= int(p[1]) <= 127 else None
+        except ValueError:
+            return None
+    if host.endswith(".local"):
+        return "LAN"
+    return None
+
+
+def _machine_name(host: str) -> str | None:
+    """A friendly name for a host: its hostname label, or a vault infra file that mentions
+    it (so a bare Tailscale IP becomes 'mac'). Cached; None if nothing clean is known."""
+    if host in _HOST_CACHE:
+        return _HOST_CACHE[host]
+    name = None
+    if any(ch.isalpha() for ch in host):              # named host → first label
+        name = host.split(".")[0] or None
+    else:                                             # IP → find a vault infra file naming it
+        try:
+            for f in (config.vault_dir() / "infra").glob("*.md"):
+                if host in f.read_text(errors="ignore"):
+                    name = f.stem.split("-")[0].split("_")[0]
+                    break
+        except Exception:
+            pass
+    _HOST_CACHE[host] = name
+    return name
+
+
+def _ssh_target(c: str) -> str:
+    """Semi-shell, human connection target: 'mac (via Tailscale)', 'box', or a clean default."""
+    host = _ssh_host(c)
+    if not host:
+        return "the remote machine"
+    name, via = _machine_name(host), _via(host, c.lower())
+    label = name or host                          # a known name, else the host itself (semi-shell)
+    return f"{label} (via {via})" if via else label
+
+
 def _chip(blk: dict) -> str:
     """A Hermes-style step chip: '⚡ <verb> · <target>'. Humanized, never raw shell."""
     cat = _classify(blk)
@@ -384,7 +446,8 @@ def _chip(blk: dict) -> str:
     elif name == "WebSearch":
         target = (inp.get("query", "") or "").strip()[:48] or None
     elif name == "Bash":
-        target = _bash_target(cat, (inp.get("command", "") or "").strip())
+        cmd = (inp.get("command", "") or "").strip()
+        target = _ssh_target(cmd) if cat == "ssh" else _bash_target(cat, cmd)
     if not target:
         if cat in ("bash", "misc"):              # unknown command → no guessed target
             return f"⚡ {verb}"
