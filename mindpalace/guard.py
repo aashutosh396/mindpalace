@@ -215,9 +215,14 @@ def ensure_installed() -> None:
     except OSError:
         pass
     settings = home / ".claude" / "settings.json"
-    cfg = {"hooks": {"PreToolUse": [
-        {"matcher": "Bash", "hooks": [
-            {"type": "command", "command": str(sh), "timeout": 30}]}]}}
+    cfg = {
+        # cap noisy command output before it enters context — tool output is the biggest token
+        # sink in agentic coding (~60% of it removable with no quality loss).
+        "env": {"BASH_MAX_OUTPUT_LENGTH": "20000"},
+        "hooks": {"PreToolUse": [
+            {"matcher": "Bash", "hooks": [
+                {"type": "command", "command": str(sh), "timeout": 30}]}]},
+    }
     settings.write_text(json.dumps(cfg, indent=2))
 
 

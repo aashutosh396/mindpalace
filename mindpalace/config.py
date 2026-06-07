@@ -206,6 +206,18 @@ def background_model() -> str:
     return load_config().get("background_model", "claude-sonnet-4-6")
 
 
+def main_model() -> str:
+    """Model for normal replies. Sonnet by default — Opus burns the Max limit ~5x faster and,
+    per Anthropic/Microsoft data, doesn't improve routine coding. '' = honor the CLI default."""
+    return load_config().get("main_model", "sonnet")
+
+
+def power_model() -> str:
+    """Model for genuinely hard reasoning (architecture, stubborn bugs) — used only when the owner
+    signals it (e.g. 'think hard', 'use opus'). Opus by default. 'Sonnet by default, Opus on purpose.'"""
+    return load_config().get("power_model", "opus")
+
+
 def reflect_every() -> int:
     """Run background reflection (file facts + skillify) every N exchanges, not every message.
     0 = off. Big Max-budget saver — reflection was a 2nd full call on every single message."""

@@ -217,6 +217,30 @@ def _automation() -> str:
     )
 
 
+def _coding() -> str:
+    return (
+        "CODING — build/debug large apps CHEAPLY without losing quality. You run on a metered "
+        "budget AND tight context produces BETTER answers (bloat = 'context rot'), so this is a "
+        "double win, not a tax:\n"
+        "- SCOPE tight. Work on the specific files/functions in play; NEVER 'investigate the whole "
+        "repo' inline. The cheapest token is a file you never read (reads are ~75% of cost).\n"
+        "- For 'how does X work / where is Y', spawn the Explore subagent (read-only, cheap) and act "
+        "on its short summary — don't read dozens of files into your own context.\n"
+        "- Prefer grep/glob + RANGED reads (offset/limit) over dumping whole files; head/tail big "
+        "files; use CLI tools (gh, psql, curl) over verbose API blobs.\n"
+        "- OPEN a coding task by reading the project's vault note + recent `git log` so you don't "
+        "re-derive the codebase; CLOSE it by appending a tight 'what changed / next / gotchas' line.\n"
+        "- VERIFY cheaply: run the build or a SINGLE relevant test, not the whole suite; fix the "
+        "root cause, not the symptom.\n"
+        "- PLAN only when the change is non-trivial — if the diff fits in one sentence, just do it.\n"
+        "- DEBUG by narrowing FIRST: reproduce as ONE failing test + the suspected file; don't feed "
+        "a whole stack trace + repo dump (that's the removable ~60% of tokens). Add a targeted log "
+        "at the suspected boundary rather than ingesting everything.\n"
+        "- You default to the lighter model; the owner says 'think hard'/'use opus' for hard "
+        "reasoning. Don't burn deep reasoning on mechanical edits."
+    )
+
+
 def system_prompt() -> str:
     blocks = [
         "You are mindpalace — the owner's always-on, self-learning personal agent. "
@@ -228,6 +252,7 @@ def system_prompt() -> str:
         _capabilities(),
         _async_ops(),
         _automation(),
+        _coding(),
         skills.SKILL_INSTRUCTIONS,
         SELF_LEARN,
     ]
@@ -250,6 +275,19 @@ def build_prompt(text: str, history: list[dict], system: str | None = None) -> s
         + ("\n\nConversation so far:\n" + convo if convo else "")
         + f"\n\nOwner: {text}\nAssistant:"
     )
+
+
+_POWER_TRIGGERS = ("think hard", "ultrathink", "use opus", "deep reasoning", "reason carefully",
+                   "architect this", "hard problem", "really complex", "opus mode", "think deeply")
+
+
+def _pick_model(text: str) -> str | None:
+    """Sonnet by default (cheap, plenty for most work); Opus only when the owner signals a hard
+    reasoning task. None = honor the CLI default (when main_model is configured empty)."""
+    main = config.main_model()
+    if not main:
+        return None
+    return config.power_model() if any(k in (text or "").lower() for k in _POWER_TRIGGERS) else main
 
 
 def claude_bin() -> str:
@@ -300,10 +338,13 @@ def _args(prompt: str, permissions: str = "full", allowed_tools: str | None = No
 
 
 def ask_sync(text: str, history: list[dict], system: str | None = None,
-             permissions: str = "full", allowed_tools: str | None = None) -> str:
+             permissions: str = "full", allowed_tools: str | None = None,
+             model: str | None = None) -> str:
     prompt = build_prompt(text, history, system)
+    if model is None:
+        model = _pick_model(text)                 # Sonnet default, Opus on signal
     try:
-        r = subprocess.run(_args(prompt, permissions, allowed_tools),
+        r = subprocess.run(_args(prompt, permissions, allowed_tools, model),
                            cwd=str(config.home()), env=_env(),
                            capture_output=True, text=True, timeout=TIMEOUT)
         return (r.stdout or "").strip() or f"(empty; {(r.stderr or '')[:200]})"
@@ -581,13 +622,15 @@ def _semaphore():
 
 
 async def ask_async_streaming(text, history, on_progress, system=None,
-                              permissions="full", allowed_tools=None, max_steps=20) -> str:
+                              permissions="full", allowed_tools=None, max_steps=20, model=None) -> str:
     """Run the brain with streamed events; relay live commentary via on_progress(str):
     the model's own prose lines + a Hermes-style '⚡ verb · target ✅' chip per tool step.
     Returns the final reply. Falls back to non-streaming if the stream yields nothing."""
     import json as _json
     prompt = build_prompt(text, history, system)
-    args = _args(prompt, permissions, allowed_tools) + ["--output-format", "stream-json", "--verbose"]
+    if model is None:
+        model = _pick_model(text)                 # Sonnet default, Opus on signal
+    args = _args(prompt, permissions, allowed_tools, model) + ["--output-format", "stream-json", "--verbose"]
     final, steps = "", 0
     pending = None                               # last text block, held back (may be the final answer)
     chips: dict = {}                             # tool_use id -> chip text, emitted when the step finishes
@@ -706,6 +749,8 @@ async def ask_async(text: str, history: list[dict], system: str | None = None,
                     permissions: str = "full", allowed_tools: str | None = None,
                     model: str | None = None) -> str:
     prompt = build_prompt(text, history, system)
+    if model is None:                            # explicit model (e.g. analyst) wins; else route
+        model = _pick_model(text)
     async with _semaphore():                     # cap concurrent claude procs
         try:
             proc = await asyncio.create_subprocess_exec(
