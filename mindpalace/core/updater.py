@@ -137,12 +137,14 @@ def summarize_changes(subjects: list[str]) -> list[str]:
 
 
 def notice_text(info: dict) -> str:
-    # Rendered as a Discord ```diff``` block: @@…@@ → teal header/footer bars, + → green feature
-    # lines. Gaps above/below the feature list give it breathing room.
+    # Rendered as a Discord ```ansi``` block (real colors — diff's @@ shows white in Discord):
+    # bold-cyan header, green + feature lines, bold-yellow call-to-action, gaps for breathing room.
+    E, R = "\033", "\033[0m"
     bullets = summarize_changes(info.get("log") or [])
-    lines = ["```diff", "@@   🔔  UPDATE AVAILABLE   @@", ""]
-    lines += [f"+ {b}" for b in bullets] if bullets else ["+ improvements and fixes"]
-    lines += ["", '@@   reply "yes"  →  I pull + restart 🔄   @@', "```"]
+    feats = [f"{E}[0;32m+ {b}{R}" for b in bullets] or [f"{E}[0;32m+ improvements and fixes{R}"]
+    lines = ["```ansi", f"{E}[1;36m🔔  UPDATE AVAILABLE{R}", ""]
+    lines += feats
+    lines += ["", f'{E}[1;33mreply "yes"  →  I pull + restart 🔄{R}', "```"]
     return "\n".join(lines)
 
 
