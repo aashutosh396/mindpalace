@@ -286,7 +286,7 @@ def _classify(blk: dict) -> str:
         first = parts[0] if parts else ""
         if first in ("sudo", "env") and len(parts) > 1:    # skip a leading sudo/env
             first = parts[1]
-        if first == "ssh":                                 return "ssh"
+        if first == "ssh" or "ssh" in parts:               return "ssh"
         if first in ("scp", "rsync"):                      return "move"
         if first == "git":                                 return "git"
         if first in ("curl", "wget"):                      return "net"
@@ -316,15 +316,25 @@ def _base(tok: str) -> str:
     return t.split("/")[-1]
 
 
+# Tokens that are plumbing, not a real target — never show these.
+_JUNK = {"", ".", "~", "null", "stdout", "stderr", "stdin", "dev", "tmp", "true", "false"}
+
+
+def _ok(b: str) -> bool:
+    return bool(b) and b.lower() not in _JUNK
+
+
 def _bash_target(cat: str, c: str) -> str | None:
     """Pull a CLEAN human target out of a shell command — a name/basename, never the
-    raw command, flags, or a full path. Returns None to use the category default."""
-    toks = [t for t in c.split() if not t.startswith("-")]
+    raw command, flags, a host/IP, or a full path. Returns None to use the default."""
+    if cat == "ssh":
+        return None                              # never leak a host/IP — default covers it
+    toks = [t for t in c.split() if not t.startswith("-") and "/dev/" not in t]
     if cat == "pkg":
         skip = {"sudo", "env", "pip", "pip3", "pipx", "npm", "yarn", "pnpm", "apt", "apt-get",
                 "brew", "cargo", "gem", "poetry", "install", "add", "i", "global", "update", "-y"}
         for t in toks:
-            if t.lower() not in skip:
+            if t.lower() not in skip and _ok(_base(t)):
                 return _base(t)
         return None
     if cat == "run":
@@ -336,7 +346,7 @@ def _bash_target(cat: str, c: str) -> str | None:
         skip = {"sudo", "systemctl", "service", "launchctl", "docker", "pm2", "supervisorctl",
                 "restart", "start", "stop", "status", "reload", "enable", "disable", "kill", "pkill"}
         for t in toks:
-            if t.lower() not in skip:
+            if t.lower() not in skip and _ok(_base(t)):
                 return _base(t)
         return None
     if cat == "net":
@@ -346,9 +356,11 @@ def _bash_target(cat: str, c: str) -> str | None:
         return None
     # search / inspect / move / remove / fs / archive / git / schedule: last path-ish token
     for t in reversed(toks):
+        if "@" in t:                             # user@host / IP — skip, never show
+            continue
         if "/" in t or "~" in t or "." in t:
             b = _base(t)
-            if b and b not in (".", "~"):
+            if _ok(b):
                 return b
     return None
 
@@ -373,8 +385,11 @@ def _chip(blk: dict) -> str:
         target = (inp.get("query", "") or "").strip()[:48] or None
     elif name == "Bash":
         target = _bash_target(cat, (inp.get("command", "") or "").strip())
-    target = target or _TARGET.get(cat, "on it")
-    return f"⚡ {verb} · {_trim(target, 60)}"
+    if not target:
+        if cat in ("bash", "misc"):              # unknown command → no guessed target
+            return f"⚡ {verb}"
+        target = _TARGET.get(cat, "")
+    return f"⚡ {verb} · {_trim(target, 60)}" if target else f"⚡ {verb}"
 
 
 _sem = None     # caps simultaneous `claude` procs (parallel agents); set via config.concurrency()

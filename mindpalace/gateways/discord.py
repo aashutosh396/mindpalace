@@ -166,16 +166,22 @@ def run():
         """Drive one bot's brain; STREAM its steps live; reply; persist; file in background."""
         history = _load(name)
 
-        last = {"line": None, "msg": None, "n": 1}     # dedup: repeat step → edit + grow dots
+        # Chips (⚡ …) stack into ONE growing blockquote message — compact, Hermes-style.
+        # A prose line breaks the block and posts on its own, then the next chips start fresh.
+        st = {"chips": [], "msg": None}
 
         async def on_progress(line):
             try:
-                if line == last["line"] and last["msg"] is not None:
-                    last["n"] += 1                     # same step fired again → don't spam
-                    await last["msg"].edit(content=f"_{line} {'.' * last['n']}_")
-                else:
-                    last["line"], last["n"] = line, 1
-                    last["msg"] = await channel.send(f"_{line}_")  # new step, e.g. 🔌 connecting …
+                if line.startswith("⚡"):
+                    st["chips"].append(line)
+                    body = "\n".join(f"> {c}" for c in st["chips"])
+                    if st["msg"] is not None:
+                        await st["msg"].edit(content=body)
+                    else:
+                        st["msg"] = await channel.send(body)
+                else:                                   # prose → its own line; reset the chip block
+                    st["chips"], st["msg"] = [], None
+                    await channel.send(f"_{line}_")
             except Exception:
                 pass
 
