@@ -49,8 +49,11 @@ def _async_ops() -> str:
         "A background watcher runs it and reports the result to the home channel — so you "
         "stay free to chat. Use this for anything long.\n"
         "- Post a proactive update to the owner any time:  python3 -m mindpalace.notify 'message'\n"
-        "- Keep replies tight: the owner sees your tool/action steps stream live, so don't "
-        "re-narrate them in prose — just give the result + next step.\n"
+        "- As you work, drop SHORT, casual updates in your OWN words — a handful of words each, "
+        "in the moment ('lemme ping it…', 'reachable ✅', 'noting it in your vault'). These stream "
+        "to the owner live, so they read like a friend thinking out loud, not a status code. Keep "
+        "them tiny and human; NEVER dump commands or paths. Your final answer is separate — give "
+        "the result + next step there, and don't replay the play-by-play in it.\n"
     )
 
 
@@ -271,6 +274,12 @@ _PHRASES = {
 }
 
 
+def _trim(s: str, n: int = 160) -> str:
+    """One tidy line for a live update — collapse whitespace, cap length, strip markdown bullets."""
+    s = " ".join((s or "").split()).lstrip("-*• ").strip()
+    return s if len(s) <= n else s[:n - 1].rstrip() + "…"
+
+
 def _classify(blk: dict) -> str:
     """Map a tool step to a category key — covers EVERY command, not just ssh, by
     looking at the verb. Never returns the raw command; just the kind of thing it is."""
@@ -397,20 +406,34 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                     continue
                 t = ev.get("type")
                 if t == "assistant":
-                    # stream ONLY action/tool steps as live progress — NOT the model's prose
-                    # text blocks (those become the final reply → would post twice).
-                    for blk in ev.get("message", {}).get("content", []):
-                        if steps >= max_steps:
-                            break
-                        if blk.get("type") == "tool_use":
-                            line = narrator.line(blk)
-                            if line is None:
-                                continue          # collapsed a repeat step — don't spam it
+                    content = ev.get("message", {}).get("content", [])
+                    texts = [(b.get("text") or "").strip()
+                             for b in content if b.get("type") == "text"]
+                    texts = [x for x in texts if x]
+                    tools = [b for b in content if b.get("type") == "tool_use"]
+                    # Stream the model's OWN words as live commentary — but ONLY for messages
+                    # that also fire a tool. A pure-text message is the final answer; it comes
+                    # back via the `result` event, so streaming it would post it twice.
+                    if tools:
+                        emitted = False
+                        for txt in texts:
+                            if steps >= max_steps:
+                                break
                             steps += 1
+                            emitted = True
                             try:
-                                await on_progress(line)
+                                await on_progress(_trim(txt))
                             except Exception:
                                 pass
+                        if not emitted and steps < max_steps:
+                            # model acted without saying anything → one short human fallback
+                            line = narrator.line(tools[0])
+                            if line is not None:
+                                steps += 1
+                                try:
+                                    await on_progress(line)
+                                except Exception:
+                                    pass
                 elif t == "result":
                     final = ev.get("result", "") or final
 

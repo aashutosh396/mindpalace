@@ -107,8 +107,20 @@ async def _handle_command(msg, text) -> bool:
     cmd, args = parts[0].lower(), parts[1:]
     if cmd == "help":
         await msg.channel.send(
-            "**commands** (admins): `!admins`, `!add-admin @user`, `!remove-admin @user`, "
-            "`!bots`, `!add-webhook <name> <url>`")
+            "**Commands** (admins only, here in the home channel):\n"
+            "`!help` — show this list\n"
+            "`!update` — pull the latest from GitHub + reload myself live\n"
+            "`!bots` — list the bots I'm running\n"
+            "`!admins` — who can talk to me\n"
+            "`!add-admin @user` — let someone in\n"
+            "`!remove-admin @user` — revoke access\n"
+            "`!add-webhook <name> <url>` — add a notify webhook\n"
+            "\nEverything else you say just goes straight to me — no command needed.")
+    elif cmd in ("update", "upgrade") or (cmd == "mindpalace" and args[:1] == ["update"]):
+        # pull the latest from GitHub + reload the live code, on demand (no waiting for the nag)
+        await msg.channel.send("🔄 on it — grabbing the latest and reloading myself, back in a few secs…")
+        result = await asyncio.to_thread(updater.accept)
+        await msg.channel.send(result)
     elif cmd == "admins":
         a = config.admins()
         await msg.channel.send("admins: " + (", ".join(f"<@{i}>" for i in a) or "none"))
