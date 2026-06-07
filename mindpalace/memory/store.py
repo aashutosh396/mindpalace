@@ -28,18 +28,19 @@ def _read(path, cap):
 
 
 def identity_block() -> str:
+    # caps match the compaction budgets so the FULL distilled file loads (no silent tail-drop)
     parts = []
-    agent = _read(config.AGENT_FILE(), 2000)
+    agent = _read(config.AGENT_FILE(), 4000)
     if agent:
         parts.append("WHO YOU ARE (your persona):\n" + agent)
-    user = _read(config.USER_FILE(), 2000)
+    user = _read(config.USER_FILE(), config.user_budget() + 1000)
     if user:
         parts.append("WHO YOU SERVE (the owner):\n" + user)
     return "\n\n".join(parts)
 
 
 def memory_block() -> str:
-    mem = _read(config.MEMORY_FILE(), 3000)
+    mem = _read(config.MEMORY_FILE(), config.memory_budget() + 1000)
     return ("YOUR MEMORY (durable facts, conventions, gotchas):\n" + mem) if mem else ""
 
 

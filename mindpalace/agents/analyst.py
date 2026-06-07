@@ -46,6 +46,28 @@ async def reflect(owner_text: str, agent_reply: str) -> str:
     return await brain.ask_async(task, [], system=_system(), permissions="full")
 
 
+async def compact() -> str:
+    """Distill USER.md + MEMORY.md in place — sharper over time, not just smaller. This is how
+    the agent moves toward 'persona perfection': keep the owner's essence, lose the noise."""
+    from .. import config
+    ub, mb = config.user_budget(), config.memory_budget()
+    task = (
+        "[MEMORY COMPACTION — distill, don't just trim. Rewrite two files IN PLACE so the system "
+        "gets sharper, not just smaller. Preserve every still-true durable fact; lose nothing that "
+        "matters.]\n"
+        f"1. USER.md ({config.USER_FILE()}): rewrite into the tightest, highest-fidelity PORTRAIT of "
+        "the owner — who they are, how they think and work, what they value, their voice and "
+        "preferences, standing context (org, projects, tools, conventions). Merge duplicates, "
+        "resolve contradictions in favour of the NEWEST info, cut anything ephemeral or one-off. "
+        f"Capture their ESSENCE so you act more like them. Keep it under ~{ub} characters.\n"
+        f"2. MEMORY.md ({config.MEMORY_FILE()}): same treatment for durable general facts / "
+        f"conventions / gotchas — dedupe, merge, newest-wins, drop stale. Keep under ~{mb} chars.\n"
+        "Overwrite the files directly with clean, well-structured markdown. Reply ONE short line on "
+        "what you tightened (e.g. \"distilled USER.md 2.6k->1.8k, merged 3 dupes\"), or exactly NOTHING."
+    )
+    return await brain.ask_async(task, [], system=_system(), permissions="full")
+
+
 async def review() -> str:
     task = (
         "[AUTONOMOUS REVIEW — you woke yourself on a timer; no human is asking.]\n"

@@ -167,6 +167,30 @@ def heartbeat_minutes() -> int:
         return 0
 
 
+def user_budget() -> int:
+    """Soft char budget for USER.md — compaction distills the owner's profile to fit."""
+    try:
+        return max(1000, int(load_config().get("user_budget", 6000)))
+    except (TypeError, ValueError):
+        return 6000
+
+
+def memory_budget() -> int:
+    """Soft char budget for MEMORY.md — compaction distills durable facts to fit."""
+    try:
+        return max(1000, int(load_config().get("memory_budget", 9000)))
+    except (TypeError, ValueError):
+        return 9000
+
+
+def compact_every() -> int:
+    """Run a background memory-compaction pass every N exchanges. 0 = off."""
+    try:
+        return int(load_config().get("compact_every", 10))
+    except (TypeError, ValueError):
+        return 10
+
+
 def webhooks() -> dict:
     return load_config().get("webhooks", {})
 

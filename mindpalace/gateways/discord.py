@@ -80,6 +80,42 @@ def _worth_reflecting(text, reply):
     return len(reply) > 300 or any(k in blob for k in _REFLECT_KEYWORDS)
 
 
+def _bump_counter(name) -> int:
+    """Persisted per-bot exchange counter (survives restarts) — drives compaction cadence."""
+    p = config.state_dir() / f"cmds_{name}.txt"
+    try:
+        n = int(p.read_text().strip()) + 1
+    except (FileNotFoundError, ValueError):
+        n = 1
+    try:
+        p.write_text(str(n))
+    except OSError:
+        pass
+    return n
+
+
+def _memory_heavy() -> bool:
+    """Only bother compacting once a file is getting full (>60% of its budget)."""
+    def size(path):
+        try:
+            return len(path.read_text())
+        except OSError:
+            return 0
+    return (size(config.USER_FILE()) > 0.6 * config.user_budget()
+            or size(config.MEMORY_FILE()) > 0.6 * config.memory_budget())
+
+
+async def _compact(channel):
+    """Background distillation of USER.md + MEMORY.md. Posts a short note when it tightened something."""
+    from ..agents import analyst
+    try:
+        out = await analyst.compact()
+        if out and out.strip().upper() not in ("NOTHING", ""):
+            await channel.send(f"_🧠 {out.strip()[:200]}_")
+    except Exception:
+        pass
+
+
 async def _reflect(channel, text, reply):
     """SILENT background Analyst — reasons, files facts + skillifies. Never posts to chat
     (it works in the background, quietly making the agent smarter)."""
@@ -196,6 +232,10 @@ def run():
         # background analyst: reason → file facts + skillify reusable procedures (runs in parallel)
         if _worth_reflecting(text, reply):
             asyncio.create_task(_reflect(channel, text, reply))
+        # every N exchanges: distill USER.md + MEMORY.md so the agent compounds, not bloats
+        n = _bump_counter(name)
+        if config.compact_every() and n % config.compact_every() == 0 and _memory_heavy():
+            asyncio.create_task(_compact(channel))
         return reply
 
     def make_client(name: str, spec: dict):
