@@ -28,20 +28,35 @@ def _read(path, cap):
 
 
 def identity_block() -> str:
-    # caps match the compaction budgets so the FULL distilled file loads (no silent tail-drop)
+    """Brain-style WORKING memory — kept tiny so each prompt stays light. The owner's essence
+    + a map of what's known live in CORE.md; the full USER.md / MEMORY.md / vault are long-term,
+    recalled on demand. Before CORE.md exists, fall back to a trimmed USER.md so nothing's empty."""
     parts = []
     agent = _read(config.AGENT_FILE(), 4000)
     if agent:
         parts.append("WHO YOU ARE (your persona):\n" + agent)
-    user = _read(config.USER_FILE(), config.user_budget() + 1000)
-    if user:
-        parts.append("WHO YOU SERVE (the owner):\n" + user)
+    core = _read(config.CORE_FILE(), config.core_budget() + 500)
+    if core:
+        parts.append(
+            "WORKING MEMORY — your live, distilled sense of the owner + a MAP of what you know. "
+            "This is your PRESENT memory. Deeper detail is long-term in USER.md, MEMORY.md and the "
+            "vault: when the owner references something not in front of you, RECALL it (grep/read "
+            "those) before assuming you don't know:\n" + core)
+    else:                                            # bootstrap until the first compaction builds CORE.md
+        user = _read(config.USER_FILE(), 1800)
+        if user:
+            parts.append("WHO YOU SERVE (the owner):\n" + user)
     return "\n\n".join(parts)
 
 
 def memory_block() -> str:
-    mem = _read(config.MEMORY_FILE(), config.memory_budget() + 1000)
-    return ("YOUR MEMORY (durable facts, conventions, gotchas):\n" + mem) if mem else ""
+    # Once CORE.md exists it carries the working memory + map, so we DON'T bulk-load MEMORY.md
+    # each turn (it's long-term — recalled on demand). Only a small head as bootstrap before then.
+    if config.CORE_FILE().exists():
+        return ""
+    mem = _read(config.MEMORY_FILE(), 1800)
+    return ("YOUR MEMORY (durable facts — bootstrap; moves to working memory on next compaction):\n"
+            + mem) if mem else ""
 
 
 def recall_block(query: str, limit: int = 3) -> str:

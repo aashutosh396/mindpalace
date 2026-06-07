@@ -60,9 +60,10 @@ def set_workspace(path: str | None = None) -> Path:
 
 VAULT_SUBDIRS = ("projects", "infra", "accounts", "runbooks", "docs", "notes")
 
-USER_FILE   = lambda: identity_dir() / "USER.md"        # the person's soul
+USER_FILE   = lambda: identity_dir() / "USER.md"        # the person's soul (long-term, on-demand)
 AGENT_FILE  = lambda: identity_dir() / "AGENT.md"       # the agent's persona
-MEMORY_FILE = lambda: memory_dir() / "MEMORY.md"        # durable facts
+MEMORY_FILE = lambda: memory_dir() / "MEMORY.md"        # durable facts (long-term, on-demand)
+CORE_FILE   = lambda: identity_dir() / "CORE.md"        # WORKING memory: essence + map (always loaded)
 
 
 def is_initialized() -> bool:
@@ -189,6 +190,14 @@ def compact_every() -> int:
         return int(load_config().get("compact_every", 10))
     except (TypeError, ValueError):
         return 10
+
+
+def core_budget() -> int:
+    """Soft char budget for CORE.md — the tiny WORKING memory loaded on every prompt."""
+    try:
+        return max(500, int(load_config().get("core_budget", 2000)))
+    except (TypeError, ValueError):
+        return 2000
 
 
 def webhooks() -> dict:
