@@ -343,8 +343,10 @@ _TARGET = {
 }
 
 
-def _trim(s: str, n: int = 160) -> str:
-    """One tidy line for a live update — collapse whitespace, cap length, strip markdown bullets."""
+def _trim(s: str, n: int = 1800) -> str:
+    """Tidy a live update — collapse whitespace, strip markdown bullets. Default cap is high
+    (near Discord's ~1900-char limit) so the model's OWN narration sentences show IN FULL,
+    never cut mid-thought. Chips pass a short n explicitly for the '· target' label."""
     s = " ".join((s or "").split()).lstrip("-*• ").strip()
     return s if len(s) <= n else s[:n - 1].rstrip() + "…"
 
