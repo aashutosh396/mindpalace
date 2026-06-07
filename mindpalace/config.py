@@ -34,7 +34,29 @@ def user_skills() -> Path:  return home() / "skills"     # derived, per-user
 def state_dir() -> Path:    return home() / "state"
 def logs_dir() -> Path:     return home() / "logs"
 def vault_dir() -> Path:    return home() / "vault"      # structured knowledge (resource-first)
-def workspace_dir() -> Path: return home() / "workspace"  # actual project code lives here
+
+
+def workspace_dir() -> Path:
+    """Where project CODE lives. Owner can relocate it; default ~/.mindpalace/workspace."""
+    p = load_config().get("workspace")
+    return Path(p).expanduser() if p else home() / "workspace"
+
+
+def workspace_confirmed() -> bool:
+    """True once the owner has explicitly accepted/set their permanent workspace."""
+    return bool(load_config().get("workspace_confirmed"))
+
+
+def set_workspace(path: str | None = None) -> Path:
+    """Set (and mark confirmed) the permanent project workspace. None confirms the default."""
+    cfg = load_config()
+    if path:
+        cfg["workspace"] = str(Path(path).expanduser())
+    cfg["workspace_confirmed"] = True
+    save_config(cfg)
+    d = workspace_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 VAULT_SUBDIRS = ("projects", "infra", "accounts", "runbooks", "docs", "notes")
 

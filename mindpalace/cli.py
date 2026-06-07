@@ -127,6 +127,16 @@ def main(argv=None):
             print(f"heartbeat: {config.heartbeat_minutes()} min  ·  set with `mindpalace heartbeat <minutes>` (0 = off)")
         return
 
+    if cmd == "workspace":
+        if len(argv) > 1:                           # set + confirm a permanent workspace
+            d = config.set_workspace(argv[1])
+            print(f"workspace set to {d} (project code lives here)")
+        else:
+            d = config.workspace_dir()
+            tag = "confirmed" if config.workspace_confirmed() else "default (not yet confirmed)"
+            print(f"workspace: {d}  ·  {tag}  ·  set with `mindpalace workspace <path>`")
+        return
+
     # --- self-update (git) ---
     if cmd == "update-interval":
         if len(argv) > 1 and argv[1].isdigit():

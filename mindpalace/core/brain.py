@@ -61,6 +61,12 @@ def _async_ops() -> str:
 
 def _self_knowledge() -> str:
     h = config.home()
+    ws = config.workspace_dir()
+    ask_ws = ("" if config.workspace_confirmed() else
+              f"  NOT CONFIRMED YET: before (or as) you make the FIRST project, TELL the owner you "
+              f"keep all projects permanently in {ws} (inside mindpalace) and ASK if that's good or "
+              f"if they want a different location. On their answer run `mindpalace workspace <path>` "
+              f"(or `mindpalace workspace` to accept the default) to lock it in — then never ask again.\n")
     return (
         "ABOUT YOU — mindpalace internals (recognize meta requests; act, don't improvise):\n"
         f"- You ARE 'mindpalace'. Config: {h}/config.json. Data home: {h}.\n"
@@ -85,12 +91,23 @@ def _self_knowledge() -> str:
         f"- Your vault {config.vault_dir()} (projects/ infra/ accounts/ runbooks/ docs/ notes/ + "
         "LOG.md) is your SOURCE OF TRUTH — write organized, deduped knowledge there. Pull useful "
         "facts you discover anywhere INTO the vault; don't leave them scattered.\n"
-        f"- WORKSPACE for project CODE: {config.workspace_dir()}. When you create, clone, or scaffold "
-        "a project and the owner did NOT name a folder, put the actual code in "
-        f"{config.workspace_dir()}/<project-slug>/ — never dump it into the data home, secrets/, or "
-        "vault/ (vault/projects/ is for THIN note files about a project, not its code). After "
-        "creating it, drop a pointer note at vault/projects/<slug>.md (where the code lives, what it "
-        "is, how to run it) and log a line to LOG.md. If the owner DID name a folder, use that.\n"
+        f"- WORKSPACE for project CODE: {ws} — the owner's PERMANENT home for all projects. When you "
+        "create, clone, or scaffold a project and the owner did NOT name a folder, put the actual "
+        f"code in {ws}/<project-slug>/ — never dump it into the data home, secrets/, or vault/ "
+        "(vault/projects/ is for THIN note files about a project, not its code). If the owner DID "
+        "name a folder, use that.\n"
+        + ask_ws +
+        f"  Each project is SELF-CONTAINED in {ws}/<project-slug>/. For a PYTHON/DJANGO project keep "
+        "concerns separated: <project-slug>/venv/ for the virtualenv and <project-slug>/<project>/ "
+        "for the actual source (manage.py + the inner package) — so the environment never mixes with "
+        "the code, and venv/ is easy to gitignore. Same idea for other stacks: env/deps in their own "
+        "subfolder, source in its own.\n"
+        "  ALWAYS scaffold the basics for EVERY new project (don't leave them out): `git init`, a "
+        ".gitignore that excludes venv/, .env, __pycache__/, *.pyc, node_modules/, build artifacts and "
+        "secrets; a committed .env.example documenting every needed variable; a real .env with actual "
+        "values that is gitignored and NEVER committed; and a short README. Tailor them to the stack.\n"
+        "  After creating a project, drop a pointer note at vault/projects/<slug>.md (where the code "
+        "lives, what it is, how to run it) and log a line to LOG.md.\n"
         "- NON-NEGOTIABLE — keep your memory current. Whenever you encounter or use:\n"
         "    • an account / login / credential → record it in accounts/<owner>.md (raw secrets/"
         "tokens → secrets/, referenced not pasted),\n"
