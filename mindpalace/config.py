@@ -34,6 +34,7 @@ def user_skills() -> Path:  return home() / "skills"     # derived, per-user
 def state_dir() -> Path:    return home() / "state"
 def logs_dir() -> Path:     return home() / "logs"
 def vault_dir() -> Path:    return home() / "vault"      # structured knowledge (resource-first)
+def workspace_dir() -> Path: return home() / "workspace"  # actual project code lives here
 
 VAULT_SUBDIRS = ("projects", "infra", "accounts", "runbooks", "docs", "notes")
 
@@ -48,7 +49,7 @@ def is_initialized() -> bool:
 
 def ensure_dirs() -> None:
     for d in (home(), secrets_dir(), identity_dir(), memory_dir(),
-              user_skills(), state_dir(), logs_dir(), vault_dir()):
+              user_skills(), state_dir(), logs_dir(), vault_dir(), workspace_dir()):
         d.mkdir(parents=True, exist_ok=True)
     for sub in VAULT_SUBDIRS:
         (vault_dir() / sub).mkdir(parents=True, exist_ok=True)
