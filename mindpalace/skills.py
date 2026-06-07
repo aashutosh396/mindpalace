@@ -10,8 +10,38 @@ Two layers, never mixed:
 The agent reads a global as a template, then writes a tailored user skill. Over time
 the user-skill set is what makes the agent precise for that individual.
 """
+import json
 import re
+import time
 from . import config
+
+
+def _usage_path():
+    return config.user_skills() / ".usage.json"
+
+
+def load_usage() -> dict:
+    """Per-skill telemetry sidecar: use_count, last_used, created — feeds the curator."""
+    try:
+        return json.loads(_usage_path().read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def bump_use(name: str) -> None:
+    """Record that a skill was loaded/used (called when the agent reads a SKILL.md)."""
+    if not name:
+        return
+    try:
+        d = load_usage()
+        rec = d.get(name) or {"created": time.strftime("%Y-%m-%d"), "use_count": 0}
+        rec["use_count"] = int(rec.get("use_count", 0)) + 1
+        rec["last_used"] = time.strftime("%Y-%m-%d")
+        d[name] = rec
+        config.user_skills().mkdir(parents=True, exist_ok=True)
+        _usage_path().write_text(json.dumps(d, indent=2))
+    except OSError:
+        pass
 
 
 def _frontmatter(path):

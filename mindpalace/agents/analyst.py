@@ -88,6 +88,28 @@ async def compact() -> str:
     return await brain.ask_async(task, [], system=_system(), permissions="full")
 
 
+async def curate() -> str:
+    """Periodic skill housekeeping (slow cadence, distinct from per-task reflect). Consolidate
+    overlapping skills into umbrellas, archive the stale — never delete a reusable procedure."""
+    from .. import config, skills as sk
+    usage = sk.load_usage()
+    task = (
+        "[SKILL CURATION — periodic housekeeping of your USER skills ONLY (never touch bundled "
+        "global skills). Goal: a tight library of CLASS-LEVEL skills, not a junk drawer.]\n"
+        f"User skills dir: {config.user_skills()}\nUsage telemetry (.usage.json): {usage}\n\n"
+        "1. CONSOLIDATE overlapping or overly-narrow skills into a broader umbrella — judge by "
+        "CONTENT overlap, NOT by use_count. Fold the detail in, then move the absorbed file to "
+        "skills/_archive/ and note 'absorbed_into: <name>' in the survivor.\n"
+        "2. ARCHIVE the clearly stale (not used in ~90 days AND superseded/irrelevant) into "
+        "skills/_archive/ — ARCHIVE, never delete. Reactivate on next use.\n"
+        "3. RENAME any skill with a one-off name (PR#, error string, 'fix-X-today') to a reusable "
+        "class-level name.\n"
+        "Be conservative — never lose a genuinely reusable procedure. Reply ONE line on what you "
+        "consolidated/archived, or exactly NOTHING."
+    )
+    return await brain.ask_async(task, [], system=_system(), permissions="full")
+
+
 async def review() -> str:
     task = (
         "[AUTONOMOUS REVIEW — you woke yourself on a timer; no human is asking.]\n"

@@ -24,6 +24,25 @@ PROMPT = (
 )
 
 
+def _due_for_curate(days: int = 7) -> bool:
+    """True at most once per `days` — gates the slow skill-curation pass on idle ticks."""
+    import time
+    from .. import config
+    p = config.state_dir() / "curator_last.txt"
+    try:
+        last = float(p.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        last = 0.0
+    if time.time() - last < days * 86400:
+        return False
+    try:
+        config.state_dir().mkdir(parents=True, exist_ok=True)
+        p.write_text(str(time.time()))
+    except OSError:
+        pass
+    return True
+
+
 async def loop(report, interval_min: int):
     if interval_min <= 0:
         return
@@ -35,5 +54,9 @@ async def loop(report, interval_min: int):
             reply = await analyst.review()        # the Analyst agent's autonomous pass
             if reply and reply.strip().upper() not in ("NOTHING", ""):
                 await report("💓 " + reply)
+            if _due_for_curate():                 # slow cadence: consolidate/archive skills
+                c = await analyst.curate()
+                if c and c.strip().upper() not in ("NOTHING", ""):
+                    await report("🧹 " + c)
         except Exception as e:
             print(f"heartbeat error: {e}")

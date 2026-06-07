@@ -64,6 +64,10 @@ async def _run_one(path, report):
         run_path.unlink()
     except OSError:
         pass
+    # [SILENT]: a job that finished cleanly with nothing worth saying suppresses its report
+    # (kills scheduled-job notification spam). Errors always report.
+    if rc == 0 and "[SILENT]" in text:
+        return
     tail = "\n".join(text.strip().splitlines()[-8:])[:600]
     mark = "✅" if rc == 0 else "❌"
     await report(f"{mark} job **{name}** finished (exit {rc}, {dur}s)\n```\n{tail}\n```")

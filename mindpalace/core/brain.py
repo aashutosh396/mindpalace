@@ -205,7 +205,9 @@ def _automation() -> str:
         "venv python by ABSOLUTE path (never system python); guard against overlapping runs (a "
         "lockfile, or SQLite WAL mode); run long work in the background (queue/cron), never inline — "
         "reply that you set it up, then let it report meaningful updates (not spam) via "
-        "`python3 -m mindpalace.notify 'msg'`."
+        "`python3 -m mindpalace.notify 'msg'`. A scheduled/queued job that runs and finds NOTHING "
+        "worth reporting should print `[SILENT]` (and exit 0) — that suppresses its result message "
+        "so recurring jobs don't spam the owner; only speak up when there's something to say."
     )
 
 
@@ -628,6 +630,12 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                                     pass
                                 pending = None
                             chips[blk.get("id", "")] = _chip(blk)
+                            if _classify(blk) == "skill_use":   # telemetry for the curator
+                                try:
+                                    skills.bump_use(_skill_name(
+                                        (blk.get("input", {}) or {}).get("file_path", "")))
+                                except Exception:
+                                    pass
                 elif t == "user":
                     # a tool finished → emit its chip with a result tick (✅ ok / ⚠️ error)
                     for blk in ev.get("message", {}).get("content", []):
