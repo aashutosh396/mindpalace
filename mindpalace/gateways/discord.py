@@ -151,6 +151,7 @@ async def _handle_command(msg, text) -> bool:
             "`!add-admin @user` — let someone in\n"
             "`!remove-admin @user` — revoke access\n"
             "`!add-webhook <name> <url>` — add a notify webhook\n"
+            "`!model opus` — switch my model (sonnet/opus/haiku); `!model` shows current\n"
             "\nEverything else you say just goes straight to me — no command needed.")
     elif cmd in ("update", "upgrade") or (cmd == "mindpalace" and args[:1] == ["update"]):
         # pull the latest from GitHub + reload the live code, on demand (no waiting for the nag)
@@ -179,6 +180,19 @@ async def _handle_command(msg, text) -> bool:
             await msg.channel.send(f"webhook `{args[0]}` saved")
         else:
             await msg.channel.send("usage: `!add-webhook <name> <url>`")
+    elif cmd == "model":
+        if args:
+            val = config.set_main_model(args[0])
+            if val is None:
+                await msg.channel.send("usage: `!model sonnet|opus|haiku|<full-id>|default`")
+            else:
+                await msg.channel.send(
+                    f"🧠 model → **{val}** (effective next reply). "
+                    f"`think hard` / `use opus` still bumps to {config.power_model()} just for that turn.")
+        else:
+            await msg.channel.send(
+                f"current: **{config.main_model() or '(CLI default)'}** · power: {config.power_model()} "
+                f"· background: {config.background_model()}\nswitch with `!model sonnet|opus|haiku`")
     else:
         await msg.channel.send(f"unknown command `{cmd}` — try `!help`")
     return True

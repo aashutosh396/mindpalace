@@ -180,11 +180,20 @@ def run():
             console.print("[dim]bye.[/]")
             break
         if text == "/help":
-            console.print("[dim]/status  /exit  · everything else goes to the agent[/]")
+            console.print("[dim]/status  /model <name>  /exit  · everything else goes to the agent[/]")
             continue
         if text == "/status":
             cfg = config.load_config()
-            console.print(f"[dim]data {config.home()} · gateway {cfg.get('gateway')}[/]")
+            console.print(f"[dim]data {config.home()} · gateway {cfg.get('gateway')} · model {config.main_model() or '(CLI default)'}[/]")
+            continue
+        if text.startswith("/model"):
+            arg = text.split(maxsplit=1)
+            if len(arg) > 1:
+                val = config.set_main_model(arg[1])
+                console.print(f"[dim]model → {val}[/]" if val
+                              else "[dim]usage: /model sonnet|opus|haiku|<full-id>|default[/]")
+            else:
+                console.print(f"[dim]model: {config.main_model() or '(CLI default)'} · power: {config.power_model()}[/]")
             continue
         # pending update + owner says "yes" → pull + reload (never goes to the brain)
         if updater.read_pending() and updater.is_affirmative(text):

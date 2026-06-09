@@ -117,6 +117,14 @@ def main(argv=None):
         else:
             print(f"concurrency: {config.concurrency()} parallel agents  ·  set with `mindpalace concurrency <n>`")
         return
+    if cmd == "model":
+        if len(argv) > 1:
+            val = config.set_main_model(argv[1])
+            print(f"model = {val} (effective next reply)" if val
+                  else "invalid — use sonnet|opus|haiku|<full-id>|default")
+        else:
+            print(f"model: {config.main_model() or '(CLI default)'}  ·  power: {config.power_model()}  ·  background: {config.background_model()}")
+        return
     if cmd == "heartbeat":
         if len(argv) > 1 and argv[1].isdigit():
             cfg = config.load_config(); cfg["heartbeat_minutes"] = int(argv[1])

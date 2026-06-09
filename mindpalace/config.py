@@ -212,6 +212,29 @@ def main_model() -> str:
     return load_config().get("main_model", "sonnet")
 
 
+MODEL_ALIASES = {
+    "sonnet": "sonnet", "opus": "opus", "haiku": "haiku",
+    "default": "", "auto": "", "cli": "",
+    "claude-sonnet": "sonnet", "claude-opus": "opus", "claude-haiku": "haiku",
+}
+
+
+def set_main_model(name: str):
+    """Switch the model used for normal replies. Accepts sonnet/opus/haiku, a full claude-* id,
+    or default/auto (honor the CLI default). Persists immediately (effective next reply — no
+    restart). Returns the stored value (or '(CLI default)' for empty), or None if invalid."""
+    n = (name or "").strip().lower()
+    val = MODEL_ALIASES.get(n)
+    if val is None:
+        val = n if n.startswith("claude") else None
+    if val is None:
+        return None
+    cfg = load_config()
+    cfg["main_model"] = val
+    save_config(cfg)
+    return val or "(CLI default)"
+
+
 def power_model() -> str:
     """Model for genuinely hard reasoning (architecture, stubborn bugs) — used only when the owner
     signals it (e.g. 'think hard', 'use opus'). Opus by default. 'Sonnet by default, Opus on purpose.'"""
