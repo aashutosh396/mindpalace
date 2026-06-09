@@ -46,25 +46,25 @@ def _chunks(s, n=1900):
 _IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".heic")
 
 
-async def _save_images(msg) -> list[str]:
-    """Download image attachments to state/incoming/ and return their local paths.
-    The brain reads them with the Read tool (which views images), so it can actually
-    'see' what the owner sent instead of saying the attachment didn't load."""
-    paths = []
+async def _save_attachments(msg) -> list[dict]:
+    """Download ALL attachments (images AND any other file — pem, pdf, csv, code, …) to
+    state/incoming/ and return their local paths. The brain then reads them with its file
+    tools: images via Read's viewer, everything else via Read/bash — so it can actually
+    handle what the owner sent instead of saying the attachment didn't load."""
+    out = []
     for a in getattr(msg, "attachments", []):
         ct = (a.content_type or "").lower()
-        name = (a.filename or "").lower()
-        if not (ct.startswith("image/") or name.endswith(_IMG_EXT)):
-            continue
+        name = a.filename or "file"
+        is_img = ct.startswith("image/") or name.lower().endswith(_IMG_EXT)
         dest = config.state_dir() / "incoming"
         dest.mkdir(parents=True, exist_ok=True)
-        p = dest / f"{msg.id}_{a.filename or 'image'}"
+        p = dest / f"{msg.id}_{name}"
         try:
             await a.save(str(p))
-            paths.append(str(p))
+            out.append({"path": str(p), "name": name, "is_image": is_img})
         except Exception:
             pass
-    return paths
+    return out
 
 
 _REFLECT_KEYWORDS = ("ssh", "login", "log in", "password", "passwd", "cred", "secret", "token",
@@ -313,15 +313,24 @@ def run():
                 text = msg.content.replace(f"<@{client.user.id}>", "").replace(
                     f"<@!{client.user.id}>", "").strip()
 
-            # pull in any attached images so the brain can actually see them
-            images = await _save_images(msg)
-            if not text and not images:
+            # pull in ALL attachments (images + any file) so the brain can actually handle them
+            atts = await _save_attachments(msg)
+            if not text and not atts:
                 return
-            if images:
-                listing = ", ".join(images)
+            if atts:
+                imgs = [a for a in atts if a["is_image"]]
+                files = [a for a in atts if not a["is_image"]]
+                notes = []
+                if imgs:
+                    notes.append("VIEW these image(s) with the Read tool: "
+                                 + ", ".join(a["path"] for a in imgs))
+                if files:
+                    notes.append("READ/process these file(s) with the Read tool or bash "
+                                 "(they are saved locally): "
+                                 + ", ".join(f'{a["name"]} -> {a["path"]}' for a in files))
                 text = (text or "(no caption)") + (
-                    f"\n\n[The owner attached {len(images)} image(s). "
-                    f"View them with the Read tool before replying: {listing}]")
+                    "\n\n[The owner attached files. " + " | ".join(notes)
+                    + ". Open them before replying — don't say the attachment didn't load.]")
 
             # pending git update + owner says "yes" → pull + self-restart (deterministic,
             # never goes to the brain). Only in the home channel's main bot.
