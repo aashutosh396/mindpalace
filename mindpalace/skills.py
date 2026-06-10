@@ -167,10 +167,9 @@ def match(query: str, limit: int = 5) -> str:
         def consider(n, d, p, hay, kind, bias):
             title_hits = {k for k in kws if k in f"{n} {d}".lower()}   # high-signal: name/description
             distinct = {k for k in kws if k in hay}                    # any distinct keyword present
-            if not distinct:
-                return
-            # gate out noise: need 2+ distinct keywords, OR at least one in the title/description
-            if len(distinct) < 2 and not title_hits:
+            # gate out noise: surface only on a NAME/DESCRIPTION hit (real relevance) OR a strong
+            # body overlap (3+ distinct keywords). Two stray common words in a body don't qualify.
+            if not title_hits and len(distinct) < 3:
                 return
             scored.append((len(distinct) + 3 * len(title_hits) + bias, kind, n, d, p))
 
