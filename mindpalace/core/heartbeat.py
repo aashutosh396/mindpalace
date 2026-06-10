@@ -54,6 +54,7 @@ async def _deliver(report, emoji, title, body, accent):
     and go look. Keeps long reports out of the main channel."""
     from . import notify
     hook = config.heartbeat_webhook()
+    where = config.heartbeat_channel_label()       # friendly channel name for the note
     full = notify.box(f"{emoji} {title}", body, accent)
     sent = await asyncio.to_thread(notify.notify, full, hook)
     if not sent:                                   # no such webhook → don't lose it, post here
@@ -64,11 +65,11 @@ async def _deliver(report, emoji, title, body, accent):
         ok, warn, fail = (int(x) for x in m.groups())
         tally = f"{ok} ✓ · {warn} ⚠️ · {fail} ✗"
         if warn or fail:
-            note = f"💓 health check: **{tally}** — 👀 something to look at, full report in **{hook}**."
+            note = f"💓 health check: **{tally}** — 👀 something to look at, full report in **{where}**."
         else:
-            note = f"💓 health check: **{tally}** — all clear ✅ (log in **{hook}**)."
+            note = f"💓 health check: **{tally}** — all clear ✅ (log in **{where}**)."
     else:
-        note = f"{emoji} {title.lower()} ran — full rundown in **{hook}**, keeping it tidy here."
+        note = f"{emoji} {title.lower()} ran — full rundown in **{where}**, keeping it tidy here."
     await report(note)
 
 

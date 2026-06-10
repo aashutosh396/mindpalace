@@ -169,9 +169,15 @@ def heartbeat_minutes() -> int:
 
 
 def heartbeat_webhook() -> str:
-    """Webhook/channel the heartbeat posts its FULL report to (the home channel gets only a short
-    note, so long reports don't pile up there). Default 'autoreply-logs'."""
-    return load_config().get("heartbeat_webhook", "autoreply-logs")
+    """Webhook the heartbeat posts its FULL report to (the bot's home channel gets only a short
+    note, so long reports don't pile up there). Default 'home' — the channel webhook configured
+    first during setup (the updates channel)."""
+    return load_config().get("heartbeat_webhook", "home")
+
+
+def heartbeat_channel_label() -> str:
+    """Friendly channel name shown in the short home note ('full report in the … channel')."""
+    return load_config().get("heartbeat_channel_label", "updates")
 
 
 def user_budget() -> int:
