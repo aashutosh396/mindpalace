@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from ..core import brain, jobs, heartbeat, updater
+from ..core import brain, jobs, heartbeat, updater, notify
 from .. import bots, config
 from ..memory import store as mem
 
@@ -278,6 +278,7 @@ def run():
             reply = await brain.ask_async_streaming(
                 text, history, on_progress, system=system, permissions=perms, allowed_tools=allowed)
         reply, _files = _extract_attachments(reply)
+        reply = notify.prettify_tables(reply)        # md tables → aligned, fenced (Discord can't render md tables)
         for c in _chunks(reply):
             await channel.send(c)
         for _fp in _files:                       # attach rendered tables/images/CSVs for big data
