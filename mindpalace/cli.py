@@ -171,6 +171,15 @@ def main(argv=None):
         from .core import service
         service.stop(); service.spawn(); print("daemon restarted."); return
 
+    if cmd in ("halt", "stop-task", "abort"):       # EMERGENCY STOP — kill running work, keep daemon
+        from .core import service
+        pid = service.running_pid()
+        if not pid:
+            print("daemon not running — nothing to halt."); return
+        n = service.kill_descendants(pid)
+        print(f"🛑 halted {n} running process(es) — daemon still up." if n else "nothing was running.")
+        return
+
     # --- background daemon (discord bot + job watcher) ---
     if cmd == "daemon":                         # foreground; run by systemd/launchd or spawned
         from .core import daemon

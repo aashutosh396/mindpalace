@@ -163,6 +163,8 @@ async def _handle_command(msg, text) -> bool:
         await msg.channel.send(
             "**Commands** (admins only, here in the home channel):\n"
             "`!help` — show this list\n"
+            "`!stop` — 🛑 EMERGENCY STOP: kill whatever I'm running right now (a runaway task / "
+            "context blowup). I stay online — it just halts the current work.\n"
             "`!update` — pull the latest from GitHub + reload myself live\n"
             "`!bots` — list the bots I'm running\n"
             "`!admins` — who can talk to me\n"
@@ -171,6 +173,12 @@ async def _handle_command(msg, text) -> bool:
             "`!add-webhook <name> <url>` — add a notify webhook\n"
             "`!model opus` — switch my model (sonnet/opus/haiku); `!model` shows current\n"
             "\nEverything else you say just goes straight to me — no command needed.")
+    elif cmd in ("stop", "halt", "abort", "kill"):
+        import os
+        from ..core import service
+        n = service.kill_descendants(os.getpid())   # kill my worker procs; I (the bot) stay alive
+        await msg.channel.send(f"🛑 halted {n} running process(es) — current work stopped. I'm still here."
+                               if n else "🛑 nothing was running.")
     elif cmd in ("update", "upgrade") or (cmd == "mindpalace" and args[:1] == ["update"]):
         # pull the latest from GitHub + reload the live code, on demand (no waiting for the nag)
         await msg.channel.send("🔄 on it — grabbing the latest and reloading myself, back in a few secs…")

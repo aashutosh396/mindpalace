@@ -39,6 +39,35 @@ def is_running() -> bool:
     return running_pid() is not None
 
 
+def kill_descendants(pid: int) -> int:
+    """SIGKILL every descendant process of `pid` (the in-flight claude reasoning, running
+    queued jobs, tool bash) — the EMERGENCY STOP. Leaves `pid` itself (the daemon/bot) alive
+    so it keeps responding. Returns how many processes were killed."""
+    import signal
+    found, frontier, seen = [], [int(pid)], set()
+    while frontier:
+        p = frontier.pop()
+        try:
+            kids = subprocess.run(["pgrep", "-P", str(p)],
+                                  capture_output=True, text=True, timeout=5).stdout.split()
+        except Exception:
+            kids = []
+        for k in kids:
+            try:
+                ki = int(k)
+            except ValueError:
+                continue
+            if ki not in seen and ki != int(pid):
+                seen.add(ki); found.append(ki); frontier.append(ki)
+    n = 0
+    for kp in found:
+        try:
+            os.kill(kp, signal.SIGKILL); n += 1
+        except (ProcessLookupError, PermissionError):
+            pass
+    return n
+
+
 def spawn() -> bool:
     """Start the daemon detached (new session) so it outlives the terminal. Idempotent."""
     if is_running():
