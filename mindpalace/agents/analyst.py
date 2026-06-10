@@ -13,6 +13,7 @@ skills / memory so the whole system compounds and gets more capable over time.
 from __future__ import annotations
 
 from ..core import brain
+from .. import config
 
 ROLE = (
     "You are mindpalace's ANALYST — a background agent that exists to make the system smarter "
