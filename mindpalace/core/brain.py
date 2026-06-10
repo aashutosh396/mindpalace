@@ -276,6 +276,7 @@ def build_prompt(text: str, history: list[dict], system: str | None = None) -> s
         mem.memory_block(),
         mem.recall_block(text),
         skills.index_block(),
+        skills.match(text),          # auto-surface skills matching THIS task (recall > recall-luck)
     ) if b]
     head = system if system else system_prompt()
     return (

@@ -116,11 +116,91 @@ def index_block() -> str:
     return "\n".join(lines)
 
 
+# ---- deterministic per-task retrieval -------------------------------------
+# Instead of hoping the model remembers to grep, we grep the library for the task's
+# keywords every turn and surface the best matches into the prompt. Recall over recall-luck.
+
+_KW_STOP = {"the","and","you","your","that","this","have","with","what","when","make","need",
+            "want","from","into","just","like","about","would","could","should","please","then",
+            "them","they","there","here","help","does","done","also","some","more","most","very",
+            "give","gets","got","can","will","now","run","use","using","task","thing","mind","okay"}
+
+
+def _keywords(text, k=10):
+    out = []
+    for w in re.findall(r"[a-z0-9]{4,}", (text or "").lower()):
+        if w not in _KW_STOP and w not in out:
+            out.append(w)
+    return out[:k]
+
+
+_search_index = None    # cached global-skill haystacks (static within a process)
+
+
+def _global_index():
+    global _search_index
+    if _search_index is None:
+        idx = []
+        try:
+            for n, d, p in global_skills():
+                try:
+                    body = p.read_text(errors="ignore")[:4000]
+                except OSError:
+                    body = ""
+                idx.append((n, d, p, f"{n} {d} {body}".lower()))
+        except Exception:
+            idx = []
+        _search_index = idx
+    return _search_index
+
+
+def match(query: str, limit: int = 5) -> str:
+    """Auto-retrieval: grep user + global skills for the task's keywords and surface the best
+    matches (titles + descriptions + paths — NOT full bodies) so the brain reliably sees what's
+    available before acting. Returns '' when nothing matches (adds zero tokens). Fails safe."""
+    try:
+        kws = _keywords(query)
+        if not kws:
+            return ""
+        scored = []
+
+        def consider(n, d, p, hay, kind, bias):
+            title_hits = {k for k in kws if k in f"{n} {d}".lower()}   # high-signal: name/description
+            distinct = {k for k in kws if k in hay}                    # any distinct keyword present
+            if not distinct:
+                return
+            # gate out noise: need 2+ distinct keywords, OR at least one in the title/description
+            if len(distinct) < 2 and not title_hits:
+                return
+            scored.append((len(distinct) + 3 * len(title_hits) + bias, kind, n, d, p))
+
+        for n, d, p in user_skills():                 # owner's own skills (fresh; few) — tie-break win
+            try:
+                body = p.read_text(errors="ignore")[:4000]
+            except OSError:
+                body = ""
+            consider(n, d, p, f"{n} {d} {body}".lower(), "your", 3)
+        for n, d, p, hay in _global_index():          # bundled reference library (cached)
+            consider(n, d, p, hay, "ref", 0)
+        if not scored:
+            return ""
+        scored.sort(key=lambda x: -x[0])
+        lines = ["RELEVANT SKILLS auto-matched to this task — READ the SKILL.md before acting "
+                 "(prefer [your] skills):"]
+        for _, kind, n, d, p in scored[:limit]:
+            desc = (d[:90] + "…") if d and len(d) > 90 else d
+            lines.append(f"  - [{kind}] {n}{' — ' + desc if desc else ''}  ({p})")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 SKILL_INSTRUCTIONS = f"""
 SKILLS & LEARNING (be a Hermes-style agent that grows — capture what you do):
-- Before a multi-step task, SEARCH for a matching skill (yours first, then the bundled library
-  via `grep -ril <keyword> {config.GLOBAL_SKILLS}`), and read its SKILL.md before acting. (The owner
-  sees a "⚡ using skill · <name>" chip when you read one, so reach for them.)
+- A "RELEVANT SKILLS auto-matched to this task" list may already be in your context — those were
+  grepped from the library for THIS request. If one fits, READ its SKILL.md and follow it before
+  acting. If none were surfaced (or none fit), search yourself: `grep -ril <keyword> {config.GLOBAL_SKILLS}`.
+  (The owner sees a "⚡ using skill · <name>" chip when you read one, so reach for them.)
 - CAPTURE PROACTIVELY: whenever you do a concrete, repeatable task — even a "simple" one like an
   ssh routine, a download, a deploy, a fix, a scrape — and there's no skill for it yet, WRITE a
   tailored user skill at {config.user_skills()}/<verb>-<noun>.md so next time is faster. Don't wait
