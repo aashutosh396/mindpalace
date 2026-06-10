@@ -43,6 +43,24 @@ def _chunks(s, n=1900):
     return [s[i:i + n] for i in range(0, len(s), n)] or ["(empty)"]
 
 
+import re as _re
+from pathlib import Path as _Path
+_ATTACH_RE = _re.compile(r'^[ \t]*(?:📎[ \t]*)?ATTACH:[ \t]*(.+?)[ \t]*$', _re.M)
+
+
+def _extract_attachments(text):
+    """Pull `📎ATTACH: /path` lines out of the reply → (clean_text, [existing file paths]).
+    Lets the agent attach a rendered table image / CSV / file for data that's hard to read inline."""
+    files = []
+    for m in _ATTACH_RE.finditer(text or ""):
+        p = m.group(1).strip().strip('`"\'')
+        fp = _Path(p).expanduser()
+        if p and fp.is_file():
+            files.append(str(fp))
+    clean = _ATTACH_RE.sub("", text or "").strip()
+    return clean, files
+
+
 _IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".heic")
 
 
@@ -238,8 +256,14 @@ def run():
         async with channel.typing():                   # instant + continuous typing
             reply = await brain.ask_async_streaming(
                 text, history, on_progress, system=system, permissions=perms, allowed_tools=allowed)
+        reply, _files = _extract_attachments(reply)
         for c in _chunks(reply):
             await channel.send(c)
+        for _fp in _files:                       # attach rendered tables/images/CSVs for big data
+            try:
+                await channel.send(file=discord.File(_fp))
+            except Exception:
+                pass
         history += [{"role": "Owner", "content": text}, {"role": "Assistant", "content": reply}]
         _save(name, history)
         mem.save_exchange(text, reply)

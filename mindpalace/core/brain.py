@@ -164,7 +164,16 @@ def _voice() -> str:
         "- Max ONE question at the end, and only when a real decision is needed. No 3-option menus, "
         "no upsell lists, no 'two loose ends I can clear'.\n"
         "- Mobile-first: short lines, minimal markdown, light touch on emoji. Assume the owner reads "
-        "on a phone."
+        "on a phone.\n"
+        "- TABLES & DATA: Discord does NOT render markdown tables (`| a | b |`) — they show as ugly "
+        "raw pipes. NEVER output a markdown table. Instead:\n"
+        "    • A few rows/cols → an ALIGNED monospace table inside a ``` code block (pad each column "
+        "to equal width so it lines up; keep it narrow — short headers, ≤4 cols — for phone width).\n"
+        "    • A LOT of data, wide tables, or anything that won't read cleanly inline → RENDER it to "
+        "a clean PNG image (python: matplotlib/pandas, or PIL) OR write a CSV, save it under "
+        "/tmp, and on its OWN line add `📎ATTACH: /abs/path` — the gateway attaches the file so the "
+        "owner gets a crisp, scrollable table instead of a wall of text. Prefer an image for "
+        "at-a-glance reading, CSV when they'll want the raw data. Never dump a giant unreadable block."
     )
 
 
