@@ -40,6 +40,82 @@ def _backup_dir() -> Path:
     return d
 
 
+# ---- protect the CORE code (the GitHub checkout used to install) -----------
+# The agent may freely write its USER-DATA home (~/.mindpalace: vault, memory, config,
+# workspace), but NEVER the installed package / git checkout — local edits there break
+# `git pull` / `!update` and can brick the install.
+
+def _protected_roots() -> list[Path]:
+    roots = []
+    try:
+        from . import config
+        for r in (config.REPO_ROOT, config.PKG_ROOT):
+            roots.append(Path(r).resolve())
+    except Exception:
+        pass
+    try:
+        from .core import updater
+        roots.append(updater.repo_dir().resolve())          # the git checkout `!update` pulls
+    except Exception:
+        pass
+    out, seen = [], set()
+    for r in roots:
+        if str(r) not in seen:
+            seen.add(str(r)); out.append(r)
+    return out
+
+
+def _under(child: Path, parent: Path) -> bool:
+    try:
+        child.relative_to(parent); return True
+    except ValueError:
+        return False
+
+
+def _protected_hit(path_str: str) -> str | None:
+    """Return the protected core root if `path_str` writes inside it; else None.
+    Anything under the user-data home is always allowed (even if paths nest oddly)."""
+    if not path_str:
+        return None
+    try:
+        p = Path(path_str).expanduser()
+        if not p.is_absolute():
+            p = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()) / p
+        p = p.resolve()
+    except Exception:
+        return None
+    try:
+        if _under(p, _home().resolve()):                    # user-data home → always fine
+            return None
+    except Exception:
+        pass
+    for root in _protected_roots():
+        if p == root or _under(p, root):
+            return str(root)
+    return None
+
+
+_BASH_WRITE = re.compile(
+    r'>>?\s|\bsed\s+-i|\btee\b|\brm\b|\btruncate\b|\bchmod\b|\bchown\b|\bln\s+-s|'
+    r'\bgit\b.*\b(reset|checkout|restore|clean|apply|stash)\b', re.I)
+
+
+def _bash_touches_core(cmd: str) -> str | None:
+    """Best-effort: a Bash command that WRITES to / mutates a protected core path."""
+    roots = [str(r) for r in _protected_roots()]
+    present = [r for r in roots if r in cmd]
+    if not present:
+        return None
+    return present[0] if _BASH_WRITE.search(cmd) else None
+
+
+def _block_core(hit: str):
+    _block(f"writing to the mindpalace CORE code at `{hit}` — that breaks `git pull`/`!update` and "
+           f"can brick the install. Only modify your USER-DATA under `{_home()}` (vault, memory, "
+           f"config, workspace), never the installed/checked-out code. If a code change is truly "
+           f"needed, the owner edits the repo + pushes from GitHub.")
+
+
 # ---- hook decisions --------------------------------------------------------
 
 def _allow():
@@ -181,15 +257,34 @@ def main():
         data = json.loads(raw) if raw.strip() else {}
     except Exception:
         _allow()                                 # can't parse → fail open
-    if data.get("tool_name") != "Bash":
+    tool = data.get("tool_name")
+    ti = data.get("tool_input", {}) or {}
+
+    # File-edit tools: block any write into the core code (the #1 way it broke git pull).
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        try:
+            for key in ("file_path", "notebook_path", "path"):
+                hit = _protected_hit(ti.get(key, ""))
+                if hit:
+                    _block_core(hit)
+        except SystemExit:
+            raise
+        except Exception:
+            pass                                 # guard bug → fail OPEN
         _allow()
-    cmd = (data.get("tool_input", {}) or {}).get("command", "") or ""
+
+    if tool != "Bash":
+        _allow()
+    cmd = ti.get("command", "") or ""
     if not cmd.strip():
         _allow()
     try:
         reason = _catastrophic(cmd)
         if reason:
             _block(reason)                       # fail CLOSED on a matched catastrophe
+        core_hit = _bash_touches_core(cmd)       # writing to the core checkout via shell
+        if core_hit:
+            _block_core(core_hit)
         saved = _maybe_backup(cmd)
         if saved:
             print(f"🛟 safety backup saved before this: {', '.join(saved)} (in backups/)")
@@ -220,7 +315,7 @@ def ensure_installed() -> None:
         # sink in agentic coding (~60% of it removable with no quality loss).
         "env": {"BASH_MAX_OUTPUT_LENGTH": "20000"},
         "hooks": {"PreToolUse": [
-            {"matcher": "Bash", "hooks": [
+            {"matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit", "hooks": [
                 {"type": "command", "command": str(sh), "timeout": 30}]}]},
     }
     settings.write_text(json.dumps(cfg, indent=2))
