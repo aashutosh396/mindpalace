@@ -17,6 +17,20 @@ import sys
 from .. import config
 
 
+def box(title: str, body: str, accent: str = "cyan") -> str:
+    """Tidy ansi colour box for system messages — coloured title, body below.
+    Shared format for heartbeat / notifications / system messages."""
+    fg = {"cyan": "1;36", "green": "0;32", "yellow": "1;33", "red": "1;31", "blue": "1;34"}
+    fence = chr(96) * 3
+    nl = chr(10)
+    body = (body or "").strip().replace(fence, "ʼʼʼ")
+    if len(body) > 1700:
+        body = body[:1699].rstrip() + "…"
+    esc = chr(27)
+    title_line = esc + "[" + fg.get(accent, "1;36") + "m" + title + esc + "[0m"
+    return fence + "ansi" + nl + title_line + nl + nl + body + nl + fence
+
+
 def notify(message: str, channel: str = "home", username: str = "mindpalace") -> bool:
     url = config.webhooks().get(channel)
     if not url or not url.startswith("https://discord.com"):

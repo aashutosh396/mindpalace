@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 
+from .. import config
+
 PROMPT = (
     "[AUTONOMOUS HEARTBEAT — no human is asking; you woke yourself on a timer.]\n"
     "Do a quick proactive pass:\n"
@@ -43,20 +45,52 @@ def _due_for_curate(days: int = 7) -> bool:
     return True
 
 
-async def loop(report, interval_min: int):
-    if interval_min <= 0:
+import re as _re
+
+
+async def _deliver(report, emoji, title, body, accent):
+    """Full (boxed) report → the logs/updates webhook channel. To home: only a SHORT one-line note
+    — for a health check, the at-a-glance tally (N ✓ · N ⚠ · N ✗) so the owner can spot a problem
+    and go look. Keeps long reports out of the main channel."""
+    from . import notify
+    hook = config.heartbeat_webhook()
+    full = notify.box(f"{emoji} {title}", body, accent)
+    sent = await asyncio.to_thread(notify.notify, full, hook)
+    if not sent:                                   # no such webhook → don't lose it, post here
+        await report(full)
         return
-    print(f"heartbeat: every {interval_min}m")
+    m = _re.search(r"✓\s*(\d+)\s*⚠\s*(\d+)\s*✗\s*(\d+)", body)
+    if m:
+        ok, warn, fail = (int(x) for x in m.groups())
+        tally = f"{ok} ✓ · {warn} ⚠️ · {fail} ✗"
+        if warn or fail:
+            note = f"💓 health check: **{tally}** — 👀 something to look at, full report in **{hook}**."
+        else:
+            note = f"💓 health check: **{tally}** — all clear ✅ (log in **{hook}**)."
+    else:
+        note = f"{emoji} {title.lower()} ran — full rundown in **{hook}**, keeping it tidy here."
+    await report(note)
+
+
+async def loop(report, interval_min: int):
+    # interval is read LIVE from config each cycle, so `!heartbeat <n>` applies without a restart.
+    print("heartbeat: dynamic (reads heartbeat_minutes each cycle)")
     while True:
-        await asyncio.sleep(interval_min * 60)
+        interval = config.heartbeat_minutes()
+        if interval <= 0:
+            await asyncio.sleep(60)               # off — re-check every minute (re-enable live)
+            continue
+        await asyncio.sleep(interval * 60)
+        if config.heartbeat_minutes() <= 0:       # turned off during the sleep
+            continue
         try:
             from ..agents import analyst
             reply = await analyst.review()        # the Analyst agent's autonomous pass
             if reply and reply.strip().upper() not in ("NOTHING", ""):
-                await report("💓 " + reply)
+                await _deliver(report, "💓", "Heartbeat", reply, "cyan")
             if _due_for_curate():                 # slow cadence: consolidate/archive skills
                 c = await analyst.curate()
                 if c and c.strip().upper() not in ("NOTHING", ""):
-                    await report("🧹 " + c)
+                    await _deliver(report, "🧹", "Skill upkeep", c, "green")
         except Exception as e:
             print(f"heartbeat error: {e}")

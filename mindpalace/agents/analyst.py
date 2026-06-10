@@ -120,12 +120,16 @@ async def curate() -> str:
 
 async def review() -> str:
     task = (
-        "[AUTONOMOUS REVIEW — you woke yourself on a timer; no human is asking.]\n"
-        "Do a quick proactive pass: skim the vault (infra/, projects/, recent LOG.md) and run "
-        "cheap, safe health checks on services you have notes on. File anything new + append to "
-        "LOG.md. If something needs attention or you did something, write a SHORT report with a "
-        "proposed next action. Do NOT take destructive/irreversible actions unprompted — propose "
-        "them. If all quiet, reply EXACTLY: NOTHING"
+        "[AUTONOMOUS HEALTH CHECK — you woke yourself on a timer; no human is asking.]\n"
+        "Run a quick proactive pass: go through the services/hosts/projects you have vault notes on "
+        "and run cheap, SAFE checks (reachability, process up, disk, recent errors — read-only). "
+        "Note each as a PASS (✓), a WARNING (⚠ degraded/worth watching), or a PROBLEM (✗ broken/down). "
+        "File any new durable facts + append a LOG.md line.\n"
+        "Write a SHORT report: list only the ⚠ and ✗ items with what's wrong + a proposed next action "
+        "(✓ items don't need lines). Do NOT take destructive/irreversible actions — propose them.\n"
+        "Your LAST line MUST be exactly this machine-readable tally (real counts of checks you ran):\n"
+        "    SUMMARY ✓<passed> ⚠<warnings> ✗<problems>\n"
+        "e.g.  SUMMARY ✓45 ⚠2 ✗1 . Always include this line — it's the owner's at-a-glance signal."
     )
     return await brain.ask_async(task, [], system=_system(), permissions="full",
                                  model=config.background_model())

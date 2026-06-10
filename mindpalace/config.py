@@ -168,6 +168,12 @@ def heartbeat_minutes() -> int:
         return 0
 
 
+def heartbeat_webhook() -> str:
+    """Webhook/channel the heartbeat posts its FULL report to (the home channel gets only a short
+    note, so long reports don't pile up there). Default 'autoreply-logs'."""
+    return load_config().get("heartbeat_webhook", "autoreply-logs")
+
+
 def user_budget() -> int:
     """Soft char budget for USER.md — compaction distills the owner's profile to fit."""
     try:

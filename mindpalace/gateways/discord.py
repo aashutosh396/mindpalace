@@ -172,7 +172,20 @@ async def _handle_command(msg, text) -> bool:
             "`!remove-admin @user` — revoke access\n"
             "`!add-webhook <name> <url>` — add a notify webhook\n"
             "`!model opus` — switch my model (sonnet/opus/haiku); `!model` shows current\n"
+            "`!heartbeat 30` — set autonomous check interval in minutes (0 = off); `!heartbeat` shows current\n"
             "\nEverything else you say just goes straight to me — no command needed.")
+    elif cmd in ("heartbeat", "hb"):
+        if args and args[0].lstrip("-").isdigit():
+            n = max(0, int(args[0]))
+            cfg = config.load_config(); cfg["heartbeat_minutes"] = n; config.save_config(cfg)
+            await msg.channel.send(
+                f"💓 heartbeat set to every **{n} min** — applies next cycle, no restart needed."
+                if n else "💓 heartbeat turned **off**.")
+        else:
+            n = config.heartbeat_minutes()
+            await msg.channel.send(
+                f"💓 heartbeat: every **{n} min** (0 = off). Full report → **{config.heartbeat_webhook()}** "
+                f"channel, short note here. Change with `!heartbeat <minutes>`.")
     elif cmd in ("stop", "halt", "abort", "kill"):
         import os
         from ..core import service
