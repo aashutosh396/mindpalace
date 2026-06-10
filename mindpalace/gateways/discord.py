@@ -172,10 +172,22 @@ async def _handle_command(msg, text) -> bool:
             "`!remove-admin @user` — revoke access\n"
             "`!add-webhook <name> <url>` — add a notify webhook\n"
             "`!model opus` — switch my model (sonnet/opus/haiku); `!model` shows current\n"
-            "`!heartbeat 30` — set autonomous check interval in minutes (0 = off); `!heartbeat` shows current\n"
+            "`!heartbeat scan-now` — run a health check right now; `!heartbeat 30` — set the interval "
+            "in minutes (0 = off); `!heartbeat` shows current\n"
             "\nEverything else you say just goes straight to me — no command needed.")
     elif cmd in ("heartbeat", "hb"):
-        if args and args[0].lstrip("-").isdigit():
+        sub = args[0].lower() if args else ""
+        if sub in ("scan-now", "scan", "now", "run"):
+            await msg.channel.send("🔍 running a health check right now — one sec…")
+            async def _rep(m):
+                await msg.channel.send(m)
+            try:
+                out = await heartbeat.run_once(_rep)      # full → updates webhook, tally → here
+                if not out:
+                    await msg.channel.send("💓 scan done — all quiet, nothing to flag.")
+            except Exception as e:
+                await msg.channel.send(f"⚠️ scan failed: {e}")
+        elif args and args[0].lstrip("-").isdigit():
             n = max(0, int(args[0]))
             cfg = config.load_config(); cfg["heartbeat_minutes"] = n; config.save_config(cfg)
             await msg.channel.send(
@@ -185,7 +197,8 @@ async def _handle_command(msg, text) -> bool:
             n = config.heartbeat_minutes()
             await msg.channel.send(
                 f"💓 heartbeat: every **{n} min** (0 = off). Full report → **{config.heartbeat_webhook()}** "
-                f"channel, short note here. Change with `!heartbeat <minutes>`.")
+                f"channel, short note here. `!heartbeat scan-now` to run one immediately · "
+                f"`!heartbeat <minutes>` to change the interval.")
     elif cmd in ("stop", "halt", "abort", "kill"):
         import os
         from ..core import service

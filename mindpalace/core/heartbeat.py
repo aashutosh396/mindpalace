@@ -73,6 +73,18 @@ async def _deliver(report, emoji, title, body, accent):
     await report(note)
 
 
+async def run_once(report) -> str:
+    """Run ONE health-check pass now (the Analyst's review) and deliver it (full → updates
+    webhook, short tally → home). Shared by the scheduled tick and the manual `!heartbeat scan-now`.
+    Returns the report text, or "" if all quiet."""
+    from ..agents import analyst
+    reply = await analyst.review()
+    if reply and reply.strip().upper() not in ("NOTHING", ""):
+        await _deliver(report, "💓", "Heartbeat", reply, "cyan")
+        return reply
+    return ""
+
+
 async def loop(report, interval_min: int):
     # interval is read LIVE from config each cycle, so `!heartbeat <n>` applies without a restart.
     print("heartbeat: dynamic (reads heartbeat_minutes each cycle)")
@@ -85,11 +97,9 @@ async def loop(report, interval_min: int):
         if config.heartbeat_minutes() <= 0:       # turned off during the sleep
             continue
         try:
-            from ..agents import analyst
-            reply = await analyst.review()        # the Analyst agent's autonomous pass
-            if reply and reply.strip().upper() not in ("NOTHING", ""):
-                await _deliver(report, "💓", "Heartbeat", reply, "cyan")
+            await run_once(report)                # the Analyst's autonomous health-check pass
             if _due_for_curate():                 # slow cadence: consolidate/archive skills
+                from ..agents import analyst
                 c = await analyst.curate()
                 if c and c.strip().upper() not in ("NOTHING", ""):
                     await _deliver(report, "🧹", "Skill upkeep", c, "green")
