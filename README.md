@@ -95,6 +95,61 @@ sudo mindpalace service install   # systemd (Linux) / launchd (macOS), reboot-pe
 # close SSH — work entirely from Discord.  logs: journalctl -u mindpalace -f
 ```
 
+## ⚙️ Commands
+
+Everything is the single `mindpalace` command. Args in `<>` are required, `[]` optional;
+settings persist to `~/.mindpalace/config.json` and most apply on the next daemon **restart**.
+
+| Command | What it does |
+|---|---|
+| `mindpalace` | First run → setup; afterwards opens the terminal chat (and auto-starts the Discord daemon if configured) |
+| `mindpalace setup` | Re-run onboarding (gateway choice + identity) |
+| `mindpalace status` *(`-s`)* | Show data home, identity, Discord/daemon state, heartbeat, concurrency |
+| `mindpalace version` *(`-v`)* | Print the version |
+| `mindpalace help` *(`-h`)* | Show command help |
+| **Interface** | |
+| `mindpalace gateway <terminal\|discord>` | Configure/switch the interface (`mindpalace discord` / `mindpalace terminal` are shortcuts) |
+| **Daemon / service** | |
+| `mindpalace start` | Start the background daemon (detached, no terminal) |
+| `mindpalace stop` | Stop the background daemon |
+| `mindpalace restart` | Restart the daemon (applies config changes) |
+| `mindpalace daemon` | Run the daemon in the **foreground** (for systemd/launchd) |
+| `mindpalace service <install\|uninstall\|status>` | Install/remove a reboot-persistent OS service |
+| `mindpalace halt` *(`stop-task`, `abort`)* | 🛑 Emergency-stop running work; daemon stays up |
+| **Tuning** *(restart to apply)* | |
+| `mindpalace concurrency [<n>]` | Get/set max parallel Claude agents (**default 8**) |
+| `mindpalace model [sonnet\|opus\|haiku\|<id>\|default]` | Get/set the main reasoning model |
+| `mindpalace heartbeat [<minutes>]` | Get/set the autonomous heartbeat interval (`0` = off) |
+| `mindpalace update-interval [<minutes>]` | Get/set the git auto-update check interval (`0` = off) |
+| `mindpalace workspace [<path>]` | Get/set the permanent folder where project code is created |
+| **Updates** | |
+| `mindpalace update` | Pull the latest from GitHub now + restart |
+| **Bots & access** | |
+| `mindpalace add-bot` | Create a scoped Discord bot (drafts its system prompt + permission fence) |
+| `mindpalace bots` | List configured bots |
+| `mindpalace admins` | List admins (Discord access) |
+| `mindpalace add-admin <discord-id>` | Grant Discord access |
+| `mindpalace remove-admin <discord-id>` | Revoke Discord access |
+| `mindpalace add-webhook <name> <url>` | Save a notify webhook |
+| `mindpalace notify "message"` | Post a message to the home channel |
+
+### In Discord (home channel, admins only)
+
+Type these as messages prefixed with `!`; anything else goes straight to the brain.
+
+| Command | What it does |
+|---|---|
+| `!help` | List the in-chat commands |
+| `!stop` | 🛑 Emergency-stop the current running task (bot stays online) |
+| `!update` | Pull the latest from GitHub + reload live |
+| `!bots` | List running bots |
+| `!admins` · `!add-admin @user` · `!remove-admin @user` | Manage who can talk to the bot |
+| `!add-webhook <name> <url>` | Add a notify webhook |
+| `!model [sonnet\|opus\|haiku]` | Show/switch the model |
+| `!heartbeat [scan-now \| <minutes>]` | Run a health check now, or set the interval (`0` = off) |
+
+> Full reference: [`docs/commands.md`](docs/commands.md).
+
 ## 🧱 Architecture
 
 ```
