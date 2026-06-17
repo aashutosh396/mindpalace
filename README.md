@@ -120,6 +120,8 @@ settings persist to `~/.mindpalace/config.json` and most apply on the next daemo
 | `mindpalace concurrency [<n>]` | Get/set max parallel Claude agents (**default 8**) |
 | `mindpalace model [sonnet\|opus\|haiku\|<id>\|default]` | Get/set the main reasoning model |
 | `mindpalace heartbeat [<minutes>]` | Get/set the autonomous heartbeat interval (`0` = off) |
+| `mindpalace voice [lean\|full]` | Switch reply style — **lean** (brief, to-the-point) vs **full** (chatty); applies on the next message, no restart |
+| `mindpalace usage [N]` | Session-continuity + token/cache stats for the last N turns (the soak dashboard) |
 | `mindpalace update-interval [<minutes>]` | Get/set the git auto-update check interval (`0` = off) |
 | `mindpalace workspace [<path>]` | Get/set the permanent folder where project code is created |
 | **Updates** | |
@@ -147,6 +149,8 @@ Type these as messages prefixed with `!`; anything else goes straight to the bra
 | `!add-webhook <name> <url>` | Add a notify webhook |
 | `!model [sonnet\|opus\|haiku]` | Show/switch the model |
 | `!heartbeat [scan-now \| <minutes>]` | Run a health check now, or set the interval (`0` = off) |
+| `!curate [now \| pause \| resume]` | Tidy the skill library now, or pause/resume auto-curation; `!curate` shows status |
+| `!voice [lean \| full]` | Switch reply style — brief vs chatty (live from your next message) |
 
 > Full reference: [`docs/commands.md`](docs/commands.md).
 
