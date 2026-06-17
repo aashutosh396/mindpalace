@@ -12,6 +12,7 @@
   mindpalace add-webhook <name> <url> / notify "msg"
   mindpalace status / version
   mindpalace usage [N]  per-turn session-continuity + token stats for the last N turns (soak view)
+  mindpalace voice lean|full   switch reply style (brief vs chatty); applies on the next message
 """
 import sys
 
@@ -134,6 +135,23 @@ def main(argv=None):
             print("(restart the daemon for it to take effect)")
         else:
             print(f"heartbeat: {config.heartbeat_minutes()} min  ·  set with `mindpalace heartbeat <minutes>` (0 = off)")
+        return
+
+    if cmd == "voice":                          # A/B switch: lean (brief) vs full (chatty) replies
+        sub = argv[1].lower() if len(argv) > 1 else ""
+        if sub in ("lean", "brief", "terse", "on"):
+            cfg = config.load_config(); cfg["lean_voice"] = True; config.save_config(cfg)
+            from .core import brain
+            brain.reset_sessions()
+            print("voice → lean (brief, to-the-point). Applies on your next message.")
+        elif sub in ("full", "chatty", "rich", "verbose", "off"):
+            cfg = config.load_config(); cfg["lean_voice"] = False; config.save_config(cfg)
+            from .core import brain
+            brain.reset_sessions()
+            print("voice → full (chatty, high-personality). Applies on your next message.")
+        else:
+            print(f"voice: {'lean' if config.lean_voice() else 'full'}  ·  "
+                  "switch with `mindpalace voice lean|full` (takes effect on the next message)")
         return
 
     if cmd == "usage":                          # soak dashboard — session continuity + token stats

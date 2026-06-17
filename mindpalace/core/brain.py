@@ -469,6 +469,22 @@ def _session_args(text: str, permissions: str, allowed_tools: str | None,
     return args, ("create" if is_new else "resume")
 
 
+def reset_sessions() -> int:
+    """Drop today's session-segment state so the NEXT turn CREATES a fresh claude session. The
+    persona/voice is baked into the session at creation, so this is how a voice switch (or any
+    system-prompt change) takes effect immediately instead of next day. Knowledge is retained
+    (FTS recall + CORE.md); only the in-session transcript continuity resets. Returns count."""
+    d = config.state_dir() / "sessions"
+    n = 0
+    if d.exists():
+        for f in d.glob("*.json"):
+            try:
+                f.unlink(); n += 1
+            except OSError:
+                pass
+    return n
+
+
 def current_session_id(system: str | None = None) -> str | None:
     """Today's claude session id for this identity IF continuity is on and the session has been
     created — so a background agent can FORK it to see the real conversation. Returns None when

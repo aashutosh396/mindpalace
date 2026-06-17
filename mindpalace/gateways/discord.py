@@ -176,6 +176,7 @@ async def _handle_command(msg, text) -> bool:
             "`!heartbeat scan-now` — run a health check right now; `!heartbeat 30` — set the interval "
             "in minutes (0 = off); `!heartbeat` shows current\n"
             "`!curate now` — tidy my skill library now; `!curate pause`/`resume`; `!curate` shows status\n"
+            "`!voice lean` / `!voice full` — switch my reply style (brief vs chatty); `!voice` shows current\n"
             "\nEverything else you say just goes straight to me — no command needed.")
     elif cmd in ("heartbeat", "hb"):
         sub = args[0].lower() if args else ""
@@ -201,6 +202,20 @@ async def _handle_command(msg, text) -> bool:
                 f"💓 heartbeat: every **{n} min** (0 = off). Full report → **{config.heartbeat_webhook()}** "
                 f"channel, short note here. `!heartbeat scan-now` to run one immediately · "
                 f"`!heartbeat <minutes>` to change the interval.")
+    elif cmd in ("voice", "tone"):
+        sub = args[0].lower() if args else ""
+        if sub in ("lean", "brief", "terse"):
+            cfg = config.load_config(); cfg["lean_voice"] = True; config.save_config(cfg)
+            brain.reset_sessions()
+            await msg.channel.send("🪶 voice → **lean** (brief, to-the-point). Live from your next message.")
+        elif sub in ("full", "chatty", "rich"):
+            cfg = config.load_config(); cfg["lean_voice"] = False; config.save_config(cfg)
+            brain.reset_sessions()
+            await msg.channel.send("💬 voice → **full** (chatty, high-personality). Live from your next message.")
+        else:
+            await msg.channel.send(
+                f"voice: **{'lean' if config.lean_voice() else 'full'}** · "
+                "`!voice lean` (brief) / `!voice full` (chatty) — applies on your next message.")
     elif cmd in ("curate", "curator"):
         sub = args[0].lower() if args else "status"
         if sub in ("now", "run", "force"):
