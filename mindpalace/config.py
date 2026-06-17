@@ -270,6 +270,13 @@ def session_continuity() -> bool:
     return bool(load_config().get("session_continuity", True))
 
 
+def lean_voice() -> bool:
+    """Lean, more-to-the-point replies: short answers, no filler, ONE opener instead of running
+    narration (chips still show progress) — while staying warm/human. ON by default; set
+    "lean_voice": false to restore the chattier high-personality voice for an A/B."""
+    return bool(load_config().get("lean_voice", True))
+
+
 def session_rotate_turns() -> int:
     """With session continuity on, start a FRESH (leaner) claude session segment after this many
     turns, so a chatty day doesn't grow one giant session. The new segment is seeded with the
