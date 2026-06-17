@@ -8,12 +8,17 @@ Same call works from the terminal gateway and the Discord gateway.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 import shutil
 import subprocess
+import time
+import uuid
 
 from .. import config, skills
 from ..memory import store as mem
+from . import telemetry
 
 NUDGE_INTERVAL = 5     # every N exchanges: reflect → write durable memory
 SKILL_INTERVAL = 10    # every N exchanges: formalize a reusable skill
@@ -347,6 +352,105 @@ def _args(prompt: str, permissions: str = "full", allowed_tools: str | None = No
     return args
 
 
+# ---- session continuity (experimental, off by default) --------------------------------------
+# Instead of rebuilding the whole prompt each turn, reuse ONE claude CLI session per day per
+# identity: CREATE it once with --session-id (static persona via --append-system-prompt), then
+# --resume it. Full in-session history + prompt-cache hits; we send only the per-turn dynamic
+# delta (recall + skills auto-matched to THIS task + the owner's text). Wired into
+# ask_async_streaming ONLY (the path both gateways call) — it already falls back to the legacy
+# build_prompt path on any failure, so a broken session self-heals.
+
+def _session_key(system: str | None) -> str:
+    ident = hashlib.sha1((system or "main").encode()).hexdigest()[:8]   # scoped bots → own session
+    return f"{time.strftime('%Y-%m-%d')}-{ident}"
+
+
+def _session_state_path(system: str | None):
+    return config.state_dir() / "sessions" / (_session_key(system) + ".json")
+
+
+def _load_session_state(system: str | None) -> dict:
+    try:
+        return json.loads(_session_state_path(system).read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"seg": 0, "turns": 0}
+
+
+def _session_uuid(system: str | None, seg: int | None = None) -> str:
+    if seg is None:
+        seg = int(_load_session_state(system).get("seg", 0))
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"mindpalace-session-{_session_key(system)}-s{seg}"))
+
+
+def _advance_session(system: str | None) -> tuple[str, bool]:
+    """Called once per streamed turn. Advances the turn counter for today's session SEGMENT and,
+    when the per-session turn budget (config.session_rotate_turns) is exceeded, ROTATES to a fresh
+    leaner segment — a new session seeded with the persona + current CORE.md working memory (so
+    distilled knowledge carries over while raw transcript bloat is shed). Returns
+    (session_uuid, is_new): is_new True ⇒ CREATE (--session-id), else RESUME (--resume)."""
+    st = _load_session_state(system)
+    seg, turns = int(st.get("seg", 0)), int(st.get("turns", 0))
+    limit = config.session_rotate_turns()
+    if limit and turns >= limit:                 # budget hit → roll to a fresh, leaner segment
+        seg, turns = seg + 1, 0
+    turns += 1
+    is_new = (turns == 1)                        # first turn of this segment → create the session
+    try:
+        p = _session_state_path(system)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"seg": seg, "turns": turns, "ts": time.time()}))
+    except OSError:
+        pass
+    return _session_uuid(system, seg), is_new
+
+
+def _session_system(system: str | None) -> str:
+    """System prompt set ONCE at session creation: the stable persona + working memory + skills
+    index. Identical across the day's turns, so claude's prompt cache hits."""
+    head = system if system else system_prompt()
+    blocks = [b for b in (mem.identity_block(), mem.memory_block(), skills.index_block()) if b]
+    return head + (("\n\n" + "\n\n".join(blocks)) if blocks else "")
+
+
+def _turn_input(text: str) -> str:
+    """Per-turn user message under continuity: only query-specific dynamic context (recalled
+    history + skills matched to THIS task) + the owner's text. History lives in the resumed
+    session, so we don't restuff history[-12:]."""
+    ctx = [b for b in (mem.recall_block(text), skills.match(text)) if b]
+    return (("\n\n".join(ctx) + "\n\n") if ctx else "") + f"Owner: {text}\nAssistant:"
+
+
+def _session_args(text: str, permissions: str, allowed_tools: str | None,
+                  model: str | None, system: str | None) -> tuple[list[str], str]:
+    """claude args for a continuity turn: CREATE (--session-id + system) or RESUME (--resume).
+    _advance_session decides which (and rotates to a fresh segment when the turn budget is hit).
+    Returns (args, mode) where mode is 'create' or 'resume' — for telemetry."""
+    sid, is_new = _advance_session(system)
+    if is_new:
+        args = [claude_bin(), "-p", _turn_input(text), "--session-id", sid,
+                "--append-system-prompt", _session_system(system)]
+    else:
+        args = [claude_bin(), "-p", _turn_input(text), "--resume", sid]
+    if model:
+        args += ["--model", model]
+    if permissions == "readonly":
+        args += ["--allowedTools", READONLY_TOOLS]
+    elif permissions == "custom" and allowed_tools:
+        args += ["--allowedTools", allowed_tools]
+    else:                                        # full; IS_SANDBOX=1 unblocks bypass as root
+        args += ["--dangerously-skip-permissions"]
+    return args, ("create" if is_new else "resume")
+
+
+def current_session_id(system: str | None = None) -> str | None:
+    """Today's claude session id for this identity IF continuity is on and the session has been
+    created — so a background agent can FORK it to see the real conversation. Returns None when
+    there's no live session to fork (the caller then uses its legacy, contextless path)."""
+    if not config.session_continuity():
+        return None
+    return _session_uuid(system) if _session_state_path(system).exists() else None
+
+
 def ask_sync(text: str, history: list[dict], system: str | None = None,
              permissions: str = "full", allowed_tools: str | None = None,
              model: str | None = None) -> str:
@@ -637,11 +741,15 @@ async def ask_async_streaming(text, history, on_progress, system=None,
     the model's own prose lines + a Hermes-style '⚡ verb · target ✅' chip per tool step.
     Returns the final reply. Falls back to non-streaming if the stream yields nothing."""
     import json as _json
-    prompt = build_prompt(text, history, system)
     if model is None:
         model = _pick_model(text)                 # Sonnet default, Opus on signal
-    args = _args(prompt, permissions, allowed_tools, model) + ["--output-format", "stream-json", "--verbose"]
-    final, steps = "", 0
+    if config.session_continuity():               # reuse the day's claude session (cached)
+        args, mode = _session_args(text, permissions, allowed_tools, model, system)
+    else:                                         # legacy: rebuild the full prompt every turn
+        args = _args(build_prompt(text, history, system), permissions, allowed_tools, model)
+        mode = "legacy"
+    args += ["--output-format", "stream-json", "--verbose"]
+    final, steps, usage = "", 0, {}
     pending = None                               # last text block, held back (may be the final answer)
     chips: dict = {}                             # tool_use id -> chip text, emitted when the step finishes
     last_chip = None                             # dedup identical back-to-back chips
@@ -660,7 +768,7 @@ async def ask_async_streaming(text, history, on_progress, system=None,
             return f"(error: {str(e)[:160]})"
 
         async def _read():
-            nonlocal final, steps, pending, last_chip
+            nonlocal final, steps, pending, last_chip, usage
             while True:
                 try:
                     raw = await proc.stdout.readline()
@@ -731,7 +839,7 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                             pass
                 elif t == "result":
                     final = ev.get("result", "") or final
-                    # `pending` (the last unfollowed text) is the final answer — never streamed.
+                    usage = ev.get("usage", {}) or usage   # token + prompt-cache stats for telemetry
                     # `pending` (the last unfollowed text) is the final answer — never streamed.
 
         try:
@@ -744,14 +852,18 @@ async def ask_async_streaming(text, history, on_progress, system=None,
             if proc.returncode is None:
                 proc.kill()
             if final:
+                telemetry.log_turn(mode, model, usage, steps, fallback=False)
                 return final
+            telemetry.log_turn(mode, model, usage, steps, fallback=True)
             return await ask_async(text, history, system, permissions, allowed_tools)
         await proc.wait()
     finally:
         sem.release()                            # ALWAYS free the permit — no leak on any path
     if final:
+        telemetry.log_turn(mode, model, usage, steps, fallback=False)
         return final
     # stream gave nothing (format mismatch / error) → fall back to plain capture
+    telemetry.log_turn(mode, model, usage, steps, fallback=True)
     return await ask_async(text, history, system, permissions, allowed_tools)
 
 
@@ -772,5 +884,36 @@ async def ask_async(text: str, history: list[dict], system: str | None = None,
         except asyncio.TimeoutError:
             proc.kill()
             return f"(timed out after {TIMEOUT}s — break it into smaller steps)"
+        except Exception as e:
+            return f"(error: {str(e)[:160]})"
+
+
+async def ask_resumed(task: str, session_id: str, permissions: str = "full",
+                      allowed_tools: str | None = None, model: str | None = None) -> str:
+    """Run a one-off background turn that FORKS an existing claude session — so it inherits the
+    FULL conversation (cheaply, via prompt cache) WITHOUT polluting the live session. Lets the
+    analyst consolidate/reflect from the real conversation instead of re-deriving from files.
+    Returns the reply, or an "(error…)"/"(timed out…)"/"(empty…)" marker the caller can detect
+    and fall back on. --fork-session clones the session, so the owner's live thread is untouched."""
+    args = [claude_bin(), "-p", task, "--resume", session_id, "--fork-session"]
+    if model:
+        args += ["--model", model]
+    if permissions == "readonly":
+        args += ["--allowedTools", READONLY_TOOLS]
+    elif permissions == "custom" and allowed_tools:
+        args += ["--allowedTools", allowed_tools]
+    else:                                        # full; IS_SANDBOX=1 unblocks bypass as root
+        args += ["--dangerously-skip-permissions"]
+    async with _semaphore():                     # cap concurrent claude procs
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args, cwd=str(config.home()), env=_env(),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT)
+            return (out.decode(errors="replace").strip()
+                    or f"(empty; {err.decode(errors='replace')[:200]})")
+        except asyncio.TimeoutError:
+            proc.kill()
+            return f"(timed out after {TIMEOUT}s)"
         except Exception as e:
             return f"(error: {str(e)[:160]})"

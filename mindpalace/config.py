@@ -262,6 +262,78 @@ def reflect_every() -> int:
         return 4
 
 
+def session_continuity() -> bool:
+    """Reuse ONE claude CLI session per day per identity (--session-id / --resume) instead of
+    rebuilding the full prompt each turn. Gives full in-session history + prompt-cache hits.
+    ON by default; set "session_continuity": false in config.json to fall back to the legacy
+    full-prompt path."""
+    return bool(load_config().get("session_continuity", True))
+
+
+def session_rotate_turns() -> int:
+    """With session continuity on, start a FRESH (leaner) claude session segment after this many
+    turns, so a chatty day doesn't grow one giant session. The new segment is seeded with the
+    persona + current CORE.md working memory, so distilled knowledge carries over. 0 = never
+    rotate (one session per day). Default 60."""
+    try:
+        return int(load_config().get("session_rotate_turns", 60))
+    except (TypeError, ValueError):
+        return 60
+
+
+def curator_idle_minutes() -> int:
+    """Skip background skill-curation unless the owner's been idle at least this long, so the
+    curator never rewrites skills mid-conversation (mirrors Hermes's 2h idle gate). Default 120."""
+    try:
+        return int(load_config().get("curator_idle_minutes", 120))
+    except (TypeError, ValueError):
+        return 120
+
+
+def touch_activity() -> None:
+    """Stamp the owner's last interaction — gates idle-only background work (e.g. skill curation)."""
+    import time
+    try:
+        state_dir().mkdir(parents=True, exist_ok=True)
+        (state_dir() / "last_activity.txt").write_text(str(time.time()))
+    except OSError:
+        pass
+
+
+def idle_seconds() -> float:
+    """Seconds since the owner last interacted (huge sentinel if never recorded)."""
+    import time
+    try:
+        return time.time() - float((state_dir() / "last_activity.txt").read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return 1e9
+
+
+# ---- curator state (skill-curation cadence + pause + telemetry) ----
+def curator_state() -> dict:
+    """Persistent curator state: last_run (epoch), run_count, paused, last_summary."""
+    try:
+        st = json.loads((state_dir() / "curator_state.json").read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        st = {}
+    return {"last_run": float(st.get("last_run", 0.0)),
+            "run_count": int(st.get("run_count", 0)),
+            "paused": bool(st.get("paused", False)),
+            "last_summary": str(st.get("last_summary", ""))}
+
+
+def save_curator_state(st: dict) -> None:
+    try:
+        state_dir().mkdir(parents=True, exist_ok=True)
+        (state_dir() / "curator_state.json").write_text(json.dumps(st, indent=2))
+    except OSError:
+        pass
+
+
+def set_curator_paused(paused: bool) -> None:
+    st = curator_state(); st["paused"] = bool(paused); save_curator_state(st)
+
+
 def webhooks() -> dict:
     return load_config().get("webhooks", {})
 

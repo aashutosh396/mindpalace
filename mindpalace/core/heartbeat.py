@@ -26,23 +26,34 @@ PROMPT = (
 )
 
 
-def _due_for_curate(days: int = 7) -> bool:
-    """True at most once per `days` — gates the slow skill-curation pass on idle ticks."""
+async def run_curation(report, force: bool = False) -> str:
+    """Skill curation on its OWN cadence, independent of whether the health heartbeat is enabled.
+    Skips unless: not paused, idle ≥ curator_idle_minutes (never rewrite skills mid-chat), and
+    ≥7 days since the last run — unless force=True (manual `!curate now`). Claims the window BEFORE
+    running so a crash can't re-fire it every cycle. Bumps run_count + last_summary. Returns the
+    curator's note ('' when it skipped or had nothing to do)."""
     import time
-    from .. import config
-    p = config.state_dir() / "curator_last.txt"
-    try:
-        last = float(p.read_text().strip())
-    except (FileNotFoundError, ValueError):
-        last = 0.0
-    if time.time() - last < days * 86400:
-        return False
-    try:
-        config.state_dir().mkdir(parents=True, exist_ok=True)
-        p.write_text(str(time.time()))
-    except OSError:
-        pass
-    return True
+    st = config.curator_state()
+    if not force:
+        if st["paused"]:
+            return ""
+        if config.idle_seconds() < config.curator_idle_minutes() * 60:
+            return ""
+        if time.time() - st["last_run"] < 7 * 86400:
+            return ""
+    st["last_run"] = time.time()                  # claim the window now → no re-fire on crash
+    config.save_curator_state(st)
+    from ..agents import analyst
+    c = await analyst.curate()
+    st = config.curator_state()                   # reload so a concurrent pause isn't clobbered
+    st["run_count"] += 1
+    spoke = bool(c and c.strip().upper() not in ("NOTHING", ""))
+    if spoke:
+        st["last_summary"] = c.strip()[:300]
+    config.save_curator_state(st)
+    if spoke:
+        await _deliver(report, "🧹", "Skill upkeep", c, "green")
+    return c or ""
 
 
 import re as _re
@@ -87,21 +98,21 @@ async def run_once(report) -> str:
 
 async def loop(report, interval_min: int):
     # interval is read LIVE from config each cycle, so `!heartbeat <n>` applies without a restart.
-    print("heartbeat: dynamic (reads heartbeat_minutes each cycle)")
+    print("heartbeat: dynamic (reads heartbeat_minutes each cycle); curation on its own gate")
     while True:
         interval = config.heartbeat_minutes()
         if interval <= 0:
-            await asyncio.sleep(60)               # off — re-check every minute (re-enable live)
-            continue
-        await asyncio.sleep(interval * 60)
-        if config.heartbeat_minutes() <= 0:       # turned off during the sleep
-            continue
+            await asyncio.sleep(60)               # health pass off — but still poll for curation
+        else:
+            await asyncio.sleep(interval * 60)
+            if config.heartbeat_minutes() > 0:    # still on after the sleep → health pass
+                try:
+                    await run_once(report)        # the Analyst's autonomous health-check pass
+                except Exception as e:
+                    print(f"heartbeat error: {e}")
+        # Skill curation runs on its OWN gate (idle + 7-day + not paused), INDEPENDENT of the
+        # health heartbeat — so the library still gets tidied even when heartbeat is off.
         try:
-            await run_once(report)                # the Analyst's autonomous health-check pass
-            if _due_for_curate():                 # slow cadence: consolidate/archive skills
-                from ..agents import analyst
-                c = await analyst.curate()
-                if c and c.strip().upper() not in ("NOTHING", ""):
-                    await _deliver(report, "🧹", "Skill upkeep", c, "green")
+            await run_curation(report)
         except Exception as e:
-            print(f"heartbeat error: {e}")
+            print(f"curate error: {e}")

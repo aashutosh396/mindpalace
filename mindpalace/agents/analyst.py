@@ -67,9 +67,13 @@ async def reflect(owner_text: str, agent_reply: str) -> str:
                                  model=config.background_model())
 
 
-async def compact() -> str:
+async def compact(session_id: str | None = None) -> str:
     """Memory consolidation, brain-style: keep the long-term stores clean, then refresh a TINY
-    working memory (CORE.md) from them. Lose nothing durable; keep the present light."""
+    working memory (CORE.md) from them. Lose nothing durable; keep the present light.
+
+    session_id: if given (session continuity on), FORK that live session so consolidation reasons
+    over the REAL conversation, not just the current file state. Falls back to the legacy
+    contextless pass if the fork fails."""
     from .. import config
     ub, mb, cb = config.user_budget(), config.memory_budget(), config.core_budget()
     task = (
@@ -91,6 +95,11 @@ async def compact() -> str:
         "Overwrite all three with clean markdown. Reply ONE short line on what you consolidated "
         "(e.g. \"refreshed CORE 1.4k; USER 3k->2k, merged 2 dupes\"), or exactly NOTHING."
     )
+    if session_id:                               # consolidate from the REAL conversation (forked)
+        out = await brain.ask_resumed(task, session_id, permissions="full",
+                                      model=config.background_model())
+        if out and not out.startswith(("(error", "(timed out", "(empty")):
+            return out                           # else fall through to the legacy contextless pass
     return await brain.ask_async(task, [], system=_system(), permissions="full",
                                  model=config.background_model())
 

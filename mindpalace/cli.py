@@ -11,6 +11,7 @@
   mindpalace add-admin <id> / admins / remove-admin <id>
   mindpalace add-webhook <name> <url> / notify "msg"
   mindpalace status / version
+  mindpalace usage [N]  per-turn session-continuity + token stats for the last N turns (soak view)
 """
 import sys
 
@@ -134,6 +135,11 @@ def main(argv=None):
         else:
             print(f"heartbeat: {config.heartbeat_minutes()} min  ·  set with `mindpalace heartbeat <minutes>` (0 = off)")
         return
+
+    if cmd == "usage":                          # soak dashboard — session continuity + token stats
+        from .core import telemetry
+        n = int(argv[1]) if len(argv) > 1 and argv[1].isdigit() else 50
+        print(telemetry.summarize(n)); return
 
     if cmd == "workspace":
         if len(argv) > 1:                           # set + confirm a permanent workspace

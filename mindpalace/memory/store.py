@@ -131,3 +131,4 @@ def save_exchange(owner_text: str, agent_text: str) -> None:
     s, sid = store(), session_id()
     s.save_turn(sid, "Owner", owner_text)
     s.save_turn(sid, "Assistant", agent_text)
+    config.touch_activity()   # gate idle-only background work (e.g. skill curation)

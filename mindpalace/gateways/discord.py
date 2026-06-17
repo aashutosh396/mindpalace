@@ -123,11 +123,12 @@ def _memory_heavy() -> bool:
             or size(config.MEMORY_FILE()) > 0.6 * config.memory_budget())
 
 
-async def _compact(channel):
-    """Background distillation of USER.md + MEMORY.md. Posts a short note when it tightened something."""
+async def _compact(channel, system=None):
+    """Background distillation of USER.md + MEMORY.md. Posts a short note when it tightened something.
+    Forks the day's live session (when continuity is on) so it consolidates from the real chat."""
     from ..agents import analyst
     try:
-        out = await analyst.compact()
+        out = await analyst.compact(session_id=brain.current_session_id(system))
         if out and out.strip().upper() not in ("NOTHING", ""):
             await channel.send(f"_🧠 {out.strip()[:200]}_")
     except Exception:
@@ -174,6 +175,7 @@ async def _handle_command(msg, text) -> bool:
             "`!model opus` — switch my model (sonnet/opus/haiku); `!model` shows current\n"
             "`!heartbeat scan-now` — run a health check right now; `!heartbeat 30` — set the interval "
             "in minutes (0 = off); `!heartbeat` shows current\n"
+            "`!curate now` — tidy my skill library now; `!curate pause`/`resume`; `!curate` shows status\n"
             "\nEverything else you say just goes straight to me — no command needed.")
     elif cmd in ("heartbeat", "hb"):
         sub = args[0].lower() if args else ""
@@ -199,6 +201,36 @@ async def _handle_command(msg, text) -> bool:
                 f"💓 heartbeat: every **{n} min** (0 = off). Full report → **{config.heartbeat_webhook()}** "
                 f"channel, short note here. `!heartbeat scan-now` to run one immediately · "
                 f"`!heartbeat <minutes>` to change the interval.")
+    elif cmd in ("curate", "curator"):
+        sub = args[0].lower() if args else "status"
+        if sub in ("now", "run", "force"):
+            await msg.channel.send("🧹 running skill curation now — one sec…")
+            async def _rep(m):
+                await msg.channel.send(m)
+            try:
+                out = await heartbeat.run_curation(_rep, force=True)
+                if not out or out.strip().upper() in ("NOTHING", ""):
+                    await msg.channel.send("🧹 curation done — library already tidy, nothing to change.")
+            except Exception as e:
+                await msg.channel.send(f"⚠️ curation failed: {e}")
+        elif sub in ("pause", "off"):
+            config.set_curator_paused(True)
+            await msg.channel.send("⏸️ skill curation **paused** — no auto-tidy until you `!curate resume`.")
+        elif sub in ("resume", "on"):
+            config.set_curator_paused(False)
+            await msg.channel.send("▶️ skill curation **resumed** — back on the idle + 7-day gate.")
+        else:                                        # status
+            import time
+            st = config.curator_state()
+            ago = "never" if not st["last_run"] else f"{(time.time() - st['last_run']) / 86400:.1f}d ago"
+            idle_disp = "∞" if config.idle_seconds() > 1e8 else f"{config.idle_seconds() / 60:.0f}m"
+            await msg.channel.send(
+                "🧹 **Skill curation**\n"
+                f"- state: {'⏸️ paused' if st['paused'] else '▶️ active'}\n"
+                f"- runs: {st['run_count']} · last: {ago}\n"
+                f"- gate: idle ≥ {config.curator_idle_minutes()}m (now {idle_disp} idle) · ≥7 days apart\n"
+                + (f"- last note: _{st['last_summary']}_\n" if st["last_summary"] else "")
+                + "`!curate now` to run now · `!curate pause` / `!curate resume`")
     elif cmd in ("stop", "halt", "abort", "kill"):
         import os
         from ..core import service
@@ -309,7 +341,7 @@ def run():
             asyncio.create_task(_reflect(channel, text, reply))
         if config.compact_every() and n % config.compact_every() == 0 and (
                 _memory_heavy() or not config.CORE_FILE().exists()):
-            asyncio.create_task(_compact(channel))
+            asyncio.create_task(_compact(channel, system))
         return reply
 
     def make_client(name: str, spec: dict):
