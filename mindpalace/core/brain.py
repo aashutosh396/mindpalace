@@ -538,7 +538,8 @@ def _short(p: str) -> str:
 # action; the target is a CLEAN, human description (a folder/file name, a package, a
 # count) — never raw shell, flags, or full paths.
 _VERB = {
-    "read": "reading", "search": "searching", "skill_use": "using skill",
+    "read": "reading", "search": "searching",
+    "skill_find": "looking for skill", "skill_use": "found skill", "skill_run": "running skill",
     "w_user": "learning about you", "notify": "messaging you",
     "w_account": "saving", "w_infra": "noting", "w_project": "updating", "w_runbook": "writing",
     "w_log": "logging", "w_skill": "skill saved", "w_memory": "remembering", "w_note": "saving",
@@ -551,7 +552,8 @@ _VERB = {
 _TARGET = {
     "w_account": "a login", "w_infra": "the server notes", "w_project": "the project notes",
     "w_runbook": "a runbook", "w_log": "the journal", "w_skill": "a new skill",
-    "skill_use": "a skill", "w_memory": "to memory", "w_note": "a note",
+    "skill_find": "", "skill_use": "", "skill_run": "",   # verb already says "skill" — no redundant target
+    "w_memory": "to memory", "w_note": "a note",
     "w_user": "you", "notify": "you", "read": "a file", "search": "the files",
     "ssh": "the remote machine", "move": "files into place", "remove": "old files",
     "schedule": "a timer", "git": "the changes", "net": "online", "pkg": "a dependency",
@@ -584,10 +586,14 @@ def _classify(blk: dict) -> str:
         if "memory" in fp:        return "w_memory"
         return "w_note"
     if name == "Read":            return "skill_use" if "/skills/" in fp else "read"
-    if name in ("Grep", "Glob"):  return "search"
+    if name in ("Grep", "Glob"):
+        where = " ".join(str(inp.get(k, "")) for k in ("path", "pattern", "glob")).lower()
+        return "skill_find" if "/skills/" in where or "skill" in where else "search"
     if name in ("WebFetch", "WebSearch"): return "net"
     if name == "Bash":
         c = (inp.get("command", "") or "").strip().lower()
+        if "/skills/" in c:                                # running a skill's own script
+            return "skill_run"
         parts = c.split()
         first = parts[0] if parts else ""
         if first in ("sudo", "env") and len(parts) > 1:    # skip a leading sudo/env
@@ -752,6 +758,23 @@ def _skill_name(fp: str) -> str:
     return stem or "a skill"
 
 
+def _skill_in(text: str) -> str | None:
+    """Pull the skill's own name out of any string containing a '.../skills/.../<name>/...'
+    path — the dir just before 'scripts/' (skills/<scope>/<cat>/<name>/scripts/x.sh), else
+    the last directory segment. Returns None when no skills path is present."""
+    import re
+    m = re.search(r"/skills/[^\s'\"]*", text or "")
+    if not m:
+        return None
+    segs = [s for s in m.group(0).split("/") if s and s != "skills"]
+    clean = lambda s: "." not in s and "*" not in s and any(ch.isalnum() for ch in s)
+    if "scripts" in segs and segs.index("scripts") > 0:
+        cand = segs[segs.index("scripts") - 1]
+        return cand if clean(cand) else None
+    dirs = [s for s in segs if clean(s)]              # drop filenames + glob wildcards
+    return dirs[-1] if dirs else None
+
+
 def _chip(blk: dict) -> str:
     """A Hermes-style step chip: '⚡ <verb> · <target>'. Humanized, never raw shell."""
     cat = _classify(blk)
@@ -766,7 +789,12 @@ def _chip(blk: dict) -> str:
         elif fp and cat in ("read", "w_note"):
             target = _base(fp)
     elif name in ("Grep", "Glob"):
-        target = (inp.get("pattern") or inp.get("glob") or "").strip() or None
+        if cat == "skill_find":
+            pat = (inp.get("pattern") or "").strip()
+            target = _skill_in(" ".join(str(inp.get(k, "")) for k in ("path", "glob"))) \
+                or (pat if pat and "*" not in pat else None)   # a name, never a raw glob
+        else:
+            target = (inp.get("pattern") or inp.get("glob") or "").strip() or None
     elif name == "WebFetch":
         u = inp.get("url", "") or ""
         target = u.split("://")[-1].split("/")[0] if u else None
@@ -776,6 +804,8 @@ def _chip(blk: dict) -> str:
         cmd = (inp.get("command", "") or "").strip()
         if cat == "ssh":
             target = _ssh_target(cmd)
+        elif cat == "skill_run":
+            target = _skill_in(cmd)              # the skill's name, not the raw script
         elif "mindpalace.remember" in cmd or "mindpalace.notify" in cmd:
             target = _quoted(cmd)                # show the fact/message itself
         else:
