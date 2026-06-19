@@ -72,8 +72,9 @@ def fmt_dur(seconds) -> str:
     return f"{s // 60}m {s % 60}s" if s >= 60 else f"{s}s"
 
 
-def cook_verb(elapsed, every: float = 9.0) -> str:
-    """Whimsical verb that rotates every ~9s of elapsed time."""
+def cook_verb(elapsed, every: float = 3.0) -> str:
+    """Whimsical verb that rotates every ~3s of elapsed time, so it visibly keeps changing
+    (Claude-Code-style) instead of sitting on one word for a whole short turn."""
     return COOK_VERBS[int(elapsed // every) % len(COOK_VERBS)]
 
 
