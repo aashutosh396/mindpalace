@@ -68,8 +68,7 @@ def _embed_chunks(s, n=4000):
     return fixed or ["(empty)"]
 
 
-def _fmt_dur(s: int) -> str:
-    return f"{s // 60}m{s % 60}s" if s >= 60 else f"{s}s"
+from ..theme import fmt_dur as _fmt_dur, cook_verb as _cook_verb, spin_frame as _spin_frame
 
 
 async def _send_reply(channel, name, reply, icon_url=None, stats=None):
@@ -390,10 +389,11 @@ def run():
         st = {"chips": [], "msg": None, "active": True}
 
         def _body():
-            timer = _fmt_dur(int(time.monotonic() - t0))
+            el = time.monotonic() - t0
+            spin, verb, timer = _spin_frame(el), _cook_verb(el), _fmt_dur(el)
             if st["chips"]:
-                return "\n".join(f"> {c}" for c in st["chips"]) + f"\n> ⏳ {timer} · working…"
-            return f"⏳ {timer} · thinking…"
+                return "\n".join(f"> {c}" for c in st["chips"]) + f"\n> {spin} {verb}… ({timer} · working)"
+            return f"{spin} {verb}… ({timer} · thinking)"
 
         async def _paint():
             try:
@@ -431,12 +431,14 @@ def run():
         finally:
             st["active"] = False
             ticker.cancel()
-            try:                                        # finalize: drop the ⏳ timer line; keep chips
+            done = _fmt_dur(time.monotonic() - t0)
+            try:                                        # finalize: swap timer → "✻ Baked for …"; KEEP it
                 if st["msg"] is not None:
                     if st["chips"]:
-                        await st["msg"].edit(content="\n".join(f"> {c}" for c in st["chips"]))
+                        body = "\n".join(f"> {c}" for c in st["chips"]) + f"\n> ✻ Baked for {done}"
                     else:
-                        await st["msg"].delete()
+                        body = f"✻ Baked for {done}"
+                    await st["msg"].edit(content=body)
             except Exception:
                 pass
         dur = int(time.monotonic() - t0)

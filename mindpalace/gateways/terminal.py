@@ -121,15 +121,34 @@ def _make_boxed_input():
     return ask
 
 
-def _stream_reply(text, history, show):
+def _stream_reply(text, history, show, status=None, t0=None):
     """Drive the SAME brain Discord uses, printing each live step via show(line).
-    Keeps terminal and Discord behaviour identical — one base, one evolving intelligence."""
+    Keeps terminal and Discord behaviour identical — one base, one evolving intelligence.
+    If a rich `status` is given, a ticker keeps its '<verb>… (Ns · thinking)' timer live so a
+    quiet stretch reads as alive, not stuck (Claude-Code-style)."""
     import asyncio
+    import time as _time
+    from ..theme import cook_status
+    start = t0 if t0 is not None else _time.monotonic()
 
     async def _go():
         async def on_progress(line):
             show(line)
-        return await brain.ask_async_streaming(text, history, on_progress)
+
+        async def _tick():                       # heartbeat: bump verb + timer twice a second
+            while True:
+                if status is not None:
+                    try:
+                        status.update(cook_status(_time.monotonic() - start))
+                    except Exception:
+                        pass
+                await asyncio.sleep(0.5)
+
+        tk = asyncio.create_task(_tick())
+        try:
+            return await brain.ask_async_streaming(text, history, on_progress)
+        finally:
+            tk.cancel()
 
     return asyncio.run(_go())
 
@@ -218,8 +237,15 @@ def run():
         if updater.read_pending() and updater.is_affirmative(text):
             _apply_update(lambda m: console.print(f"[warn]{m}[/]"))
             continue
-        console.print(f"[muted]{name} is on it…[/]")
-        reply = _stream_reply(text, history, _show)
+        import time as _time
+        from ..theme import cook_status, baked_line
+        t0 = _time.monotonic()
+        # animated spinner: rotating glyph + cooking verb + live "(Ns · thinking)" timer.
+        # Chips/prose still print ABOVE the spinner (rich coordinates console.status writes).
+        with console.status(cook_status(0), spinner="star",
+                            spinner_style=Palette.CORAL) as status:
+            reply = _stream_reply(text, history, _show, status, t0)
+        console.print(baked_line(_time.monotonic() - t0))    # kept on screen — the done line
         console.print(Panel(Markdown(reply), title=f"[agent]◆ {name}[/]",
                             title_align="left", border_style=Palette.CORAL, padding=(0, 1)))
         history += [{"role": "Owner", "content": text},

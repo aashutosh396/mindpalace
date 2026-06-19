@@ -57,6 +57,42 @@ def logo_fits(term_width: int) -> bool:
     return term_width >= LOGO_WIDTH + 4
 
 
+# ── "cooking" thinking spinner — Claude-Code-style: rotating glyph + whimsical verb + live timer.
+#    On-brand for Ginji ("let's start cooking"). Shared by both gateways so terminal + Discord match. ──
+COOK_VERBS = [
+    "Simmering", "Fermenting", "Marinating", "Whisking", "Kneading", "Reducing",
+    "Proofing", "Basting", "Caramelizing", "Plating", "Seasoning", "Sautéing",
+    "Folding", "Searing", "Glazing", "Braising", "Tasting", "Stirring",
+]
+SPIN_FRAMES = "✻✢✶✷✸✹✺"
+
+
+def fmt_dur(seconds) -> str:
+    s = int(seconds)
+    return f"{s // 60}m {s % 60}s" if s >= 60 else f"{s}s"
+
+
+def cook_verb(elapsed, every: float = 9.0) -> str:
+    """Whimsical verb that rotates every ~9s of elapsed time."""
+    return COOK_VERBS[int(elapsed // every) % len(COOK_VERBS)]
+
+
+def spin_frame(elapsed, fps: float = 4.0) -> str:
+    """Rotating spinner glyph (for gateways that animate by re-rendering, e.g. Discord edits)."""
+    return SPIN_FRAMES[int(elapsed * fps) % len(SPIN_FRAMES)]
+
+
+def cook_status(elapsed, hint: str = "thinking") -> str:
+    """Rich-markup status text (verb + timer) — pair with a rich spinner glyph for the terminal.
+    Renders e.g. 'Fermenting… (11s · thinking)' in coral + dim."""
+    return f"[bold {Palette.CORAL}]{cook_verb(elapsed)}…[/] [{Palette.DIM}]({fmt_dur(elapsed)} · {hint})[/]"
+
+
+def baked_line(elapsed) -> str:
+    """Rich-markup done-line, e.g. '✻ Baked for 2m 23s'."""
+    return f"[{Palette.DIM}]✻ Baked for {fmt_dur(elapsed)}[/]"
+
+
 # ── prompt_toolkit style (the bordered input box) ──
 def pt_style():
     """Coral input frame + prompt caret. None if prompt_toolkit is absent."""
