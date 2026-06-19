@@ -64,20 +64,22 @@ COOK_VERBS = [
     "Proofing", "Basting", "Caramelizing", "Plating", "Seasoning", "Sautéing",
     "Folding", "Searing", "Glazing", "Braising", "Tasting", "Stirring",
 ]
-# Rotating dishes — a lively, on-brand "actively cooking" animation (vs a static glyph).
-COOK_FRAMES = ["🍳", "🥘", "🍲", "🫕", "🍜", "🥣"]
+# One emoji PER verb (paired 1:1 with COOK_VERBS above). The emoji changes only when the word
+# changes (~9s) — no fast spin; each new "dish" is a fresh sight.
+COOK_EMOJI = ["🍲", "🫙", "🥩", "🥚", "🥖", "🔥", "🍞", "🍗", "🍮", "🍽️",
+              "🧂", "🍳", "🥟", "🍖", "🍯", "🥘", "😋", "🥄"]
 
 
-def cook_spinner_name() -> str:
-    """Register a cooking-emoji spinner with rich (once) and return its name, so the terminal
-    spinner GLYPH actually animates 🍳🥘🍲🫕🍜🥣. Falls back to a built-in if rich is missing."""
+def blank_spinner_name() -> str:
+    """A no-op rich spinner (single blank frame) so console.status shows ONLY our paired
+    emoji+verb text, with no separately-animating glyph. Falls back to 'dots' if rich is absent."""
     try:
         from rich.spinner import SPINNERS
-        if "ginji" not in SPINNERS:
-            SPINNERS["ginji"] = {"interval": 160, "frames": COOK_FRAMES}
-        return "ginji"
+        if "blank" not in SPINNERS:
+            SPINNERS["blank"] = {"interval": 100000, "frames": [" "]}
+        return "blank"
     except Exception:
-        return "star"
+        return "dots"
 
 
 def fmt_dur(seconds) -> str:
@@ -97,16 +99,43 @@ def cook_verb(elapsed, every: float = 9.0, offset: int = 0) -> str:
     return COOK_VERBS[(int(elapsed // every) + offset) % len(COOK_VERBS)]
 
 
-def spin_frame(elapsed, fps: float = 1.0) -> str:
-    """Rotating cooking emoji (for gateways that animate by re-rendering, e.g. Discord edits)."""
-    return COOK_FRAMES[int(elapsed * fps) % len(COOK_FRAMES)]
+def cook_emoji(elapsed, every: float = 9.0, offset: int = 0) -> str:
+    """The emoji PAIRED to the current verb — changes only when the verb changes (~9s)."""
+    return COOK_EMOJI[(int(elapsed // every) + offset) % len(COOK_EMOJI)]
 
 
-def cook_status(elapsed, hint: str = "thinking", offset: int = 0) -> str:
-    """Rich-markup status text (verb + timer) — pair with a rich spinner glyph for the terminal.
-    Renders e.g. 'Fermenting… (11s · thinking)' in coral + dim."""
-    return (f"[bold {Palette.CORAL}]{cook_verb(elapsed, offset=offset)}…[/] "
-            f"[{Palette.DIM}]({fmt_dur(elapsed)} · {hint})[/]")
+# Escalating worded hint (Claude-Code-style) — grows as the turn drags on. More stages = more
+# variety over a long turn.
+_HINTS = [
+    (0, "thinking"), (10, "thinking some more"), (22, "still simmering"),
+    (38, "letting it reduce"), (58, "almost done thinking"), (85, "thinking real hard"),
+    (120, "deep in the sauce"), (170, "this one's a slow cook"), (240, "still on it, hang tight"),
+]
+
+
+def cook_hint(elapsed) -> str:
+    e = int(elapsed)
+    hint = _HINTS[0][1]
+    for thresh, label in _HINTS:
+        if e >= thresh:
+            hint = label
+    return hint
+
+
+def trail(elapsed, width: int = 7, fps: float = 2.0) -> str:
+    """Animated '=_=_=' thinking-trail — alternates phase ~every 0.5s for a shimmer. Replaces the
+    plain trailing '…' dots with something that visibly moves."""
+    base = "=_" if int(elapsed * fps) % 2 == 0 else "_="
+    return (base * (width // 2 + 1))[:width]
+
+
+def cook_status(elapsed, offset: int = 0) -> str:
+    """Rich-markup status: '<emoji> <verb> (<timer> · <hint>) <shimmer trail>' — no '…' dots.
+    e.g. '🍮 Caramelizing (1m 7s · almost done thinking) =_=_=_='."""
+    return (f"{cook_emoji(elapsed, offset=offset)} "
+            f"[bold {Palette.CORAL}]{cook_verb(elapsed, offset=offset)}[/] "
+            f"[{Palette.DIM}]({fmt_dur(elapsed)} · {cook_hint(elapsed)})[/] "
+            f"[{Palette.CORAL}]{trail(elapsed)}[/]")
 
 
 def baked_line(elapsed) -> str:

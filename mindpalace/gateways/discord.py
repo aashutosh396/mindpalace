@@ -68,8 +68,8 @@ def _embed_chunks(s, n=4000):
     return fixed or ["(empty)"]
 
 
-from ..theme import (fmt_dur as _fmt_dur, cook_verb as _cook_verb,
-                     spin_frame as _spin_frame, random_verb_offset as _verb_offset)
+from ..theme import (fmt_dur as _fmt_dur, cook_verb as _cook_verb, cook_emoji as _cook_emoji,
+                     cook_hint as _cook_hint, trail as _trail, random_verb_offset as _verb_offset)
 
 
 async def _send_reply(channel, name, reply, icon_url=None, stats=None):
@@ -392,10 +392,12 @@ def run():
 
         def _body():
             el = time.monotonic() - t0
-            spin, verb, timer = _spin_frame(el), _cook_verb(el, offset=voff), _fmt_dur(el)
+            emoji, verb, timer, hint = (_cook_emoji(el, offset=voff), _cook_verb(el, offset=voff),
+                                        _fmt_dur(el), _cook_hint(el))
+            status = f"{emoji} {verb} ({timer} · {hint}) {_trail(el)}"
             if st["chips"]:
-                return "\n".join(f"> {c}" for c in st["chips"]) + f"\n> {spin} {verb}… ({timer} · working)"
-            return f"{spin} {verb}… ({timer} · thinking)"
+                return "\n".join(f"> {c}" for c in st["chips"]) + f"\n> {status}"
+            return status
 
         async def _paint():
             try:
