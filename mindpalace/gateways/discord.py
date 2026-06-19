@@ -166,6 +166,7 @@ async def _handle_command(msg, text) -> bool:
             "`!help` — show this list\n"
             "`!stop` — 🛑 EMERGENCY STOP: kill whatever I'm running right now (a runaway task / "
             "context blowup). I stay online — it just halts the current work.\n"
+            "`!update check` — check GitHub for updates right now (just shows them)\n"
             "`!update` — pull the latest from GitHub + reload myself live\n"
             "`!bots` — list the bots I'm running\n"
             "`!admins` — who can talk to me\n"
@@ -253,7 +254,17 @@ async def _handle_command(msg, text) -> bool:
         await msg.channel.send(f"🛑 halted {n} running process(es) — current work stopped. I'm still here."
                                if n else "🛑 nothing was running.")
     elif cmd in ("update", "upgrade") or (cmd == "mindpalace" and args[:1] == ["update"]):
-        # pull the latest from GitHub + reload the live code, on demand (no waiting for the nag)
+        # `!update check` → just LOOK (no pull); `!update` → pull + reload live.
+        sub = (args[1] if cmd == "mindpalace" and len(args) > 1 else args[0] if args else "").lower()
+        if sub in ("check", "status", "?", "available"):
+            await msg.channel.send("🔍 checking GitHub for updates right now…")
+            info = await asyncio.to_thread(updater.check)
+            if not info:
+                await msg.channel.send("✅ up to date — you're on the latest. Nothing to pull.")
+            else:                                    # arm the "yes" reply, then show the changelog
+                updater.write_pending({"remote_sha": info["remote_sha"], "behind": info["behind"]})
+                await msg.channel.send(updater.notice_text(info))
+            return True
         await msg.channel.send("🔄 on it — grabbing the latest and reloading myself, back in a few secs…")
         result = await asyncio.to_thread(updater.accept)
         await msg.channel.send(result)
