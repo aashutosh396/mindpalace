@@ -332,6 +332,34 @@ def _pick_model(text: str) -> str | None:
     return config.power_model() if any(k in (text or "").lower() for k in _POWER_TRIGGERS) else main
 
 
+def _model_label(m: str | None) -> str:
+    """Pretty, family-level name for a model id/alias ('claude-opus-4-…' → 'Opus')."""
+    s = (m or "").lower()
+    if "opus" in s:
+        return "Opus"
+    if "sonnet" in s:
+        return "Sonnet"
+    if "haiku" in s:
+        return "Haiku"
+    return m or "default"
+
+
+_MODEL_BLURB = {
+    "Opus":   "heavier reasoning, slower, burns the Max limit faster",
+    "Sonnet": "standard — fast + plenty for most work",
+    "Haiku":  "lightest + fastest",
+}
+
+
+def _model_notice(text: str, model: str | None) -> str:
+    """One-line "which model is active right now" notice, surfaced EVERY turn so the
+    owner always knows what's doing the work. Opus only appears here when the owner
+    signalled it (power trigger), so that line doubles as the escalation alert."""
+    label = _model_label(model) if model else "default"
+    blurb = _MODEL_BLURB.get(label)
+    return f"🤖 {label} · {blurb}" if blurb else f"🤖 {label}"
+
+
 def claude_bin() -> str:
     return config.load_config().get("claude", {}).get("bin") or shutil.which("claude") or "claude"
 
@@ -786,6 +814,10 @@ async def ask_async_streaming(text, history, on_progress, system=None,
     import json as _json
     if model is None:
         model = _pick_model(text)                 # Sonnet default, Opus on signal
+        try:                                      # always tell the owner which model is active
+            await on_progress(_model_notice(text, model))
+        except Exception:
+            pass
     if config.session_continuity():               # reuse the day's claude session (cached)
         args, mode = _session_args(text, permissions, allowed_tools, model, system)
     else:                                         # legacy: rebuild the full prompt every turn

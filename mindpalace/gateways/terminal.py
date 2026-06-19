@@ -95,15 +95,15 @@ def _make_boxed_input():
         from prompt_toolkit.layout import Layout
         from prompt_toolkit.widgets import Frame, TextArea
         from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.styles import Style
     except ImportError:
         return None
 
-    style = Style.from_dict({"frame.border": "#5fafff", "prompt": "#5fafff bold"})
+    from ..theme import pt_style
+    style = pt_style()                          # coral frame + caret
 
     def ask() -> str | None:
         ta = TextArea(multiline=True, height=2, wrap_lines=True,
-                      prompt=[("class:prompt", "> ")])
+                      prompt=[("class:prompt", "❯ ")])
         kb = KeyBindings()
 
         @kb.add("enter")
@@ -142,20 +142,38 @@ def run():
         from rich.markdown import Markdown
     except ImportError:
         return _run_plain(name)
+    import shutil
+    from ..theme import Palette, logo_markup, logo_fits, rich_theme
     boxed = _make_boxed_input()
 
-    console = Console()
+    console = Console(theme=rich_theme())
+
+    # ── banner: gradient coral wordmark (wide terms) + a tidy info card ──
+    console.print()
+    if logo_fits(shutil.get_terminal_size().columns):
+        console.print(logo_markup(), highlight=False)
+    else:
+        console.print(f"[accent]◆ {name}[/]")
     console.print(Panel(
-        f"[bold]{name}[/]  [dim]· self-learning agent[/]\n"
-        f"[dim]data:[/] {config.home()}\n"
-        f"[dim]type your message · /help · /exit[/]",
-        title="[bold cyan]◈ mindpalace[/]", title_align="left",
-        border_style="cyan", padding=(1, 2)))
+        f"[accent]{name}[/]  [muted]· self-learning agent[/]\n"
+        f"[muted]data ·[/] [body]{config.home()}[/]\n"
+        f"[muted]type a message[/]  ·  [accent2]/help[/] [muted]·[/] [accent2]/exit[/]",
+        title=f"[accent]◆ {name}[/]", title_align="left",
+        subtitle="[muted]coral · focus mode[/]", subtitle_align="right",
+        border_style=Palette.CORAL, padding=(1, 2)))
     history = _load()
 
     def _notice(msg):
-        console.print(Panel(Markdown(msg), title="[bold yellow]update[/]",
-                            title_align="left", border_style="yellow", padding=(0, 1)))
+        console.print(Panel(Markdown(msg), title="[warn]◆ update[/]",
+                            title_align="left", border_style=Palette.WARN, padding=(0, 1)))
+
+    def _show(line: str):
+        """Live progress line. The model-switch notice (🤖 …) gets a bold coral
+        highlight so it stands out; everything else stays quietly dim."""
+        if line.lstrip().startswith("🤖"):
+            console.print(f"[switch]  {line}[/]")
+        else:
+            console.print(f"[muted]  {line}[/]")
 
     startup = _check_for_update(force=True)         # surface a waiting update right away
     if startup:
@@ -167,42 +185,43 @@ def run():
         if boxed:
             text = boxed()
             if text is None:
-                console.print("[dim]bye.[/]"); break
+                console.print("[muted]bye.[/]"); break
             text = text.strip()
         else:
             try:
-                text = console.input("\n[bold cyan]you[/] [dim]›[/] ").strip()
+                text = console.input("\n[accent]you[/] [muted]❯[/] ").strip()
             except (EOFError, KeyboardInterrupt):
-                console.print("\n[dim]bye.[/]"); break
+                console.print("\n[muted]bye.[/]"); break
         if not text:
             continue
         if text in ("/exit", "/quit"):
-            console.print("[dim]bye.[/]")
+            console.print("[muted]bye.[/]")
             break
         if text == "/help":
-            console.print("[dim]/status  /model <name>  /exit  · everything else goes to the agent[/]")
+            console.print("[muted]/status  /model <name>  /exit  · everything else goes to the agent[/]")
             continue
         if text == "/status":
             cfg = config.load_config()
-            console.print(f"[dim]data {config.home()} · gateway {cfg.get('gateway')} · model {config.main_model() or '(CLI default)'}[/]")
+            console.print(f"[muted]data {config.home()} · gateway {cfg.get('gateway')} · model {config.main_model() or '(CLI default)'}[/]")
             continue
         if text.startswith("/model"):
             arg = text.split(maxsplit=1)
             if len(arg) > 1:
                 val = config.set_main_model(arg[1])
-                console.print(f"[dim]model → {val}[/]" if val
-                              else "[dim]usage: /model sonnet|opus|haiku|<full-id>|default[/]")
+                console.print(f"[muted]model → [/][accent]{val}[/]" if val
+                              else "[muted]usage: /model sonnet|opus|haiku|<full-id>|default[/]")
             else:
-                console.print(f"[dim]model: {config.main_model() or '(CLI default)'} · power: {config.power_model()}[/]")
+                console.print(f"[muted]model: [/][accent]{config.main_model() or '(CLI default)'}[/]"
+                              f"[muted] · power: [/][accent2]{config.power_model()}[/]")
             continue
         # pending update + owner says "yes" → pull + reload (never goes to the brain)
         if updater.read_pending() and updater.is_affirmative(text):
-            _apply_update(lambda m: console.print(f"[yellow]{m}[/]"))
+            _apply_update(lambda m: console.print(f"[warn]{m}[/]"))
             continue
-        console.print(f"[dim]{name} is on it…[/]")
-        reply = _stream_reply(text, history, lambda l: console.print(f"[dim]  {l}[/]"))
-        console.print(Panel(Markdown(reply), title=f"[bold green]{name}[/]",
-                            title_align="left", border_style="green", padding=(0, 1)))
+        console.print(f"[muted]{name} is on it…[/]")
+        reply = _stream_reply(text, history, _show)
+        console.print(Panel(Markdown(reply), title=f"[agent]◆ {name}[/]",
+                            title_align="left", border_style=Palette.CORAL, padding=(0, 1)))
         history += [{"role": "Owner", "content": text},
                     {"role": "Assistant", "content": reply}]
         _save(history)
