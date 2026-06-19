@@ -827,6 +827,21 @@ def _semaphore():
     return _sem
 
 
+_session_locks: dict = {}     # per-identity locks: serialize turns sharing one daily claude session
+
+
+def _session_lock(system: str | None):
+    """One lock per identity (main / each scoped bot). Continuity reuses ONE claude session per
+    day per identity, and a session transcript can't take two concurrent --resume writers — so
+    same-identity turns QUEUE on this lock. Distinct identities + forked sub-agents stay parallel.
+    (Hermes guards its single session with a busy policy interrupt|queue|steer; this is 'queue'.)"""
+    key = hashlib.sha1((system or "main").encode()).hexdigest()[:8]
+    lock = _session_locks.get(key)
+    if lock is None:
+        lock = _session_locks[key] = asyncio.Lock()
+    return lock
+
+
 async def ask_async_streaming(text, history, on_progress, system=None,
                               permissions="full", allowed_tools=None, max_steps=20, model=None) -> str:
     """Run the brain with streamed events; relay live commentary via on_progress(str):
@@ -839,20 +854,28 @@ async def ask_async_streaming(text, history, on_progress, system=None,
             await on_progress(_model_notice(text, model))
         except Exception:
             pass
-    if config.session_continuity():               # reuse the day's claude session (cached)
-        args, mode = _session_args(text, permissions, allowed_tools, model, system)
-    else:                                         # legacy: rebuild the full prompt every turn
-        args = _args(build_prompt(text, history, system), permissions, allowed_tools, model)
-        mode = "legacy"
-    args += ["--output-format", "stream-json", "--verbose"]
-    final, steps, usage = "", 0, {}
+    final, steps, usage, mode = "", 0, {}, "legacy"
     pending = None                               # last text block, held back (may be the final answer)
     chips: dict = {}                             # tool_use id -> chip text, emitted when the step finishes
     last_chip = None                             # dedup identical back-to-back chips
-    sem = _semaphore()
-    await sem.acquire()                          # cap concurrent claude procs
     proc = None
+    # One claude session per day per identity means two parallel messages to the SAME bot would
+    # both --resume the same transcript and tangle it. So same-identity turns QUEUE on a per-identity
+    # lock; distinct identities (main vs scoped bots) + forked sub-agents stay fully parallel.
+    # Lock only under continuity — legacy rebuilds a fresh prompt each turn, nothing shared.
+    lock = _session_lock(system) if config.session_continuity() else None
+    sem = _semaphore()
+    sem_held = lock_held = False
     try:
+        if lock is not None:
+            await lock.acquire(); lock_held = True   # queue: wait out the prior same-session turn
+        if config.session_continuity():           # reuse the day's claude session (cached)
+            args, mode = _session_args(text, permissions, allowed_tools, model, system)
+        else:                                     # legacy: rebuild the full prompt every turn
+            args = _args(build_prompt(text, history, system), permissions, allowed_tools, model)
+            mode = "legacy"
+        args += ["--output-format", "stream-json", "--verbose"]
+        await sem.acquire(); sem_held = True       # cap concurrent claude procs
         try:
             # limit=64 MB/line: stream-json echoes image tool-results as inline base64,
             # which blows past asyncio's 64 KB default and would kill the read mid-stream.
@@ -954,7 +977,10 @@ async def ask_async_streaming(text, history, on_progress, system=None,
             return await ask_async(text, history, system, permissions, allowed_tools)
         await proc.wait()
     finally:
-        sem.release()                            # ALWAYS free the permit — no leak on any path
+        if sem_held:
+            sem.release()                        # ALWAYS free the permit — no leak on any path
+        if lock_held:
+            lock.release()                       # ALWAYS free the session — next queued turn runs
     if final:
         telemetry.log_turn(mode, model, usage, steps, fallback=False)
         return final
