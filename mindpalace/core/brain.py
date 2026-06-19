@@ -344,20 +344,11 @@ def _model_label(m: str | None) -> str:
     return m or "default"
 
 
-_MODEL_BLURB = {
-    "Opus":   "heavier reasoning, slower, burns the Max limit faster",
-    "Sonnet": "standard — fast + plenty for most work",
-    "Haiku":  "lightest + fastest",
-}
-
-
 def _model_notice(text: str, model: str | None) -> str:
-    """One-line "which model is active right now" notice, surfaced EVERY turn so the
-    owner always knows what's doing the work. Opus only appears here when the owner
-    signalled it (power trigger), so that line doubles as the escalation alert."""
-    label = _model_label(model) if model else "default"
-    blurb = _MODEL_BLURB.get(label)
-    return f"🤖 {label} · {blurb}" if blurb else f"🤖 {label}"
+    """Short, human-friendly "which model is active" line, surfaced EVERY turn so the
+    owner always knows what's doing the work — no explanation, it repeats too often."""
+    label = _model_label(model) if model else "default model"
+    return f"🤖 using {label}"
 
 
 def claude_bin() -> str:
