@@ -378,8 +378,9 @@ def run():
 
     clients: dict[str, "discord.Client"] = {}   # name -> client
     scoped_ids: set[int] = set()                 # user-ids of non-main bots (for mention checks)
+    turn_locks: dict = {}                        # per-bot: serialize a WHOLE turn (work + reply post)
 
-    async def _run_brain(channel, name, text, system, perms, allowed):
+    async def _do_turn(channel, name, text, system, perms, allowed):
         """Drive one bot's brain; STREAM its steps live; reply; persist; file in background."""
         history = _load(name)
         t0 = time.monotonic()
@@ -470,6 +471,21 @@ def run():
                 _memory_heavy() or not config.CORE_FILE().exists()):
             asyncio.create_task(_compact(channel, system))
         return reply
+
+    async def _run_brain(channel, name, text, system, perms, allowed):
+        """Serialize a bot's turns END-TO-END (work + reply post) so the previous answer lands
+        BEFORE the next queued message announces itself. If this turn had to wait, name the message
+        it just picked up — order is then: prior answer → '▶️ now on: …' → this answer."""
+        lock = turn_locks.setdefault(name, asyncio.Lock())
+        queued = lock.locked()                    # someone's turn is still posting → we're in line
+        async with lock:
+            if queued:
+                snippet = " ".join((text or "").split())[:140]
+                try:
+                    await channel.send(f"_▶️ now on: {snippet}_")
+                except Exception:
+                    pass
+            return await _do_turn(channel, name, text, system, perms, allowed)
 
     def make_client(name: str, spec: dict):
         is_main = spec.get("trigger", "mention") == "home"
