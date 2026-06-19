@@ -93,14 +93,14 @@ def random_verb_offset() -> int:
     return random.randrange(len(COOK_VERBS))
 
 
-def cook_verb(elapsed, every: float = 9.0, offset: int = 0) -> str:
-    """Whimsical verb that rotates every ~9s of elapsed time. `offset` (a per-turn random start)
-    varies which verb it opens on, so it's not always 'Simmering'."""
+def cook_verb(elapsed, every: float = 30.0, offset: int = 0) -> str:
+    """Whimsical verb that rotates only every ~30s — calm (1-2 changes in a typical turn), not a
+    distracting every-few-seconds churn. `offset` (per-turn random start) varies the opening verb."""
     return COOK_VERBS[(int(elapsed // every) + offset) % len(COOK_VERBS)]
 
 
-def cook_emoji(elapsed, every: float = 9.0, offset: int = 0) -> str:
-    """The emoji PAIRED to the current verb — changes only when the verb changes (~9s)."""
+def cook_emoji(elapsed, every: float = 30.0, offset: int = 0) -> str:
+    """The emoji PAIRED to the current verb — changes only when the verb changes (~30s)."""
     return COOK_EMOJI[(int(elapsed // every) + offset) % len(COOK_EMOJI)]
 
 
@@ -122,11 +122,19 @@ def cook_hint(elapsed) -> str:
     return hint
 
 
-def trail(elapsed, width: int = 7, fps: float = 2.0) -> str:
-    """Animated '=_=_=' thinking-trail — alternates phase ~every 0.5s for a shimmer. Replaces the
-    plain trailing '…' dots with something that visibly moves."""
-    base = "=_" if int(elapsed * fps) % 2 == 0 else "_="
-    return (base * (width // 2 + 1))[:width]
+_PULSE = "⣿⣶⣦⣄⣀"            # braille comet: head → fading tail
+
+
+def trail(elapsed=0, width: int = 8, step: float = 0.35) -> str:
+    """A braille MOVING PULSE — a bright comet that scans back and forth with a fading tail,
+    e.g. '[⣿⣶⣦⣄⣀⣀⣀⣀]'. Position advances with `elapsed`, so it visibly moves each redraw
+    (smooth in the terminal at 0.5s, stepping in Discord per edit)."""
+    n = int(elapsed / step)
+    period = 2 * (width - 1) if width > 1 else 1
+    p = n % period
+    head = p if p < width else period - p           # ping-pong across the track
+    cells = [_PULSE[d] if (d := abs(i - head)) < len(_PULSE) else "⣀" for i in range(width)]
+    return "[" + "".join(cells) + "]"
 
 
 def cook_status(elapsed, offset: int = 0) -> str:

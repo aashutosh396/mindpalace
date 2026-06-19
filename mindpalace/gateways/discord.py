@@ -408,9 +408,9 @@ def run():
             except Exception:
                 pass
 
-        async def _ticker():                            # heartbeat: bump emoji + timer while we wait
+        async def _ticker():                            # heartbeat: move the pulse + bump timer
             while st["active"]:
-                await asyncio.sleep(2.5)                 # lively but well under Discord edit limits
+                await asyncio.sleep(1.5)                 # lively but safe vs Discord edit limits
                 if st["active"]:
                     await _paint()
 
