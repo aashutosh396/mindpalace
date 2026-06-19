@@ -382,30 +382,63 @@ def run():
     async def _run_brain(channel, name, text, system, perms, allowed):
         """Drive one bot's brain; STREAM its steps live; reply; persist; file in background."""
         history = _load(name)
+        t0 = time.monotonic()
 
-        # Chips (⚡ …) stack into ONE growing blockquote message — compact, Hermes-style.
-        # A prose line breaks the block and posts on its own, then the next chips start fresh.
-        st = {"chips": [], "msg": None}
+        # ONE live status message: ⚡ chips stack into it AND it shows a ticking timer ("⏳ 0m12s ·
+        # thinking…") that a background ticker bumps every few seconds — so a long quiet stretch
+        # reads as ALIVE, not stuck. Prose lines commit the current block, then post on their own.
+        st = {"chips": [], "msg": None, "active": True}
+
+        def _body():
+            timer = _fmt_dur(int(time.monotonic() - t0))
+            if st["chips"]:
+                return "\n".join(f"> {c}" for c in st["chips"]) + f"\n> ⏳ {timer} · working…"
+            return f"⏳ {timer} · thinking…"
+
+        async def _paint():
+            try:
+                if st["msg"] is None:
+                    st["msg"] = await channel.send(_body())
+                else:
+                    await st["msg"].edit(content=_body())
+            except Exception:
+                pass
+
+        async def _ticker():                            # heartbeat: bump the timer while we wait
+            while st["active"]:
+                await asyncio.sleep(4)
+                if st["active"]:
+                    await _paint()
 
         async def on_progress(line):
             try:
                 if line.startswith("⚡"):
                     st["chips"].append(line)
-                    body = "\n".join(f"> {c}" for c in st["chips"])
-                    if st["msg"] is not None:
-                        await st["msg"].edit(content=body)
-                    else:
-                        st["msg"] = await channel.send(body)
-                else:                                   # prose → its own line; reset the chip block
+                    await _paint()
+                else:                                   # prose / 🤖 notice → freeze block, post on its own
+                    if st["msg"] is not None and st["chips"]:
+                        await st["msg"].edit(content="\n".join(f"> {c}" for c in st["chips"]))
                     st["chips"], st["msg"] = [], None
                     await channel.send(f"_{line}_")
             except Exception:
                 pass
 
-        t0 = time.monotonic()
-        async with channel.typing():                   # instant + continuous typing
-            reply = await brain.ask_async_streaming(
-                text, history, on_progress, system=system, permissions=perms, allowed_tools=allowed)
+        ticker = asyncio.create_task(_ticker())
+        try:
+            async with channel.typing():               # instant + continuous typing
+                reply = await brain.ask_async_streaming(
+                    text, history, on_progress, system=system, permissions=perms, allowed_tools=allowed)
+        finally:
+            st["active"] = False
+            ticker.cancel()
+            try:                                        # finalize: drop the ⏳ timer line; keep chips
+                if st["msg"] is not None:
+                    if st["chips"]:
+                        await st["msg"].edit(content="\n".join(f"> {c}" for c in st["chips"]))
+                    else:
+                        await st["msg"].delete()
+            except Exception:
+                pass
         dur = int(time.monotonic() - t0)
         reply, _files = _extract_attachments(reply)
         reply = notify.prettify_tables(reply)        # md tables → aligned, fenced (Discord can't render md tables)
