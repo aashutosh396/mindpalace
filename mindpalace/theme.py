@@ -137,12 +137,12 @@ def trail(elapsed=0, width: int = 8, step: float = 0.35) -> str:
     return "[" + "".join(cells) + "]"
 
 
-def bar_pulse(elapsed, width: int = 9, step: float = 1.5) -> str:
-    """A block MOVING PULSE for Discord: one filled ▰ advancing forward through ▱s, wrapping back
-    to the first — '▰▱▱▱▱▱▱▱▱' → '▱▰▱▱▱▱▱▱▱' → … Always moves forward (one cell per ~tick), so even
-    at Discord's slow edit cadence it reads as progress. step≈the gateway's edit interval."""
-    pos = int(elapsed / step) % width
-    return "".join("▰" if i == pos else "▱" for i in range(width))
+def bar_fill(elapsed, width: int = 21, step: float = 1.5) -> str:
+    """A FILLING progress bar for Discord: boxes fill cumulatively, one per ~tick — when it reaches
+    box 2, boxes 1+2 are BOTH filled — up to the end, then it restarts from the first.
+    '▰▱▱…' → '▰▰▱…' → '▰▰▰…' → … → all '▰' → back to '▰▱▱…'. step ≈ the gateway's edit interval."""
+    filled = int(elapsed / step) % width + 1          # 1..width, then wraps to 1
+    return "▰" * filled + "▱" * (width - filled)
 
 
 def cook_status(elapsed, offset: int = 0) -> str:
