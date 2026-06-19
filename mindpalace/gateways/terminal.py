@@ -121,11 +121,11 @@ def _make_boxed_input():
     return ask
 
 
-def _stream_reply(text, history, show, status=None, t0=None):
+def _stream_reply(text, history, show, status=None, t0=None, offset=0):
     """Drive the SAME brain Discord uses, printing each live step via show(line).
     Keeps terminal and Discord behaviour identical — one base, one evolving intelligence.
     If a rich `status` is given, a ticker keeps its '<verb>… (Ns · thinking)' timer live so a
-    quiet stretch reads as alive, not stuck (Claude-Code-style)."""
+    quiet stretch reads as alive, not stuck (Claude-Code-style). `offset` randomizes the verb."""
     import asyncio
     import time as _time
     from ..theme import cook_status
@@ -139,7 +139,7 @@ def _stream_reply(text, history, show, status=None, t0=None):
             while True:
                 if status is not None:
                     try:
-                        status.update(cook_status(_time.monotonic() - start))
+                        status.update(cook_status(_time.monotonic() - start, offset=offset))
                     except Exception:
                         pass
                 await asyncio.sleep(0.5)
@@ -238,13 +238,14 @@ def run():
             _apply_update(lambda m: console.print(f"[warn]{m}[/]"))
             continue
         import time as _time
-        from ..theme import cook_status, baked_line
+        from ..theme import cook_status, baked_line, random_verb_offset
         t0 = _time.monotonic()
+        voff = random_verb_offset()              # this turn starts on a random verb
         # animated spinner: rotating glyph + cooking verb + live "(Ns · thinking)" timer.
         # Chips/prose still print ABOVE the spinner (rich coordinates console.status writes).
-        with console.status(cook_status(0), spinner="star",
+        with console.status(cook_status(0, offset=voff), spinner="star",
                             spinner_style=Palette.CORAL) as status:
-            reply = _stream_reply(text, history, _show, status, t0)
+            reply = _stream_reply(text, history, _show, status, t0, voff)
         console.print(baked_line(_time.monotonic() - t0))    # kept on screen — the done line
         console.print(Panel(Markdown(reply), title=f"[agent]◆ {name}[/]",
                             title_align="left", border_style=Palette.CORAL, padding=(0, 1)))

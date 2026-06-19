@@ -68,7 +68,8 @@ def _embed_chunks(s, n=4000):
     return fixed or ["(empty)"]
 
 
-from ..theme import fmt_dur as _fmt_dur, cook_verb as _cook_verb, spin_frame as _spin_frame
+from ..theme import (fmt_dur as _fmt_dur, cook_verb as _cook_verb,
+                     spin_frame as _spin_frame, random_verb_offset as _verb_offset)
 
 
 async def _send_reply(channel, name, reply, icon_url=None, stats=None):
@@ -387,10 +388,11 @@ def run():
         # thinking…") that a background ticker bumps every few seconds — so a long quiet stretch
         # reads as ALIVE, not stuck. Prose lines commit the current block, then post on their own.
         st = {"chips": [], "msg": None, "active": True}
+        voff = _verb_offset()                    # this turn starts on a random verb
 
         def _body():
             el = time.monotonic() - t0
-            spin, verb, timer = _spin_frame(el), _cook_verb(el), _fmt_dur(el)
+            spin, verb, timer = _spin_frame(el), _cook_verb(el, offset=voff), _fmt_dur(el)
             if st["chips"]:
                 return "\n".join(f"> {c}" for c in st["chips"]) + f"\n> {spin} {verb}… ({timer} · working)"
             return f"{spin} {verb}… ({timer} · thinking)"

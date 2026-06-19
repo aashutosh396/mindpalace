@@ -72,10 +72,16 @@ def fmt_dur(seconds) -> str:
     return f"{s // 60}m {s % 60}s" if s >= 60 else f"{s}s"
 
 
-def cook_verb(elapsed, every: float = 3.0) -> str:
+def random_verb_offset() -> int:
+    """Pick once per turn so each turn STARTS on a different verb (not always 'Simmering')."""
+    import random
+    return random.randrange(len(COOK_VERBS))
+
+
+def cook_verb(elapsed, every: float = 3.0, offset: int = 0) -> str:
     """Whimsical verb that rotates every ~3s of elapsed time, so it visibly keeps changing
-    (Claude-Code-style) instead of sitting on one word for a whole short turn."""
-    return COOK_VERBS[int(elapsed // every) % len(COOK_VERBS)]
+    (Claude-Code-style). `offset` (a per-turn random start) varies which verb it opens on."""
+    return COOK_VERBS[(int(elapsed // every) + offset) % len(COOK_VERBS)]
 
 
 def spin_frame(elapsed, fps: float = 4.0) -> str:
@@ -83,10 +89,11 @@ def spin_frame(elapsed, fps: float = 4.0) -> str:
     return SPIN_FRAMES[int(elapsed * fps) % len(SPIN_FRAMES)]
 
 
-def cook_status(elapsed, hint: str = "thinking") -> str:
+def cook_status(elapsed, hint: str = "thinking", offset: int = 0) -> str:
     """Rich-markup status text (verb + timer) — pair with a rich spinner glyph for the terminal.
     Renders e.g. 'Fermenting… (11s · thinking)' in coral + dim."""
-    return f"[bold {Palette.CORAL}]{cook_verb(elapsed)}…[/] [{Palette.DIM}]({fmt_dur(elapsed)} · {hint})[/]"
+    return (f"[bold {Palette.CORAL}]{cook_verb(elapsed, offset=offset)}…[/] "
+            f"[{Palette.DIM}]({fmt_dur(elapsed)} · {hint})[/]")
 
 
 def baked_line(elapsed) -> str:
