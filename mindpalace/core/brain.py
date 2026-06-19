@@ -869,12 +869,9 @@ async def ask_async_streaming(text, history, on_progress, system=None,
     the model's own prose lines + a Hermes-style '⚡ verb · target ✅' chip per tool step.
     Returns the final reply. Falls back to non-streaming if the stream yields nothing."""
     import json as _json
-    if model is None:
+    auto = model is None
+    if auto:
         model = _pick_model(text)                 # Sonnet default, Opus on signal
-        try:                                      # always tell the owner which model is active
-            await on_progress(_model_notice(text, model))
-        except Exception:
-            pass
     final, steps, usage, mode = "", 0, {}, "legacy"
     pending = None                               # last text block, held back (may be the final answer)
     chips: dict = {}                             # tool_use id -> chip text, emitted when the step finishes
@@ -890,7 +887,18 @@ async def ask_async_streaming(text, history, on_progress, system=None,
     sem_held = lock_held = False
     try:
         if lock is not None:
-            await lock.acquire(); lock_held = True   # queue: wait out the prior same-session turn
+            queued = lock.locked()                   # someone's ahead → we'll wait our turn
+            await lock.acquire(); lock_held = True    # queue: wait out the prior same-session turn
+            if queued:                               # picked up FROM the queue → say which message
+                try:
+                    await on_progress("▶️ now on: " + _trim(text, 140))
+                except Exception:
+                    pass
+        if auto:                                     # which model is active (after the queue note)
+            try:
+                await on_progress(_model_notice(text, model))
+            except Exception:
+                pass
         if config.session_continuity():           # reuse the day's claude session (cached)
             args, mode = _session_args(text, permissions, allowed_tools, model, system)
         else:                                     # legacy: rebuild the full prompt every turn
