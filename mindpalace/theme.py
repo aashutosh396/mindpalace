@@ -64,7 +64,20 @@ COOK_VERBS = [
     "Proofing", "Basting", "Caramelizing", "Plating", "Seasoning", "Sautéing",
     "Folding", "Searing", "Glazing", "Braising", "Tasting", "Stirring",
 ]
-SPIN_FRAMES = "✻✢✶✷✸✹✺"
+# Rotating dishes — a lively, on-brand "actively cooking" animation (vs a static glyph).
+COOK_FRAMES = ["🍳", "🥘", "🍲", "🫕", "🍜", "🥣"]
+
+
+def cook_spinner_name() -> str:
+    """Register a cooking-emoji spinner with rich (once) and return its name, so the terminal
+    spinner GLYPH actually animates 🍳🥘🍲🫕🍜🥣. Falls back to a built-in if rich is missing."""
+    try:
+        from rich.spinner import SPINNERS
+        if "ginji" not in SPINNERS:
+            SPINNERS["ginji"] = {"interval": 160, "frames": COOK_FRAMES}
+        return "ginji"
+    except Exception:
+        return "star"
 
 
 def fmt_dur(seconds) -> str:
@@ -78,15 +91,15 @@ def random_verb_offset() -> int:
     return random.randrange(len(COOK_VERBS))
 
 
-def cook_verb(elapsed, every: float = 3.0, offset: int = 0) -> str:
-    """Whimsical verb that rotates every ~3s of elapsed time, so it visibly keeps changing
-    (Claude-Code-style). `offset` (a per-turn random start) varies which verb it opens on."""
+def cook_verb(elapsed, every: float = 9.0, offset: int = 0) -> str:
+    """Whimsical verb that rotates every ~9s of elapsed time. `offset` (a per-turn random start)
+    varies which verb it opens on, so it's not always 'Simmering'."""
     return COOK_VERBS[(int(elapsed // every) + offset) % len(COOK_VERBS)]
 
 
-def spin_frame(elapsed, fps: float = 4.0) -> str:
-    """Rotating spinner glyph (for gateways that animate by re-rendering, e.g. Discord edits)."""
-    return SPIN_FRAMES[int(elapsed * fps) % len(SPIN_FRAMES)]
+def spin_frame(elapsed, fps: float = 1.0) -> str:
+    """Rotating cooking emoji (for gateways that animate by re-rendering, e.g. Discord edits)."""
+    return COOK_FRAMES[int(elapsed * fps) % len(COOK_FRAMES)]
 
 
 def cook_status(elapsed, hint: str = "thinking", offset: int = 0) -> str:

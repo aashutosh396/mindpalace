@@ -238,12 +238,12 @@ def run():
             _apply_update(lambda m: console.print(f"[warn]{m}[/]"))
             continue
         import time as _time
-        from ..theme import cook_status, baked_line, random_verb_offset
+        from ..theme import cook_status, baked_line, random_verb_offset, cook_spinner_name
         t0 = _time.monotonic()
         voff = random_verb_offset()              # this turn starts on a random verb
-        # animated spinner: rotating glyph + cooking verb + live "(Ns · thinking)" timer.
+        # animated 🍳🥘🍲 spinner + cooking verb + live "(Ns · thinking)" timer.
         # Chips/prose still print ABOVE the spinner (rich coordinates console.status writes).
-        with console.status(cook_status(0, offset=voff), spinner="star",
+        with console.status(cook_status(0, offset=voff), spinner=cook_spinner_name(),
                             spinner_style=Palette.CORAL) as status:
             reply = _stream_reply(text, history, _show, status, t0, voff)
         console.print(baked_line(_time.monotonic() - t0))    # kept on screen — the done line
