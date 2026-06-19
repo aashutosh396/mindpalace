@@ -16,6 +16,7 @@ the brain decides what's worth backgrounding.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 
 from .. import config
@@ -82,4 +83,98 @@ async def watch_loop(report, interval: int = 5):
                 await _run_one(path, report)
         except Exception as e:
             print(f"job watcher error: {e}")
+        await asyncio.sleep(interval)
+
+
+# ======================================================================
+# Background AGENT jobs (Tier 2/3): hand off a long AGENTIC task — not a
+# shell script, but real reasoning + tool use — to run async. The brain drops
+# the task here, replies instantly, and a watcher runs it on a FORK of the live
+# session (full context, lock-free → doesn't block live chat) and reports back.
+#
+#   jobs/agent_queue/   <name>.task  (plain text = the task)  OR  <name>.json
+#   jobs/agent_running/ currently executing
+#   jobs/agent_done/    <name>.log   (task + result), kept for inspection
+# ======================================================================
+
+def agent_queue_dir():   return _d("agent_queue")
+def agent_running_dir(): return _d("agent_running")
+def agent_done_dir():    return _d("agent_done")
+
+
+def submit_agent(task: str, name: str = "task", system: str | None = None) -> str:
+    """Programmatic submit of a background agent task (the brain may also just write a .task file)."""
+    safe = "".join(c for c in name if c.isalnum() or c in "-_") or "task"
+    fn = f"{safe}-{int(time.time())}.json"
+    (agent_queue_dir() / fn).write_text(json.dumps({"task": task, "system": system, "ts": time.time()}))
+    return fn
+
+
+# Tier 3: wrap a handed-off task so the background worker decomposes + summarizes — a big task
+# self-chunks into ordered steps instead of one monolithic, easy-to-stall blob.
+_AGENT_WRAP = (
+    "You are running as a BACKGROUND worker — the owner is NOT waiting live, so work autonomously "
+    "and DON'T ask questions; make sensible decisions and proceed. Do this end to end:\n\n"
+    "{task}\n\n"
+    "First break it into clear ordered steps, then carry them out one by one. When finished, reply "
+    "with a SHORT summary: what you created/changed (files + key decisions) and anything the owner "
+    "should review or run."
+)
+
+
+def _load_agent_task(path) -> tuple[str, str | None]:
+    """Return (task_text, system) from a .task (plain text) or .json file. ('' , None) if unreadable."""
+    try:
+        if path.suffix == ".json":
+            spec = json.loads(path.read_text())
+            return (spec.get("task", "") or "").strip(), spec.get("system")
+        return path.read_text().strip(), None
+    except Exception:
+        return "", None
+
+
+async def _run_agent_one(path, report):
+    from . import brain
+    task, system = _load_agent_task(path)
+    name = path.stem
+    if not task:
+        try: path.unlink()
+        except OSError: pass
+        return
+    run_path = agent_running_dir() / path.name
+    try:
+        path.rename(run_path)
+    except OSError:
+        return
+    await report(f"🛠️ started background task **{name}** — working on it, I'll report back when it's done.")
+    started = time.time()
+    prompt = _AGENT_WRAP.format(task=task)
+    try:
+        sid = brain.current_session_id(system)            # fork the live session if one exists today
+        if sid:
+            reply = await brain.ask_resumed(prompt, sid, timeout=config.agent_job_timeout())
+        else:                                             # no live session → fresh, self-contained turn
+            reply = await brain.ask_async(prompt, [], system=system)
+    except Exception as e:
+        reply = f"(background task error: {e})"
+    dur = int(time.time() - started)
+    (agent_done_dir() / f"{name}.log").write_text(f"dur={dur}s\n\nTASK:\n{task}\n\nRESULT:\n{reply}")
+    try: run_path.unlink()
+    except OSError: pass
+    mins = f"{dur // 60}m{dur % 60}s" if dur >= 60 else f"{dur}s"
+    bad = reply.startswith("(") and reply.endswith(")")   # our error/timeout markers
+    mark = "⚠️" if bad else "✅"
+    await report(f"{mark} background task **{name}** done ({mins})\n\n{reply[:1500]}")
+
+
+async def agent_watch_loop(report, interval: int = 5):
+    """Run queued background AGENT tasks one at a time; report start + result to the home channel.
+    Runs on forked sessions, so it executes ALONGSIDE live chat without taking the session lock."""
+    print("agent-job watcher started")
+    while True:
+        try:
+            for path in sorted([*agent_queue_dir().glob("*.task"), *agent_queue_dir().glob("*.json")]):
+                await _run_agent_one(path, report)
+        except Exception as e:
+            print(f"agent-job watcher error: {e}")
         await asyncio.sleep(interval)

@@ -53,7 +53,8 @@ def run():
         async def _go():
             await asyncio.gather(
                 jobs.watch_loop(report),
+                jobs.agent_watch_loop(report),
                 heartbeat.loop(report, config.heartbeat_minutes()),
                 updater.loop(report, updater.interval_minutes()))
-        print("daemon: job watcher + heartbeat + update watcher (Discord not configured)")
+        print("daemon: job + agent-job watcher + heartbeat + update watcher (Discord not configured)")
         asyncio.run(_go())

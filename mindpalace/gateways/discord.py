@@ -489,7 +489,8 @@ def run():
             tasks.append(make_client(name, spec).start(tok))
         if not tasks:
             raise SystemExit("No bot tokens — run `mindpalace setup` / `mindpalace add-bot`.")
-        tasks.append(jobs.watch_loop(report))   # async dispatch: run queued jobs, report back
+        tasks.append(jobs.watch_loop(report))   # async dispatch: run queued bash jobs, report back
+        tasks.append(jobs.agent_watch_loop(report))  # run handed-off long AGENT tasks, report back
         tasks.append(heartbeat.loop(report, config.heartbeat_minutes()))   # autonomous self-tick
         tasks.append(updater.loop(report, updater.interval_minutes()))     # git update watcher
         await asyncio.gather(*tasks)

@@ -282,6 +282,15 @@ def turn_max_seconds() -> int:
         return 3600
 
 
+def agent_job_timeout() -> int:
+    """Total wall-clock cap for a BACKGROUND agent job (a long task handed off to run async, not
+    inline). Generous by default since nobody's blocked waiting on it. Default 3600 (1h)."""
+    try:
+        return max(60, int(load_config().get("agent_job_timeout", 3600)))
+    except (TypeError, ValueError):
+        return 3600
+
+
 def session_continuity() -> bool:
     """Reuse ONE claude CLI session per day per identity (--session-id / --resume) instead of
     rebuilding the full prompt each turn. Gives full in-session history + prompt-cache hits.

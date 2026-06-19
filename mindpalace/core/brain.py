@@ -66,11 +66,16 @@ def _capabilities() -> str:
 
 def _async_ops() -> str:
     qd = config.home() / "jobs" / "queue"
+    aq = config.home() / "jobs" / "agent_queue"
     if config.lean_voice():
         return (
             "STAYING RESPONSIVE (async):\n"
-            f"- Slow work (>~1 min: backups, deploys, big scrapes) → do NOT run inline. Write a bash "
-            f"script to {qd}/<name>.sh and reply that you queued it; a watcher runs it + reports back.\n"
+            f"- Slow SHELL work (backups, deploys, big scrapes) → write a bash script to "
+            f"{qd}/<name>.sh and reply you queued it; a watcher runs it + reports back.\n"
+            f"- Long MULTI-STEP work (build a feature, scaffold many files, big refactor) → don't "
+            f"grind it out inline. Write the task as plain text to {aq}/<name>.task and reply you've "
+            "started on it. A background worker (your forked session, full context) does it and "
+            "reports back when done — you stay free. First sketch the steps, then proceed.\n"
             "- Proactive update any time:  python3 -m mindpalace.notify 'message'\n"
             "- You MAY drop ONE short casual opener before your first action ('checking your "
             "Downloads…'). Do NOT narrate after that — the ⚡ step chips show progress. Keep the "
@@ -78,10 +83,17 @@ def _async_ops() -> str:
         )
     return (
         "STAYING RESPONSIVE (async):\n"
-        f"- For slow work (>~1 min: backups, deploys, big scrapes), do NOT run it inline. "
+        f"- For slow SHELL work (backups, deploys, big scrapes), do NOT run it inline. "
         f"Write a bash script to {qd}/<name>.sh and reply immediately that you queued it. "
-        "A background watcher runs it and reports the result to the home channel — so you "
-        "stay free to chat. Use this for anything long.\n"
+        "A background watcher runs it and reports the result to the home channel.\n"
+        f"- For long MULTI-STEP AGENTIC work (build a feature, scaffold many files, a big refactor — "
+        f"anything that would take many minutes of reasoning + edits), hand it off: write the task as "
+        f"plain text to {aq}/<name>.task and reply right away that you've started on it. A background "
+        "worker runs it on a fork of THIS session (so it keeps full context), works through it, and "
+        "reports back when done — so you stay free to chat. Sketch the steps first, then proceed.\n"
+        "- BREAK BIG TASKS DOWN: whether inline or handed off, first lay out the ordered steps, then "
+        "do them one at a time. A long but steady task is fine to run inline (it won't be killed while "
+        "it's making progress); hand off only when it's genuinely long or the owner shouldn't wait.\n"
         "- Post a proactive update to the owner any time:  python3 -m mindpalace.notify 'message'\n"
         "- LIVE NARRATION (important): right BEFORE your first action, write ONE short casual line "
         "in your own words saying what you're about to do ('lemme check your Downloads…'). Before "
@@ -543,6 +555,7 @@ _VERB = {
     "w_user": "learning about you", "notify": "messaging you",
     "w_account": "saving", "w_infra": "noting", "w_project": "updating", "w_runbook": "writing",
     "w_log": "logging", "w_skill": "skill saved", "w_memory": "remembering", "w_note": "saving",
+    "w_job": "handing off",
     "ssh": "connecting", "move": "moving", "remove": "clearing", "schedule": "scheduling",
     "git": "saving", "net": "fetching", "pkg": "installing", "run": "running",
     "service": "restarting", "fs": "setting up", "archive": "packing", "inspect": "checking",
@@ -552,6 +565,7 @@ _VERB = {
 _TARGET = {
     "w_account": "a login", "w_infra": "the server notes", "w_project": "the project notes",
     "w_runbook": "a runbook", "w_log": "the journal", "w_skill": "a new skill",
+    "w_job": "a background task",
     "skill_find": "", "skill_use": "", "skill_run": "",   # verb already says "skill" — no redundant target
     "w_memory": "to memory", "w_note": "a note",
     "w_user": "you", "notify": "you", "read": "a file", "search": "the files",
@@ -577,6 +591,7 @@ def _classify(blk: dict) -> str:
     inp = blk.get("input", {}) or {}
     fp = (inp.get("file_path", "") or "").lower()
     if name in ("Write", "Edit"):
+        if "/jobs/" in fp:        return "w_job"
         if "/accounts/" in fp:    return "w_account"
         if "/infra/" in fp:       return "w_infra"
         if "/projects/" in fp:    return "w_project"
@@ -1041,7 +1056,8 @@ async def ask_async(text: str, history: list[dict], system: str | None = None,
 
 
 async def ask_resumed(task: str, session_id: str, permissions: str = "full",
-                      allowed_tools: str | None = None, model: str | None = None) -> str:
+                      allowed_tools: str | None = None, model: str | None = None,
+                      timeout: int | None = None) -> str:
     """Run a one-off background turn that FORKS an existing claude session — so it inherits the
     FULL conversation (cheaply, via prompt cache) WITHOUT polluting the live session. Lets the
     analyst consolidate/reflect from the real conversation instead of re-deriving from files.
@@ -1056,16 +1072,17 @@ async def ask_resumed(task: str, session_id: str, permissions: str = "full",
         args += ["--allowedTools", allowed_tools]
     else:                                        # full; IS_SANDBOX=1 unblocks bypass as root
         args += ["--dangerously-skip-permissions"]
+    tmo = timeout or TIMEOUT                      # background jobs pass a longer cap
     async with _semaphore():                     # cap concurrent claude procs
         try:
             proc = await asyncio.create_subprocess_exec(
                 *args, cwd=str(config.home()), env=_env(),
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            out, err = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT)
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=tmo)
             return (out.decode(errors="replace").strip()
                     or f"(empty; {err.decode(errors='replace')[:200]})")
         except asyncio.TimeoutError:
             proc.kill()
-            return f"(timed out after {TIMEOUT}s)"
+            return f"(timed out after {tmo}s)"
         except Exception as e:
             return f"(error: {str(e)[:160]})"
