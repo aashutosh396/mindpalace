@@ -43,6 +43,47 @@ def _chunks(s, n=1900):
     return [s[i:i + n] for i in range(0, len(s), n)] or ["(empty)"]
 
 
+CORAL = 0xFF6B5C        # primary accent — the bot's embed bar, so its replies stand out from yours
+
+
+def _embed_chunks(s, n=4000):
+    """Split a reply onto embed-description-sized pieces (cap 4096), breaking on line boundaries
+    and BALANCING ``` fences so a code block split across cards stays valid on both sides."""
+    out, cur = [], ""
+    for line in (s or "").splitlines(keepends=True):
+        if cur and len(cur) + len(line) > n:
+            out.append(cur); cur = ""
+        cur += line
+    if cur:
+        out.append(cur)
+    fixed, carry = [], ""
+    for ch in out:
+        body = carry + ch
+        carry = ""
+        if body.count("```") % 2:            # left a fence open → close here, reopen next card
+            body += "\n```"
+            carry = "```\n"
+        fixed.append(body[:4096])
+    return fixed or ["(empty)"]
+
+
+async def _send_reply(channel, name, reply, icon_url=None):
+    """Send the bot's FINAL answer as coral embed card(s). Discord can't right-align messages, so
+    the coral left bar + name header is how the bot's reply reads as distinct from the owner's
+    plain messages. Long replies → multiple cards; only the first carries the header."""
+    import discord
+    chunks = _embed_chunks(reply)
+    for i, c in enumerate(chunks):
+        em = discord.Embed(description=c, color=CORAL)
+        if i == 0:
+            try:
+                em.set_author(name=f"🤖 {name}", icon_url=icon_url) if icon_url \
+                    else em.set_author(name=f"🤖 {name}")
+            except Exception:
+                em.set_author(name=f"🤖 {name}")
+        await channel.send(embed=em)
+
+
 import re as _re
 from pathlib import Path as _Path
 _ATTACH_RE = _re.compile(r'^[ \t]*(?:📎[ \t]*)?ATTACH:[ \t]*(.+?)[ \t]*$', _re.M)
@@ -350,8 +391,10 @@ def run():
                 text, history, on_progress, system=system, permissions=perms, allowed_tools=allowed)
         reply, _files = _extract_attachments(reply)
         reply = notify.prettify_tables(reply)        # md tables → aligned, fenced (Discord can't render md tables)
-        for c in _chunks(reply):
-            await channel.send(c)
+        cl = clients.get(name)                       # bot's live display name + avatar for the card header
+        disp = cl.user.display_name if cl and cl.user else name
+        icon = cl.user.display_avatar.url if cl and cl.user else None
+        await _send_reply(channel, disp, reply, icon)
         for _fp in _files:                       # attach rendered tables/images/CSVs for big data
             try:
                 await channel.send(file=discord.File(_fp))
