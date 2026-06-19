@@ -356,6 +356,12 @@ def _model_label(m: str | None) -> str:
     return m or "default"
 
 
+def model_label_for(text: str) -> str:
+    """Family-level name ('Opus'/'Sonnet'/'Haiku'/'default') of the model THIS turn would use —
+    for surfacing in the UI (e.g. a reply footer). Deterministic; mirrors _pick_model."""
+    return _model_label(_pick_model(text))
+
+
 def _model_notice(text: str, model: str | None) -> str:
     """Short, human-friendly "which model is active" line, surfaced EVERY turn so the
     owner always knows what's doing the work — no explanation, it repeats too often."""

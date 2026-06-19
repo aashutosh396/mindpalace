@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 from ..core import brain, jobs, heartbeat, updater, notify
 from .. import bots, config
@@ -67,14 +68,16 @@ def _embed_chunks(s, n=4000):
     return fixed or ["(empty)"]
 
 
-_END_BAR = "━" * 28        # bottom "end" marker so the reply is clearly bracketed top + bottom
+def _fmt_dur(s: int) -> str:
+    return f"{s // 60}m{s % 60}s" if s >= 60 else f"{s}s"
 
 
-async def _send_reply(channel, name, reply, icon_url=None):
+async def _send_reply(channel, name, reply, icon_url=None, stats=None):
     """Send the bot's FINAL answer as coral embed card(s). Discord can't right-align messages and
     only the LEFT bar can be coral — but that bar runs the full height, and we bracket it with a
     header at the TOP (first card) and an 'end' bar at the BOTTOM (last card) so it's obvious where
-    the reply starts and stops. Long replies → multiple cards; header on first, footer on last."""
+    the reply starts and stops. The end-bar doubles as a run summary (model · duration) when given.
+    Long replies → multiple cards; header on first, footer on last."""
     import discord
     chunks = _embed_chunks(reply)
     last = len(chunks) - 1
@@ -87,7 +90,13 @@ async def _send_reply(channel, name, reply, icon_url=None):
             except Exception:
                 em.set_author(name=f"🤖 {name}")
         if i == last:
-            em.set_footer(text=f"{_END_BAR}  end of {name}'s reply  {_END_BAR}")
+            label = f"{name} · {stats}" if stats else f"end of {name}'s reply"
+            bar = "━" * (12 if stats else 24)
+            try:
+                em.set_footer(text=f"{bar}  {label}  {bar}", icon_url=icon_url) if icon_url \
+                    else em.set_footer(text=f"{bar}  {label}  {bar}")
+            except Exception:
+                em.set_footer(text=f"{bar}  {label}  {bar}")
         await channel.send(embed=em)
 
 
@@ -393,15 +402,18 @@ def run():
             except Exception:
                 pass
 
+        t0 = time.monotonic()
         async with channel.typing():                   # instant + continuous typing
             reply = await brain.ask_async_streaming(
                 text, history, on_progress, system=system, permissions=perms, allowed_tools=allowed)
+        dur = int(time.monotonic() - t0)
         reply, _files = _extract_attachments(reply)
         reply = notify.prettify_tables(reply)        # md tables → aligned, fenced (Discord can't render md tables)
         cl = clients.get(name)                       # bot's live display name + avatar for the card header
         disp = cl.user.display_name if cl and cl.user else name
         icon = cl.user.display_avatar.url if cl and cl.user else None
-        await _send_reply(channel, disp, reply, icon)
+        stats = f"{brain.model_label_for(text)} · {_fmt_dur(dur)}"   # end-bar run summary
+        await _send_reply(channel, disp, reply, icon, stats=stats)
         for _fp in _files:                       # attach rendered tables/images/CSVs for big data
             try:
                 await channel.send(file=discord.File(_fp))
