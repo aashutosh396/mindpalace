@@ -69,7 +69,7 @@ def _embed_chunks(s, n=4000):
 
 
 from ..theme import (fmt_dur as _fmt_dur, cook_verb as _cook_verb, cook_emoji as _cook_emoji,
-                     cook_hint as _cook_hint, trail as _trail, random_verb_offset as _verb_offset)
+                     cook_hint as _cook_hint, bar_pulse as _bar, random_verb_offset as _verb_offset)
 
 
 async def _send_reply(channel, name, reply, icon_url=None, stats=None):
@@ -394,7 +394,7 @@ def run():
             el = time.monotonic() - t0
             emoji, verb, timer, hint = (_cook_emoji(el, offset=voff), _cook_verb(el, offset=voff),
                                         _fmt_dur(el), _cook_hint(el))
-            status = f"{emoji} {verb} ({timer} · {hint}) {_trail(el)}"
+            status = f"{emoji} {verb} ({timer} · {hint}) {_bar(el)}"
             if st["chips"]:
                 return "\n".join(f"> {c}" for c in st["chips"]) + f"\n> {status}"
             return status

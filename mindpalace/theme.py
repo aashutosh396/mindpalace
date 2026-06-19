@@ -137,6 +137,14 @@ def trail(elapsed=0, width: int = 8, step: float = 0.35) -> str:
     return "[" + "".join(cells) + "]"
 
 
+def bar_pulse(elapsed, width: int = 9, step: float = 1.5) -> str:
+    """A block MOVING PULSE for Discord: one filled ▰ advancing forward through ▱s, wrapping back
+    to the first — '▰▱▱▱▱▱▱▱▱' → '▱▰▱▱▱▱▱▱▱' → … Always moves forward (one cell per ~tick), so even
+    at Discord's slow edit cadence it reads as progress. step≈the gateway's edit interval."""
+    pos = int(elapsed / step) % width
+    return "".join("▰" if i == pos else "▱" for i in range(width))
+
+
 def cook_status(elapsed, offset: int = 0) -> str:
     """Rich-markup status: '<emoji> <verb> (<timer> · <hint>) <shimmer trail>' — no '…' dots.
     e.g. '🍮 Caramelizing (1m 7s · almost done thinking) =_=_=_='."""
