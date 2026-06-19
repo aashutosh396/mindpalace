@@ -858,6 +858,7 @@ async def ask_async_streaming(text, history, on_progress, system=None,
     pending = None                               # last text block, held back (may be the final answer)
     chips: dict = {}                             # tool_use id -> chip text, emitted when the step finishes
     last_chip = None                             # dedup identical back-to-back chips
+    last_activity = 0.0                          # loop-clock of the last stream event (idle watchdog)
     proc = None
     # One claude session per day per identity means two parallel messages to the SAME bot would
     # both --resume the same transcript and tangle it. So same-identity turns QUEUE on a per-identity
@@ -887,7 +888,7 @@ async def ask_async_streaming(text, history, on_progress, system=None,
             return f"(error: {str(e)[:160]})"
 
         async def _read():
-            nonlocal final, steps, pending, last_chip, usage
+            nonlocal final, steps, pending, last_chip, usage, last_activity
             while True:
                 try:
                     raw = await proc.stdout.readline()
@@ -896,6 +897,7 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                     continue
                 if not raw:
                     break                        # EOF
+                last_activity = asyncio.get_event_loop().time()   # progress → reset idle watchdog
                 line = raw.decode(errors="replace").strip()
                 if not line:
                     continue
@@ -961,11 +963,39 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                     usage = ev.get("usage", {}) or usage   # token + prompt-cache stats for telemetry
                     # `pending` (the last unfollowed text) is the final answer — never streamed.
 
+        async def _guarded_read():
+            """Run _read under an INACTIVITY watchdog: kill the turn only after `idle` seconds
+            with no stream event (a real hang), not on total duration. A large hard cap backstops
+            runaways. Raises TimeoutError so the existing handler reports + recovers."""
+            loop = asyncio.get_event_loop()
+            nonlocal last_activity
+            last_activity = loop.time()
+            start = last_activity
+            idle = config.turn_idle_seconds()
+            hard = config.turn_max_seconds()
+            rt = asyncio.create_task(_read())
+            while not rt.done():
+                done, _ = await asyncio.wait({rt}, timeout=min(15, idle))
+                if rt in done:
+                    break
+                now = loop.time()
+                if now - last_activity > idle or (hard and now - start > hard):
+                    rt.cancel()
+                    try:
+                        await rt
+                    except asyncio.CancelledError:
+                        pass
+                    raise asyncio.TimeoutError
+            await rt                              # surface a normal finish / propagate errors
+
         try:
-            await asyncio.wait_for(_read(), timeout=TIMEOUT)
+            await _guarded_read()
         except asyncio.TimeoutError:
-            proc.kill()
-            return final or f"(timed out after {TIMEOUT}s — break it into steps)"
+            if proc.returncode is None:
+                proc.kill()
+            idle = config.turn_idle_seconds()
+            return final or (f"(stalled — no progress for {idle}s, so I stopped. "
+                             "Tell me to continue, or let's break it into smaller steps.)")
         except Exception:
             # never let a stream hiccup swallow the reply (or strand the request)
             if proc.returncode is None:

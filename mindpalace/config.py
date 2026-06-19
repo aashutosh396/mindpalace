@@ -262,6 +262,26 @@ def reflect_every() -> int:
         return 4
 
 
+def turn_idle_seconds() -> int:
+    """Streaming turns are killed only after this many seconds of NO progress (no prose/tool
+    events) — an INACTIVITY watchdog, not a total cap. A task that keeps emitting steps runs as
+    long as it stays productive; only a genuinely stuck turn is reaped. Default 600."""
+    try:
+        return max(60, int(load_config().get("turn_idle_seconds", 600)))
+    except (TypeError, ValueError):
+        return 600
+
+
+def turn_max_seconds() -> int:
+    """Hard backstop on total turn wall-clock, regardless of activity — stops a runaway from
+    holding the session lock forever. 0 = no hard cap (rely on the idle watchdog alone).
+    Default 3600 (1h)."""
+    try:
+        return max(0, int(load_config().get("turn_max_seconds", 3600)))
+    except (TypeError, ValueError):
+        return 3600
+
+
 def session_continuity() -> bool:
     """Reuse ONE claude CLI session per day per identity (--session-id / --resume) instead of
     rebuilding the full prompt each turn. Gives full in-session history + prompt-cache hits.
