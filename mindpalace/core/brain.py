@@ -165,6 +165,13 @@ def _self_knowledge() -> str:
         "tokens → secrets/, referenced not pasted),\n"
         "    • a server / host / VPS / service → record it in infra/<host>.md,\n"
         "  and ALWAYS append a line to LOG.md. This is how you stay smart — never skip it.\n"
+        "- REACHING SERVERS (SSH is NOT sandboxed — any past 'sandbox-blocked' was really an auth/"
+        "config gap): connect with the EXACT command in vault/infra/<host>.md, always non-interactive: "
+        "`ssh -i <key> -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 "
+        "<user>@<host> '<cmd>'`. If a host has no working access, SET IT UP yourself: add a Host block "
+        "to ~/.ssh/config from the infra file, `chmod 600` the key, test once, then record the alias in "
+        "infra. If there's genuinely no key for a host, say so and ask the owner for it. Always report "
+        "the REAL ssh error (publickey / timeout / host-key) — never just 'sandbox-blocked'.\n"
         "- Update memory/ and your identity files (USER.md / AGENT.md) whenever you learn something "
         "durable about the owner or how they work."
     )
@@ -496,7 +503,27 @@ def _env() -> dict:
     if tok:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
     env["IS_SANDBOX"] = "1"  # claude's own escape hatch so bypassPermissions works as root
+    # SSH from the daemon: make sure ssh finds ~/.ssh/config + the agent even if the daemon was
+    # started by launchd with a thin env (else `ssh <alias>` falls back to default keys → publickey
+    # denied, which past health checks mis-reported as "sandbox-blocked").
+    env.setdefault("HOME", os.path.expanduser("~"))
+    if "SSH_AUTH_SOCK" not in env:
+        sock = _ssh_auth_sock()
+        if sock:
+            env["SSH_AUTH_SOCK"] = sock
     return env
+
+
+def _ssh_auth_sock() -> str | None:
+    """Best-effort: find the user's ssh-agent socket (launchd-spawned daemons lack SSH_AUTH_SOCK).
+    macOS keeps it under /private/tmp/com.apple.launchd.*/Listeners."""
+    try:
+        import glob
+        socks = glob.glob("/private/tmp/com.apple.launchd.*/Listeners")
+        socks += glob.glob("/tmp/ssh-*/agent.*")
+        return socks[0] if socks else None
+    except Exception:
+        return None
 
 
 READONLY_TOOLS = "Read,Glob,Grep,WebFetch,WebSearch"
