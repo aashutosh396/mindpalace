@@ -26,7 +26,7 @@ PROMPT = (
 )
 
 
-async def run_curation(report, force: bool = False) -> str:
+async def run_curation(report, force: bool = False, card=None) -> str:
     """Skill curation on its OWN cadence, independent of whether the health heartbeat is enabled.
     Skips unless: not paused, idle ≥ curator_idle_minutes (never rewrite skills mid-chat), and
     ≥7 days since the last run — unless force=True (manual `!curate now`). Claims the window BEFORE
@@ -52,17 +52,23 @@ async def run_curation(report, force: bool = False) -> str:
         st["last_summary"] = c.strip()[:300]
     config.save_curator_state(st)
     if spoke:
-        await _deliver(report, "🧹", "Skill upkeep", c, "green")
+        await _deliver(report, "🧹", "Skill upkeep", c, "green", card=card)
     return c or ""
 
 
 import re as _re
 
 
-async def _deliver(report, emoji, title, body, accent):
-    """Full (boxed) report → the logs/updates webhook channel. To home: only a SHORT one-line note
-    — for a health check, the at-a-glance tally (N ✓ · N ⚠ · N ✗) so the owner can spot a problem
-    and go look. Keeps long reports out of the main channel."""
+async def _deliver(report, emoji, title, body, accent, card=None):
+    """Deliver a report. If a `card` reporter is given (Discord gateway), post the FULL report as a
+    colored CARD to the home channel (same style as a reply) — that's the new default. Otherwise
+    (headless daemon) fall back to the boxed report → webhook + a short tally note to home."""
+    if card is not None:
+        try:
+            await card(f"{emoji} {title}", body, accent)
+            return
+        except Exception:
+            pass                                       # card failed → fall through to box/webhook
     from . import notify
     hook = config.heartbeat_webhook()
     where = config.heartbeat_channel_label()       # friendly channel name for the note
@@ -84,19 +90,19 @@ async def _deliver(report, emoji, title, body, accent):
     await report(note)
 
 
-async def run_once(report) -> str:
-    """Run ONE health-check pass now (the Analyst's review) and deliver it (full → updates
-    webhook, short tally → home). Shared by the scheduled tick and the manual `!heartbeat scan-now`.
+async def run_once(report, card=None) -> str:
+    """Run ONE health-check pass now (the Analyst's review) and deliver it as a YELLOW card to home
+    (via `card`), or boxed→webhook if no card. Shared by the scheduled tick and `!heartbeat scan-now`.
     Returns the report text, or "" if all quiet."""
     from ..agents import analyst
     reply = await analyst.review()
     if reply and reply.strip().upper() not in ("NOTHING", ""):
-        await _deliver(report, "💓", "Heartbeat", reply, "cyan")
+        await _deliver(report, "💓", "Heartbeat", reply, "yellow", card=card)
         return reply
     return ""
 
 
-async def loop(report, interval_min: int):
+async def loop(report, interval_min: int, card=None):
     # interval is read LIVE from config each cycle, so `!heartbeat <n>` applies without a restart.
     print("heartbeat: dynamic (reads heartbeat_minutes each cycle); curation on its own gate")
     while True:
@@ -107,12 +113,12 @@ async def loop(report, interval_min: int):
             await asyncio.sleep(interval * 60)
             if config.heartbeat_minutes() > 0:    # still on after the sleep → health pass
                 try:
-                    await run_once(report)        # the Analyst's autonomous health-check pass
+                    await run_once(report, card=card)   # the Analyst's autonomous health-check pass
                 except Exception as e:
                     print(f"heartbeat error: {e}")
         # Skill curation runs on its OWN gate (idle + 7-day + not paused), INDEPENDENT of the
         # health heartbeat — so the library still gets tidied even when heartbeat is off.
         try:
-            await run_curation(report)
+            await run_curation(report, card=card)
         except Exception as e:
             print(f"curate error: {e}")

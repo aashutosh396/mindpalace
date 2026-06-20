@@ -45,6 +45,8 @@ def _chunks(s, n=1900):
 
 
 CORAL = 0xFF6B5C        # primary accent — the bot's embed bar, so its replies stand out from yours
+YELLOW = 0xFFC861       # health-check card bar (distinct from coral replies)
+_ACCENT_COLOR = {"cyan": YELLOW, "yellow": YELLOW, "green": 0x7BD88F, "red": 0xFF5370, "blue": 0x5FAFFF}
 
 
 def _embed_chunks(s, n=4000):
@@ -161,23 +163,39 @@ def _steer_kind(new: str) -> str:
     return "new"
 
 
-async def _send_reply(channel, name, reply, icon_url=None, stats=None):
-    """Send the bot's FINAL answer as coral embed card(s). Discord can't right-align messages and
-    only the LEFT bar can be coral — but that bar runs the full height, and we bracket it with a
-    header at the TOP (first card) and an 'end' bar at the BOTTOM (last card) so it's obvious where
-    the reply starts and stops. The end-bar doubles as a run summary (model · duration) when given.
-    Long replies → multiple cards; header on first, footer on last."""
+async def _post_health_card(channel, title, body, accent="yellow"):
+    """Health/curation report as a CARD (same style as a reply; end-bar = the tally), colored per
+    accent (yellow for health). Markdown renders in an embed, but md tables don't — align first."""
+    from ..core import notify as _n
+    import re as _re
+    b = _n.prettify_tables((body or "").strip())
+    m = _re.search(r"✓\s*(\d+)\s*⚠\s*(\d+)\s*✗\s*(\d+)", b)
+    stats = f"{m.group(1)} ✓ · {m.group(2)} ⚠ · {m.group(3)} ✗" if m else "done"
+    try:
+        icon = channel.guild.me.display_avatar.url
+    except Exception:
+        icon = None
+    await _send_reply(channel, title, b, icon, stats=stats,
+                      color=_ACCENT_COLOR.get(accent, YELLOW), header=title)
+
+
+async def _send_reply(channel, name, reply, icon_url=None, stats=None, color=CORAL, header=None):
+    """Send a card-style reply: a left-bar embed with a header at the TOP and an 'end' bar at the
+    BOTTOM (doubles as a summary: model · duration, or a health tally). `color` sets the bar (coral
+    for replies, yellow for health). `header` overrides the '🤖 <name>' top line. Long replies →
+    multiple cards; header on first, footer on last."""
     import discord
+    head = header or f"🤖 {name}"
     chunks = _embed_chunks(reply)
     last = len(chunks) - 1
     for i, c in enumerate(chunks):
-        em = discord.Embed(description=c, color=CORAL)
+        em = discord.Embed(description=c, color=color)
         if i == 0:
             try:
-                em.set_author(name=f"🤖 {name}", icon_url=icon_url) if icon_url \
-                    else em.set_author(name=f"🤖 {name}")
+                em.set_author(name=head, icon_url=icon_url) if icon_url \
+                    else em.set_author(name=head)
             except Exception:
-                em.set_author(name=f"🤖 {name}")
+                em.set_author(name=head)
         if i == last:
             label = f"{name} · {stats}" if stats else f"end of {name}'s reply"
             bar = "━" * (12 if stats else 24)
@@ -333,8 +351,10 @@ async def _handle_command(msg, text) -> bool:
             await msg.channel.send("🔍 running a health check right now — one sec…")
             async def _rep(m):
                 await msg.channel.send(m)
+            async def _scan_card(title, body, accent):
+                await _post_health_card(msg.channel, title, body, accent)
             try:
-                out = await heartbeat.run_once(_rep)      # full → updates webhook, tally → here
+                out = await heartbeat.run_once(_rep, card=_scan_card)   # yellow card → this channel
                 if not out:
                     await msg.channel.send("💓 scan done — all quiet, nothing to flag.")
             except Exception as e:
@@ -371,8 +391,10 @@ async def _handle_command(msg, text) -> bool:
             await msg.channel.send("🧹 running skill curation now — one sec…")
             async def _rep(m):
                 await msg.channel.send(m)
+            async def _cur_card(title, body, accent):
+                await _post_health_card(msg.channel, title, body, accent)
             try:
-                out = await heartbeat.run_curation(_rep, force=True)
+                out = await heartbeat.run_curation(_rep, force=True, card=_cur_card)
                 if not out or out.strip().upper() in ("NOTHING", ""):
                     await msg.channel.send("🧹 curation done — library already tidy, nothing to change.")
             except Exception as e:
@@ -808,6 +830,16 @@ def run():
         from ..core import notify
         notify.notify(message, "home")
 
+    async def _health_card_home(title, body, accent):
+        """Card → the HOME channel (main chat). Falls back to the box+webhook if home isn't ready."""
+        main = clients.get("main")
+        ch = main.get_channel(home_channel) if (main and main.is_ready() and home_channel) else None
+        if ch:
+            await _post_health_card(ch, title, body, accent)
+        else:
+            from ..core import notify as _n
+            await asyncio.to_thread(_n.notify, _n.box(title, body, accent), config.heartbeat_webhook())
+
     async def _main():
         tasks = []
         for name, spec in registry.items():
@@ -820,7 +852,7 @@ def run():
             raise SystemExit("No bot tokens — run `mindpalace setup` / `mindpalace add-bot`.")
         tasks.append(jobs.watch_loop(report))   # async dispatch: run queued bash jobs, report back
         tasks.append(jobs.agent_watch_loop(report))  # run handed-off long AGENT tasks, report back
-        tasks.append(heartbeat.loop(report, config.heartbeat_minutes()))   # autonomous self-tick
+        tasks.append(heartbeat.loop(report, config.heartbeat_minutes(), card=_health_card_home))  # → home card
         tasks.append(updater.loop(report, updater.interval_minutes()))     # git update watcher
         await asyncio.gather(*tasks)
 
