@@ -68,13 +68,31 @@ def prettify_tables(text: str) -> str:
     return "\n".join(out)
 
 
+def _strip_md(text: str) -> str:
+    """Markdown doesn't render inside a monospace box, so '**bold**', '## Heading', and `code`
+    show as literal junk. Make it READABLE: drop bold/code markers, turn headings into clean
+    UPPERCASE lines, normalize bullets to '• '. Tables (handled by _align_tables) pass through."""
+    out = []
+    for ln in (text or "").split("\n"):
+        h = _re.match(r"^\s*#{1,6}\s+(.*)$", ln)
+        if h:                                            # '## ✓ All good' → '✓ ALL GOOD'
+            out.append(h.group(1).strip().rstrip("#").strip().upper()); continue
+        s = _re.sub(r"\*\*(.+?)\*\*", r"\1", ln)         # **bold**
+        s = _re.sub(r"__(.+?)__", r"\1", s)              # __bold__
+        s = s.replace("`", "")                            # inline-code backticks
+        s = _re.sub(r"^(\s*)[-*]\s+", r"\1• ", s)        # - / * bullets → •
+        out.append(s)
+    return "\n".join(out)
+
+
 def box(title: str, body: str, accent: str = "cyan") -> str:
     """Tidy ansi colour box for system messages — coloured title, body below.
     Shared format for heartbeat / notifications / system messages."""
     fg = {"cyan": "1;36", "green": "0;32", "yellow": "1;33", "red": "1;31", "blue": "1;34"}
     fence = chr(96) * 3
     nl = chr(10)
-    body = _align_tables((body or "").strip()).replace(fence, "ʼʼʼ")   # align tables, protect fence
+    # strip markdown (won't render in monospace) THEN align tables, then protect the fence
+    body = _align_tables(_strip_md((body or "").strip())).replace(fence, "ʼʼʼ")
     if len(body) > 1700:
         body = body[:1699].rstrip() + "…"
     esc = chr(27)
