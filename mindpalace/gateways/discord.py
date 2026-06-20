@@ -81,6 +81,17 @@ _FOLLOWUP_KW = ("also", "and also", "plus", "as well", "make sure", "oh and", "o
 _STEER_EARLY_SECS = 25       # "early" in the task → an addition is worth interrupting for
 
 
+_BG_KW = ("in the background", "in the bg", "in parallel", "background this", "bg:", "on the side",
+          "at the same time", "meanwhile", "in the meantime", "don't wait", "do not wait",
+          "asynchronously", "as a side task", "run it in background", "while you")
+
+
+def _wants_background(text: str) -> bool:
+    """Owner explicitly wants this run in PARALLEL (not queued/blocking). Heuristic, no model call."""
+    low = (text or "").lower()
+    return any(k in low for k in _BG_KW)
+
+
 def _steer_kind(new: str) -> str:
     """Heuristic: a mid-task message is a 'correction' (steer/stop), an 'addition' (do this too),
     or a 'new' topic (queue separately). Fast + free; no model call."""
@@ -545,12 +556,48 @@ def run():
             active.pop(name, None)
             return reply
 
+    async def _background(channel, name, text, system):
+        """Run a task in PARALLEL (the owner asked to background it): forks the session so it's
+        lock-free — it runs ALONGSIDE live chat (and the current turn) — acks now and posts the
+        result back to THIS channel when done. Doesn't touch the queue."""
+        cl = clients.get(name)
+        disp = cl.user.display_name if cl and cl.user else name
+        icon = cl.user.display_avatar.url if cl and cl.user else None
+        await channel.send("🛠️ on it in the background — keep chatting, I'll post the result here when it's done.")
+
+        async def _run():
+            t0 = time.monotonic()
+            wrapped = ("You're running this as a BACKGROUND task, in PARALLEL with the live chat. Do it "
+                       "end to end autonomously (don't ask questions), then reply with a SHORT summary "
+                       "of what you did.\n\n" + text)
+            try:
+                sid = brain.current_session_id(system)
+                if sid:
+                    reply = await brain.ask_resumed(wrapped, sid, timeout=config.agent_job_timeout())
+                else:
+                    reply = await brain.ask_async(wrapped, [], system=system)
+            except Exception as e:
+                reply = f"(background task hit an error: {e})"
+            reply, files = _extract_attachments(reply)
+            reply = notify.prettify_tables(reply)
+            await _send_reply(channel, disp, reply, icon,
+                              stats=f"background · {_fmt_dur(time.monotonic() - t0)}")
+            for fp in files:
+                try:
+                    await channel.send(file=discord.File(fp))
+                except Exception:
+                    pass
+        asyncio.create_task(_run())
+
     async def _dispatch(channel, name, text, system, perms, allowed):
         """Smart steering for a message that lands while the bot is busy:
           • correction ('wait/no/instead') OR an addition while the task JUST started → interrupt,
             merge it in, re-run.
           • addition later in the task → fold in as a continuation after the current turn finishes.
           • new topic → queue normally (serialized behind the current turn)."""
+        if _wants_background(text):               # explicit 'in parallel / in the background' → fork it
+            await _background(channel, name, text, system)
+            return None
         cur = active.get(name)
         if cur and not cur["task"].done():
             kind = _steer_kind(text)
