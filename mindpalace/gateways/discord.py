@@ -395,10 +395,11 @@ def run():
             el = time.monotonic() - t0
             emoji, verb, timer, hint = (_cook_emoji(el, offset=voff), _cook_verb(el, offset=voff),
                                         _fmt_dur(el), _cook_hint(el))
-            status = f"{emoji} {verb} ({timer} · {hint}) {_bar(el)}"
+            head = f"{emoji} {verb} ({timer} · {hint})"   # the loader goes on its OWN line below
+            bar = _bar(el)
             if st["chips"]:
-                return "\n".join(f"> {c}" for c in st["chips"]) + f"\n> {status}"
-            return status
+                return "\n".join([f"> {c}" for c in st["chips"]] + [f"> {head}", f"> {bar}"])
+            return f"{head}\n{bar}"
 
         async def _paint():
             try:

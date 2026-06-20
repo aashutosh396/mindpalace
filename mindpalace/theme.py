@@ -137,13 +137,13 @@ def trail(elapsed=0, width: int = 8, step: float = 0.35) -> str:
     return "[" + "".join(cells) + "]"
 
 
-def bar_fill(elapsed, width: int = 10, step: float = 1.5) -> str:
-    """A FILLING progress bar for Discord: 10 big EMOJI boxes fill cumulatively, one per ~tick —
-    when it reaches box 2, boxes 1+2 are BOTH filled — up to the end, then it restarts from the
-    first. '🟧⬜⬜…' → '🟧🟧⬜…' → … → all '🟧' → back to '🟧⬜⬜…'. Emoji squares are uniform width
-    (no jitter) and big. step ≈ the gateway's edit interval."""
+def bar_fill(elapsed, width: int = 20, step: float = 1.5) -> str:
+    """An apt/Ubuntu-style progress bar for Discord, meant for its OWN line below the status:
+    '[# # # # . . . . . . . . . . . . . . . . ]'. '#' cells fill cumulatively (one per ~tick),
+    spaced apart + bracketed, to the end, then restart from the first. step ≈ edit interval."""
     filled = int(elapsed / step) % width + 1          # 1..width, then wraps to 1
-    return "🟧" * filled + "⬜" * (width - filled)
+    cells = " ".join("#" if i < filled else "." for i in range(width))
+    return f"[{cells}]"
 
 
 def cook_status(elapsed, offset: int = 0) -> str:
