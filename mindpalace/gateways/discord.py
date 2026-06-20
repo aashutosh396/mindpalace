@@ -92,6 +92,64 @@ def _wants_background(text: str) -> bool:
     return any(k in low for k in _BG_KW)
 
 
+# Merged background-task panel, per channel: one live message listing ALL running bg tasks
+# (label + timer + bar), kept at the bottom; completed ones drop off and post their own ✅ + summary.
+_BG: dict = {}                # channel_id -> {channel, tasks:{tid:{label,t0}}, msg, ticker, done:[]}
+_BG_SEQ = [0]
+
+
+def _bg_state(channel):
+    s = _BG.get(channel.id)
+    if s is None:
+        s = _BG[channel.id] = {"channel": channel, "tasks": {}, "msg": None, "ticker": None, "done": []}
+    return s
+
+
+def _bg_render(s):
+    if not s["tasks"]:
+        return None
+    lines = [f"🛠️ **background** · {len(s['tasks'])} running"]
+    for t in s["tasks"].values():
+        el = time.monotonic() - t["t0"]
+        lines.append(f"⏳ {t['label']} · {_fmt_dur(el)}  {_bar(el)}")
+    return "\n".join(lines)
+
+
+async def _bg_paint(s):
+    """Post/refresh the merged panel; re-post at the bottom if buried; remove it when empty."""
+    ch, body = s["channel"], _bg_render(s)
+    try:
+        if body is None:
+            if s["msg"] is not None:
+                try:
+                    await s["msg"].delete()
+                except Exception:
+                    pass
+                s["msg"] = None
+            return
+        if s["msg"] is None:
+            s["msg"] = await ch.send(body)
+        elif ch.last_message_id not in (None, s["msg"].id):   # buried → repost at bottom (no API for the check)
+            old, s["msg"] = s["msg"], None
+            s["msg"] = await ch.send(body)
+            try:
+                await old.delete()
+            except Exception:
+                pass
+        else:
+            await s["msg"].edit(content=body)
+    except Exception:
+        pass
+
+
+async def _bg_ticker(s):
+    while s["tasks"]:
+        await asyncio.sleep(2.0)
+        await _bg_paint(s)
+    await _bg_paint(s)            # final pass → clears the panel when the last one finishes
+    s["ticker"] = None
+
+
 def _steer_kind(new: str) -> str:
     """Heuristic: a mid-task message is a 'correction' (steer/stop), an 'addition' (do this too),
     or a 'new' topic (queue separately). Fast + free; no model call."""
@@ -256,6 +314,7 @@ async def _handle_command(msg, text) -> bool:
             "context blowup). I stay online — it just halts the current work.\n"
             "`!update check` — check GitHub for updates right now (just shows them)\n"
             "`!update` — pull the latest from GitHub + reload myself live\n"
+            "`!bg` (or `!tasks`) — list running + recently-done background tasks in this channel\n"
             "`!project <path>` — PIN a project (otherwise I auto-detect it from your message via the vault); `!project none` to unpin\n"
             "`!bots` — list the bots I'm running\n"
             "`!admins` — who can talk to me\n"
@@ -357,6 +416,20 @@ async def _handle_command(msg, text) -> bool:
         await msg.channel.send("🔄 on it — grabbing the latest and reloading myself, back in a few secs…")
         result = await asyncio.to_thread(updater.accept)
         await msg.channel.send(result)
+    elif cmd in ("bg", "tasks", "background"):
+        s = _BG.get(msg.channel.id)
+        running = list((s or {}).get("tasks", {}).values())
+        done = (s or {}).get("done", [])
+        lines = []
+        if running:
+            lines.append(f"🛠️ **running ({len(running)})**")
+            for t in running:
+                lines.append(f"• {t['label']} · {_fmt_dur(time.monotonic() - t['t0'])}")
+        if done:
+            lines.append(f"✅ **recently done ({len(done)})**")
+            for lbl, dur in reversed(done[-5:]):
+                lines.append(f"• {lbl} · {dur}")
+        await msg.channel.send("\n".join(lines) if lines else "no background tasks here.")
     elif cmd in ("project", "proj"):
         if args:
             if args[0].lower() in ("none", "clear", "off"):
@@ -558,49 +631,23 @@ def run():
 
     async def _background(channel, name, text, system):
         """Run a task in PARALLEL (the owner asked to background it): forks the session so it's
-        lock-free — it runs ALONGSIDE live chat (and the current turn). Shows a LIVE label with a
-        ticking timer + bar while it works, then posts the result back to THIS channel. No queue."""
+        lock-free — it runs ALONGSIDE live chat. Tracked in the merged per-channel background PANEL
+        (one live message listing all running tasks); on finish it drops off the panel and posts a
+        ✅ completion line with its summary attached right below it. No queue."""
         cl = clients.get(name)
         disp = cl.user.display_name if cl and cl.user else name
         icon = cl.user.display_avatar.url if cl and cl.user else None
         label = " ".join((text or "").split())[:48]
-        t0 = time.monotonic()
-        st = {"msg": None, "active": True}
-
-        def _body():
-            el = time.monotonic() - t0
-            return f"🛠️ background · {label} · ⏳ {_fmt_dur(el)}\n{_bar(el)}"
-
-        async def _paint():
-            try:
-                if st["msg"] is None:
-                    st["msg"] = await channel.send(_body())
-                else:
-                    await st["msg"].edit(content=_body())
-            except Exception:
-                pass
-
-        async def _ticker():                         # keep the label + elapsed alive AND at the bottom
-            while st["active"]:
-                await asyncio.sleep(2.0)
-                if not st["active"]:
-                    break
-                # if newer messages landed after our status, it's buried — repost it at the bottom
-                # (channel.last_message_id is gateway-cached, so this check costs no API call)
-                buried = st["msg"] is not None and channel.last_message_id not in (None, st["msg"].id)
-                if buried:
-                    old, st["msg"] = st["msg"], None
-                    await _paint()                   # fresh copy at the bottom
-                    try:
-                        await old.delete()
-                    except Exception:
-                        pass
-                else:
-                    await _paint()                   # not buried → just update in place
+        s = _bg_state(channel)
+        _BG_SEQ[0] += 1
+        tid = _BG_SEQ[0]
+        s["tasks"][tid] = {"label": label, "t0": time.monotonic()}
+        if not s["ticker"] or s["ticker"].done():
+            s["ticker"] = asyncio.create_task(_bg_ticker(s))
+        await _bg_paint(s)
 
         async def _run():
-            await _paint()                           # initial label, posted right away
-            ticker = asyncio.create_task(_ticker())
+            t0 = s["tasks"][tid]["t0"]
             wrapped = ("You're running this as a BACKGROUND task, in PARALLEL with the live chat. Do it "
                        "end to end autonomously (don't ask questions), then reply with a SHORT summary "
                        "of what you did.\n\n" + text)
@@ -612,19 +659,15 @@ def run():
                     reply = await brain.ask_async(wrapped, [], system=system)
             except Exception as e:
                 reply = f"(background task hit an error: {e})"
-            finally:
-                st["active"] = False
-                ticker.cancel()
-                done = _fmt_dur(time.monotonic() - t0)
-                try:                                 # KEEP the label as a done line
-                    if st["msg"] is not None:
-                        await st["msg"].edit(content=f"✅ background · {label} · done in {done}")
-                except Exception:
-                    pass
+            done = _fmt_dur(time.monotonic() - t0)
+            s["tasks"].pop(tid, None)                # off the running panel
+            s["done"].append((label, done)); s["done"][:] = s["done"][-10:]
+            await _bg_paint(s)
+            # completion UNIT — tick + summary attached right here (not a floating card at the end)
+            await channel.send(f"✅ **background done** · {label} · {done}")
             reply, files = _extract_attachments(reply)
             reply = notify.prettify_tables(reply)
-            await _send_reply(channel, disp, reply, icon,
-                              stats=f"background · {_fmt_dur(time.monotonic() - t0)}")
+            await _send_reply(channel, disp, reply, icon, stats=f"background · {done}")
             for fp in files:
                 try:
                     await channel.send(file=discord.File(fp))
