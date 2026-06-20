@@ -225,7 +225,7 @@ async def _handle_command(msg, text) -> bool:
             "context blowup). I stay online — it just halts the current work.\n"
             "`!update check` — check GitHub for updates right now (just shows them)\n"
             "`!update` — pull the latest from GitHub + reload myself live\n"
-            "`!project <path>` — set the project I should understand (loads its CLAUDE.md + MCP); `!project none` to clear\n"
+            "`!project <path>` — PIN a project (otherwise I auto-detect it from your message via the vault); `!project none` to unpin\n"
             "`!bots` — list the bots I'm running\n"
             "`!admins` — who can talk to me\n"
             "`!add-admin @user` — let someone in\n"

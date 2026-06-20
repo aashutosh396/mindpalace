@@ -280,6 +280,16 @@ def set_active_project(path: str) -> str:
     return p or "(cleared)"
 
 
+def explore_root() -> str:
+    """Broad directory claude may read/range across, so it can understand the WHOLE machine (not
+    just one project) and make well-informed changes. Default: the user's $HOME. Set to '' to
+    disable broad access (lock it to the project + workspace only)."""
+    v = load_config().get("explore_root")
+    if v is None:                                   # unset → default to home
+        return os.path.expanduser("~")
+    return os.path.expanduser(v) if v else ""       # "" explicitly disables
+
+
 def auto_opus() -> bool:
     """Auto-escalate engineering tasks (build/fix/debug/refactor/…) to the power model, not just
     on explicit 'think hard'. ON by default — more capable, but burns the Max limit faster."""

@@ -134,6 +134,12 @@ def _self_knowledge() -> str:
         "owner's world and make their work easier. Don't be rigid and don't refuse to look; "
         "explore widely, then ORGANIZE what you find. Help the owner by turning scattered info "
         "into clean, structured knowledge.\n"
+        "- WHERE TO LOOK (priority, then roam): each vault/projects/<slug>.md records that project's "
+        "code `path:` — when a task names a known project, its dir is ALREADY loaded for you, so start "
+        "there. Order: the vault (your knowledge + the project's recorded path) → that project's code "
+        "→ the workspace → then range across the rest of the machine as the task needs. You DO have "
+        "read access across the whole home; use it to fully understand before making changes — be as "
+        "thorough and intelligent as a developer working in the repo directly.\n"
         f"- Your vault {config.vault_dir()} (projects/ infra/ accounts/ runbooks/ docs/ notes/ + "
         "LOG.md) is your SOURCE OF TRUTH — write organized, deduped knowledge there. Pull useful "
         "facts you discover anywhere INTO the vault; don't leave them scattered.\n"
@@ -362,16 +368,82 @@ def _pick_model(text: str) -> str | None:
     return main
 
 
-def _project_args() -> list[str]:
-    """Make claude UNDERSTAND the active project from anywhere (like the real CLI): --add-dir its
-    folder so its CLAUDE.md + files load, and --mcp-config its MCP servers if it has any. cwd stays
-    the vault, so the guard hook + memory stay active. No-op when no active project is set."""
+_PROJECT_INDEX: dict | None = None
+
+
+def _project_index() -> dict:
+    """{keyword → local code path} built from the vault's projects/*.md frontmatter — the infra
+    that already records where each project lives (path:/code_home:). Keyed by slug, name, file
+    stem, and aliases so a message naming a project resolves to its code. Cached for the run."""
+    global _PROJECT_INDEX
+    if _PROJECT_INDEX is not None:
+        return _PROJECT_INDEX
+    import re as _re
+    idx: dict = {}
+    try:
+        for f in (config.vault_dir() / "projects").glob("*.md"):
+            txt = f.read_text(errors="ignore")
+            fm = txt.split("---", 2)[1] if txt.startswith("---") else txt[:800]
+            path = None
+            for key in ("path", "code_home", "local_path", "code_dir", "repo_dir"):
+                m = _re.search(rf"(?mi)^{key}:\s*(.+)$", fm)
+                if m and m.group(1).strip().strip("'\""):
+                    path = os.path.expanduser(m.group(1).strip().strip("'\"")); break
+            if not path:
+                continue
+            keys = {f.stem.lower()}
+            for key in ("slug", "name"):
+                m = _re.search(rf"(?mi)^{key}:\s*(.+)$", fm)
+                if m:
+                    keys.add(m.group(1).strip().strip("'\"").lower())
+            am = _re.search(r"(?mi)^aliases:\s*\[(.+)\]", fm)
+            if am:
+                keys.update(a.strip().strip("'\"").lower() for a in am.group(1).split(","))
+            for k in keys:
+                if len(k) >= 3:
+                    idx[k] = path
+    except Exception:
+        pass
+    _PROJECT_INDEX = idx
+    return idx
+
+
+def _resolve_project(text: str) -> str | None:
+    """Auto-pick the project a message is about, from the vault index — longest keyword wins (most
+    specific), and only if its code dir actually exists. No manual setting needed."""
+    import re as _re
+    low = (text or "").lower()
+    hit = None
+    for kw in sorted(_project_index(), key=len, reverse=True):
+        if _re.search(rf"\b{_re.escape(kw)}\b", low):
+            p = _project_index()[kw]
+            if os.path.isdir(p):
+                hit = p; break
+    return hit
+
+
+def _project_args(match_text: str = "") -> list[str]:
+    """Give claude the same reach as the real CLI: --add-dir the dirs it may read/range across, so
+    it can scan the whole machine and make well-informed changes — while still PRIORITIZING the
+    known places. Added (deduped): the specific project for THIS message (pinned active_project, else
+    auto-resolved from the vault index — loads its CLAUDE.md + MCP), the workspace, and the broad
+    explore_root (default $HOME) so it can explore beyond. cwd stays the vault → guard + memory live."""
     out: list[str] = []
-    p = config.active_project()
-    if p and os.path.isdir(p):
-        out += ["--add-dir", p]
+    seen: set = set()
+
+    def add(d):
+        if d and os.path.isdir(str(d)):
+            rp = os.path.realpath(str(d))
+            if rp not in seen:
+                seen.add(rp); out.extend(["--add-dir", str(d)])
+
+    p = config.active_project() or _resolve_project(match_text)
+    add(p)                                            # the project this message is about (priority)
+    add(config.workspace_dir())                       # where new project code is created
+    add(config.explore_root())                        # broad — range the rest of the machine
+    if p and os.path.isdir(str(p)):                   # the project's own MCP servers, if any
         for mc in (".mcp.json", ".claude/mcp.json", ".cursor/mcp.json"):
-            mcp = os.path.join(p, mc)
+            mcp = os.path.join(str(p), mc)
             if os.path.isfile(mcp):
                 out += ["--mcp-config", mcp]
                 break
@@ -431,7 +503,7 @@ READONLY_TOOLS = "Read,Glob,Grep,WebFetch,WebSearch"
 
 
 def _args(prompt: str, permissions: str = "full", allowed_tools: str | None = None,
-          model: str | None = None) -> list[str]:
+          model: str | None = None, match_text: str = "") -> list[str]:
     """Per-bot tool fence (the REAL permission limit, enforced by the CLI):
        full     → bypassPermissions (full bash/file power)
        readonly → only read/search tools; cannot Bash/Write/Edit
@@ -441,7 +513,7 @@ def _args(prompt: str, permissions: str = "full", allowed_tools: str | None = No
     args = [claude_bin(), "-p", prompt]
     if model:
         args += ["--model", model]
-    args += _project_args()                       # active project → CLAUDE.md + MCP, from anywhere
+    args += _project_args(match_text or prompt)   # project → CLAUDE.md + MCP, auto from the message
     if permissions == "readonly":
         args += ["--allowedTools", READONLY_TOOLS]
     elif permissions == "custom" and allowed_tools:
@@ -532,7 +604,7 @@ def _session_args(text: str, permissions: str, allowed_tools: str | None,
         args = [claude_bin(), "-p", _turn_input(text), "--resume", sid]
     if model:
         args += ["--model", model]
-    args += _project_args()                       # active project → CLAUDE.md + MCP, from anywhere
+    args += _project_args(text)                    # project (auto from msg) + broad machine access
     if permissions == "readonly":
         args += ["--allowedTools", READONLY_TOOLS]
     elif permissions == "custom" and allowed_tools:
