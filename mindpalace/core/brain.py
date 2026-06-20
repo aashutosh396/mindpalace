@@ -1182,6 +1182,11 @@ async def ask_async_streaming(text, history, on_progress, system=None,
             return await ask_async(text, history, system, permissions, allowed_tools)
         await proc.wait()
     finally:
+        if proc is not None and proc.returncode is None:
+            try:                                 # interrupted (e.g. steering) → don't leave a zombie claude
+                proc.kill()
+            except Exception:
+                pass
         if sem_held:
             sem.release()                        # ALWAYS free the permit — no leak on any path
         if lock_held:

@@ -71,6 +71,26 @@ def _embed_chunks(s, n=4000):
 from ..theme import (fmt_dur as _fmt_dur, cook_verb as _cook_verb, cook_emoji as _cook_emoji,
                      cook_hint as _cook_hint, bar_fill as _bar, random_verb_offset as _verb_offset)
 
+# Smart steering: classify a message that arrives WHILE the bot is mid-task.
+_CORRECTION_KW = ("wait", "no,", "no ", "actually", "instead", "stop", "scratch that", "hold on",
+                  "nvm", "never mind", "don't ", "do not ", "cancel that", "ignore that", "rather",
+                  "not that", "change of plan", "forget that")
+_FOLLOWUP_KW = ("also", "and also", "plus", "as well", "make sure", "oh and", "one more", "add ",
+                "+ ", "btw", "by the way", "while you", "include", "and can you", "and please",
+                "don't forget", "additionally")
+_STEER_EARLY_SECS = 25       # "early" in the task → an addition is worth interrupting for
+
+
+def _steer_kind(new: str) -> str:
+    """Heuristic: a mid-task message is a 'correction' (steer/stop), an 'addition' (do this too),
+    or a 'new' topic (queue separately). Fast + free; no model call."""
+    low = " " + (new or "").strip().lower()
+    if any(k in low for k in _CORRECTION_KW):
+        return "correction"
+    if any(k in low for k in _FOLLOWUP_KW):
+        return "addition"
+    return "new"
+
 
 async def _send_reply(channel, name, reply, icon_url=None, stats=None):
     """Send the bot's FINAL answer as coral embed card(s). Discord can't right-align messages and
@@ -396,6 +416,7 @@ def run():
     clients: dict[str, "discord.Client"] = {}   # name -> client
     scoped_ids: set[int] = set()                 # user-ids of non-main bots (for mention checks)
     turn_locks: dict = {}                        # per-bot: serialize a WHOLE turn (work + reply post)
+    active: dict = {}                            # per-bot live turn state (for smart steering)
 
     async def _do_turn(channel, name, text, system, perms, allowed):
         """Drive one bot's brain; STREAM its steps live; reply; persist; file in background."""
@@ -491,9 +512,10 @@ def run():
         return reply
 
     async def _run_brain(channel, name, text, system, perms, allowed):
-        """Serialize a bot's turns END-TO-END (work + reply post) so the previous answer lands
-        BEFORE the next queued message announces itself. If this turn had to wait, name the message
-        it just picked up — order is then: prior answer → '▶️ now on: …' → this answer."""
+        """Serialize a bot's turns END-TO-END (work + reply post). Holds the lock across a loop so a
+        mid-task correction can INTERRUPT + re-run with the addition merged, and queued follow-ups
+        run as a continuation — before any unrelated queued message. Order stays: prior answer →
+        '▶️ now on: …' → this answer."""
         lock = turn_locks.setdefault(name, asyncio.Lock())
         queued = lock.locked()                    # someone's turn is still posting → we're in line
         async with lock:
@@ -503,7 +525,46 @@ def run():
                     await channel.send(f"_▶️ now on: {snippet}_")
                 except Exception:
                     pass
-            return await _do_turn(channel, name, text, system, perms, allowed)
+            cur_text, reply = text, None
+            while True:
+                t0 = time.monotonic()
+                dt = asyncio.create_task(_do_turn(channel, name, cur_text, system, perms, allowed))
+                active[name] = {"task": dt, "text": cur_text, "t0": t0, "additions": [], "merge": None}
+                try:
+                    reply = await dt
+                except asyncio.CancelledError:
+                    reply = None                  # interrupted to fold something in → loop re-runs
+                info = active.get(name) or {}
+                if info.get("merge"):             # correction/early-addition → re-run merged
+                    cur_text = f"{cur_text}\n\n[Owner added mid-task — incorporate this]: {info['merge']}"
+                    continue
+                if info.get("additions"):         # later follow-ups → run as a continuation
+                    cur_text = "Follow-up to what you just did:\n" + "\n".join(info["additions"])
+                    continue
+                break
+            active.pop(name, None)
+            return reply
+
+    async def _dispatch(channel, name, text, system, perms, allowed):
+        """Smart steering for a message that lands while the bot is busy:
+          • correction ('wait/no/instead') OR an addition while the task JUST started → interrupt,
+            merge it in, re-run.
+          • addition later in the task → fold in as a continuation after the current turn finishes.
+          • new topic → queue normally (serialized behind the current turn)."""
+        cur = active.get(name)
+        if cur and not cur["task"].done():
+            kind = _steer_kind(text)
+            if kind in ("correction", "addition"):
+                early = (time.monotonic() - cur.get("t0", 0)) < _STEER_EARLY_SECS
+                if kind == "correction" or early:
+                    cur["merge"] = text
+                    cur["task"].cancel()
+                    await channel.send("↩️ got it — folding that into what I'm on, re-running with it.")
+                else:
+                    cur.setdefault("additions", []).append(text)
+                    await channel.send("📎 noted — I'll fold that in right after this step.")
+                return None
+        return await _run_brain(channel, name, text, system, perms, allowed)
 
     def make_client(name: str, spec: dict):
         is_main = spec.get("trigger", "mention") == "home"
@@ -592,10 +653,10 @@ def run():
                 await msg.channel.send(result)
                 return
 
-            reply = await _run_brain(msg.channel, name, text, system, perms, allowed)
+            reply = await _dispatch(msg.channel, name, text, system, perms, allowed)
 
             # supervision: a scoped bot finished a task in the HOME channel → main reports back
-            if (not is_main) and in_home and "main" in clients:
+            if reply and (not is_main) and in_home and "main" in clients:
                 main = clients["main"]
                 ch = main.get_channel(home_channel)
                 if ch:
