@@ -199,6 +199,23 @@ def main(argv=None):
         n = int(argv[1]) if len(argv) > 1 and argv[1].isdigit() else 50
         print(telemetry.summarize(n)); return
 
+    if cmd == "project":                            # active project → claude understands it (--add-dir)
+        if len(argv) > 1:
+            arg = argv[1]
+            if arg in ("none", "clear", "off"):
+                config.set_active_project("")
+                print("active project cleared — vault only.")
+            else:
+                p = config.set_active_project(arg)
+                import os as _os
+                ok = _os.path.isdir(p)
+                print(f"active project → {p}" + ("" if ok else "  ⚠️ (path not found yet)"))
+                print("  claude now loads its CLAUDE.md + MCP from anywhere; cwd stays the vault.")
+        else:
+            print(f"active project: {config.active_project() or '(none — vault only)'}  ·  "
+                  "set with `mindpalace project <path>` · clear with `mindpalace project none`")
+        return
+
     if cmd == "workspace":
         if len(argv) > 1:                           # set + confirm a permanent workspace
             d = config.set_workspace(argv[1])

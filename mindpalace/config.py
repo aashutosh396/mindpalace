@@ -262,6 +262,30 @@ def reflect_every() -> int:
         return 4
 
 
+def active_project() -> str | None:
+    """The project the agent should UNDERSTAND right now — its dir is passed to claude via
+    --add-dir so its CLAUDE.md + files load (full Claude-Code-style project context) WITHOUT
+    changing cwd, so the guard + vault stay intact. None = vault only."""
+    return load_config().get("active_project") or None
+
+
+def set_active_project(path: str) -> str:
+    p = os.path.abspath(os.path.expanduser(path.strip())) if path and path.strip() else ""
+    cfg = load_config()
+    if p:
+        cfg["active_project"] = p
+    else:
+        cfg.pop("active_project", None)
+    save_config(cfg)
+    return p or "(cleared)"
+
+
+def auto_opus() -> bool:
+    """Auto-escalate engineering tasks (build/fix/debug/refactor/…) to the power model, not just
+    on explicit 'think hard'. ON by default — more capable, but burns the Max limit faster."""
+    return load_config().get("auto_opus", True)
+
+
 def turn_idle_seconds() -> int:
     """Streaming turns are killed only after this many seconds of NO progress (no prose/tool
     events) — an INACTIVITY watchdog, not a total cap. A task that keeps emitting steps runs as

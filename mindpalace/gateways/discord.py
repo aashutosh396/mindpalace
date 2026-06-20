@@ -225,6 +225,7 @@ async def _handle_command(msg, text) -> bool:
             "context blowup). I stay online — it just halts the current work.\n"
             "`!update check` — check GitHub for updates right now (just shows them)\n"
             "`!update` — pull the latest from GitHub + reload myself live\n"
+            "`!project <path>` — set the project I should understand (loads its CLAUDE.md + MCP); `!project none` to clear\n"
             "`!bots` — list the bots I'm running\n"
             "`!admins` — who can talk to me\n"
             "`!add-admin @user` — let someone in\n"
@@ -325,6 +326,22 @@ async def _handle_command(msg, text) -> bool:
         await msg.channel.send("🔄 on it — grabbing the latest and reloading myself, back in a few secs…")
         result = await asyncio.to_thread(updater.accept)
         await msg.channel.send(result)
+    elif cmd in ("project", "proj"):
+        if args:
+            if args[0].lower() in ("none", "clear", "off"):
+                config.set_active_project("")
+                await msg.channel.send("📁 active project cleared — vault only.")
+            else:
+                import os as _os
+                p = config.set_active_project(" ".join(args))
+                ok = _os.path.isdir(p)
+                await msg.channel.send(
+                    f"📁 active project → `{p}`{'' if ok else '  ⚠️ path not found yet'}\n"
+                    "I now read its CLAUDE.md + MCP from anywhere (cwd stays the vault, guard intact).")
+        else:
+            await msg.channel.send(
+                f"📁 active project: `{config.active_project() or '(none — vault only)'}`\n"
+                "set with `!project <path>` · clear with `!project none`")
     elif cmd == "admins":
         a = config.admins()
         await msg.channel.send("admins: " + (", ".join(f"<@{i}>" for i in a) or "none"))

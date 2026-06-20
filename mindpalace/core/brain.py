@@ -338,13 +338,44 @@ _POWER_TRIGGERS = ("think hard", "ultrathink", "use opus", "deep reasoning", "re
                    "architect this", "hard problem", "really complex", "opus mode", "think deeply")
 
 
+# Engineering intent → auto-escalate to the power model (when config.auto_opus()). Broad on
+# purpose: real coding/ops work deserves Opus; greetings + quick lookups stay on Sonnet.
+_ENGINEER_SIGNALS = (
+    "implement", "build", "fix", "debug", "refactor", "feature", "endpoint", "migrat",
+    "error", "bug", "deploy", "component", "function", "schema", "database", "route",
+    "controller", "add a", "create a", "write a", "patch", "integrate", "rewrite", "optimi",
+    "architect", "design the", "set up", "wire up", "audit", "trace", "investigate",
+)
+
+
 def _pick_model(text: str) -> str | None:
-    """Sonnet by default (cheap, plenty for most work); Opus only when the owner signals a hard
-    reasoning task. None = honor the CLI default (when main_model is configured empty)."""
+    """Sonnet by default; Opus when the owner signals a hard task OR (auto_opus on) the message
+    reads like real engineering work. None = honor the CLI default (main_model empty)."""
     main = config.main_model()
     if not main:
         return None
-    return config.power_model() if any(k in (text or "").lower() for k in _POWER_TRIGGERS) else main
+    low = (text or "").lower()
+    if any(k in low for k in _POWER_TRIGGERS):
+        return config.power_model()
+    if config.auto_opus() and any(k in low for k in _ENGINEER_SIGNALS):
+        return config.power_model()
+    return main
+
+
+def _project_args() -> list[str]:
+    """Make claude UNDERSTAND the active project from anywhere (like the real CLI): --add-dir its
+    folder so its CLAUDE.md + files load, and --mcp-config its MCP servers if it has any. cwd stays
+    the vault, so the guard hook + memory stay active. No-op when no active project is set."""
+    out: list[str] = []
+    p = config.active_project()
+    if p and os.path.isdir(p):
+        out += ["--add-dir", p]
+        for mc in (".mcp.json", ".claude/mcp.json", ".cursor/mcp.json"):
+            mcp = os.path.join(p, mc)
+            if os.path.isfile(mcp):
+                out += ["--mcp-config", mcp]
+                break
+    return out
 
 
 def _model_label(m: str | None) -> str:
@@ -410,6 +441,7 @@ def _args(prompt: str, permissions: str = "full", allowed_tools: str | None = No
     args = [claude_bin(), "-p", prompt]
     if model:
         args += ["--model", model]
+    args += _project_args()                       # active project → CLAUDE.md + MCP, from anywhere
     if permissions == "readonly":
         args += ["--allowedTools", READONLY_TOOLS]
     elif permissions == "custom" and allowed_tools:
@@ -500,6 +532,7 @@ def _session_args(text: str, permissions: str, allowed_tools: str | None,
         args = [claude_bin(), "-p", _turn_input(text), "--resume", sid]
     if model:
         args += ["--model", model]
+    args += _project_args()                       # active project → CLAUDE.md + MCP, from anywhere
     if permissions == "readonly":
         args += ["--allowedTools", READONLY_TOOLS]
     elif permissions == "custom" and allowed_tools:
