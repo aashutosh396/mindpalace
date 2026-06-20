@@ -580,11 +580,23 @@ def run():
             except Exception:
                 pass
 
-        async def _ticker():                         # keep the label + elapsed alive while it runs
+        async def _ticker():                         # keep the label + elapsed alive AND at the bottom
             while st["active"]:
                 await asyncio.sleep(2.0)
-                if st["active"]:
-                    await _paint()
+                if not st["active"]:
+                    break
+                # if newer messages landed after our status, it's buried — repost it at the bottom
+                # (channel.last_message_id is gateway-cached, so this check costs no API call)
+                buried = st["msg"] is not None and channel.last_message_id not in (None, st["msg"].id)
+                if buried:
+                    old, st["msg"] = st["msg"], None
+                    await _paint()                   # fresh copy at the bottom
+                    try:
+                        await old.delete()
+                    except Exception:
+                        pass
+                else:
+                    await _paint()                   # not buried → just update in place
 
         async def _run():
             await _paint()                           # initial label, posted right away
