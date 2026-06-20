@@ -558,15 +558,37 @@ def run():
 
     async def _background(channel, name, text, system):
         """Run a task in PARALLEL (the owner asked to background it): forks the session so it's
-        lock-free — it runs ALONGSIDE live chat (and the current turn) — acks now and posts the
-        result back to THIS channel when done. Doesn't touch the queue."""
+        lock-free — it runs ALONGSIDE live chat (and the current turn). Shows a LIVE label with a
+        ticking timer + bar while it works, then posts the result back to THIS channel. No queue."""
         cl = clients.get(name)
         disp = cl.user.display_name if cl and cl.user else name
         icon = cl.user.display_avatar.url if cl and cl.user else None
-        await channel.send("🛠️ on it in the background — keep chatting, I'll post the result here when it's done.")
+        label = " ".join((text or "").split())[:48]
+        t0 = time.monotonic()
+        st = {"msg": None, "active": True}
+
+        def _body():
+            el = time.monotonic() - t0
+            return f"🛠️ background · {label} · ⏳ {_fmt_dur(el)}\n{_bar(el)}"
+
+        async def _paint():
+            try:
+                if st["msg"] is None:
+                    st["msg"] = await channel.send(_body())
+                else:
+                    await st["msg"].edit(content=_body())
+            except Exception:
+                pass
+
+        async def _ticker():                         # keep the label + elapsed alive while it runs
+            while st["active"]:
+                await asyncio.sleep(2.0)
+                if st["active"]:
+                    await _paint()
 
         async def _run():
-            t0 = time.monotonic()
+            await _paint()                           # initial label, posted right away
+            ticker = asyncio.create_task(_ticker())
             wrapped = ("You're running this as a BACKGROUND task, in PARALLEL with the live chat. Do it "
                        "end to end autonomously (don't ask questions), then reply with a SHORT summary "
                        "of what you did.\n\n" + text)
@@ -578,6 +600,15 @@ def run():
                     reply = await brain.ask_async(wrapped, [], system=system)
             except Exception as e:
                 reply = f"(background task hit an error: {e})"
+            finally:
+                st["active"] = False
+                ticker.cancel()
+                done = _fmt_dur(time.monotonic() - t0)
+                try:                                 # KEEP the label as a done line
+                    if st["msg"] is not None:
+                        await st["msg"].edit(content=f"✅ background · {label} · done in {done}")
+                except Exception:
+                    pass
             reply, files = _extract_attachments(reply)
             reply = notify.prettify_tables(reply)
             await _send_reply(channel, disp, reply, icon,
