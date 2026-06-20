@@ -378,3 +378,58 @@ def set_webhook(name: str, url: str) -> None:
     cfg = load_config()
     cfg.setdefault("webhooks", {})[name] = url.strip()
     save_config(cfg)
+
+
+# ---- WhatsApp Cloud API gateway ----
+# Config (non-secret) lives in config["whatsapp"]; the access token + app secret are SECRETS.
+def whatsapp_cfg() -> dict:
+    return load_config().get("whatsapp", {})
+
+
+def whatsapp_configured() -> bool:
+    return bool(whatsapp_cfg().get("phone_id") and read_secret("whatsapp_token"))
+
+
+def whatsapp_phone_id() -> str | None:
+    return whatsapp_cfg().get("phone_id")
+
+
+def whatsapp_token() -> str | None:
+    return read_secret("whatsapp_token")
+
+
+def whatsapp_app_secret() -> str | None:
+    return read_secret("whatsapp_app_secret")
+
+
+def whatsapp_verify_token() -> str:
+    return whatsapp_cfg().get("verify_token", "mindpalace")
+
+
+def whatsapp_port() -> int:
+    try:
+        return int(whatsapp_cfg().get("port", 8080))
+    except (TypeError, ValueError):
+        return 8080
+
+
+def whatsapp_allowed() -> list:
+    """Phone numbers (digits only) allowed to talk to the bot. Empty = allow the FIRST sender,
+    then lock to them (owner bootstrap, like the Discord first-admin rule)."""
+    return [str(n) for n in whatsapp_cfg().get("allowed", [])]
+
+
+def whatsapp_allow(num: str) -> bool:
+    cfg = load_config()
+    wa = cfg.setdefault("whatsapp", {})
+    lst = wa.setdefault("allowed", [])
+    n = "".join(ch for ch in str(num) if ch.isdigit())
+    if n in [str(x) for x in lst]:
+        return False
+    lst.append(n); save_config(cfg); return True
+
+
+def whatsapp_is_allowed(num: str) -> bool:
+    n = "".join(ch for ch in str(num) if ch.isdigit())
+    allowed = whatsapp_allowed()
+    return (not allowed) or n in allowed

@@ -4,6 +4,7 @@
   mindpalace            first run → setup; then terminal chat (auto-starts the bg daemon)
   mindpalace setup      re-run onboarding
   mindpalace gateway discord|terminal   configure/switch interface
+  mindpalace whatsapp setup   configure WhatsApp Cloud API; `mindpalace whatsapp` runs the webhook (VPS)
   mindpalace daemon     run the background daemon in the FOREGROUND (for systemd/launchd)
   mindpalace stop       stop the background daemon
   mindpalace service install|uninstall|status   install as a reboot-persistent OS service
@@ -79,6 +80,45 @@ def main(argv=None):
         else:
             print("usage: mindpalace gateway <terminal|discord>")
         return
+    if cmd == "whatsapp":
+        sub = argv[1] if len(argv) > 1 else "run"
+        if sub == "setup":
+            def ask(p, d=""):
+                try:
+                    v = input(p).strip()
+                except EOFError:
+                    v = ""
+                return v or d
+            print("\n=== WhatsApp Cloud API setup ===")
+            print("From Meta (developers.facebook.com → your app → WhatsApp → API Setup):")
+            cfg = config.load_config(); wa = cfg.setdefault("whatsapp", {})
+            pid = ask("Phone number ID: ")
+            if pid:
+                wa["phone_id"] = pid
+            tok = ask("Access token (permanent recommended): ")
+            if tok:
+                config.write_secret("whatsapp_token", tok)
+            vt = ask(f"Verify token (you choose; default 'mindpalace'): ", "mindpalace")
+            wa["verify_token"] = vt
+            sec = ask("App secret (optional, for signature checks; Enter to skip): ")
+            if sec:
+                config.write_secret("whatsapp_app_secret", sec)
+            port = ask("Port to listen on (default 8080): ", "8080")
+            wa["port"] = int(port) if port.isdigit() else 8080
+            config.save_config(cfg)
+            print("\n✓ saved. Now, on the VPS:")
+            print(f"   1) run:  mindpalace whatsapp")
+            print(f"   2) Meta → WhatsApp → Configuration → Webhook:")
+            print(f"        Callback URL:  https://<your-host>/webhook")
+            print(f"        Verify token:  {vt}")
+            print(f"      then Subscribe to the 'messages' field.")
+            print("   3) Message your number from WhatsApp — first sender becomes the owner.\n")
+            return
+        if not config.whatsapp_configured():
+            print("WhatsApp not configured — run `mindpalace whatsapp setup` first."); return
+        from .gateways import whatsapp
+        whatsapp.run(); return
+
     if cmd in ("add-bot", "addbot"):
         from . import bots
         bots.add_bot_interactive(); return
