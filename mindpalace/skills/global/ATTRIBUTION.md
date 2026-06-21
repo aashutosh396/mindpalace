@@ -11,7 +11,7 @@ itself is also MIT-licensed. Thanks to the Nous Research team.
 
 ## awesomeclaude imports (2026-06-21)
 
-224 skills (three rounds) were imported from the community catalog at
+249 skills (four rounds) were imported from the community catalog at
 **[awesomeclaude.ai](https://awesomeclaude.ai/awesome-claude-skills)** into the global
 library (categories: documents, software-development, devops, data-science, research,
 writing, media, security, productivity, project-management, autonomous-ai-agents, creative,
