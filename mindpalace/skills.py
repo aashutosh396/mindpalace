@@ -137,6 +137,15 @@ def _keywords(text, k=10):
 _search_index = None    # cached global-skill haystacks (static within a process)
 
 
+def _fm_block(text: str) -> str:
+    """The frontmatter region (name + description + tags) — the HIGH-SIGNAL part for matching."""
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) >= 2:
+            return parts[1].lower()
+    return text[:400].lower()
+
+
 def _global_index():
     global _search_index
     if _search_index is None:
@@ -144,10 +153,11 @@ def _global_index():
         try:
             for n, d, p in global_skills():
                 try:
-                    body = p.read_text(errors="ignore")[:4000]
+                    text = p.read_text(errors="ignore")
                 except OSError:
-                    body = ""
-                idx.append((n, d, p, f"{n} {d} {body}".lower()))
+                    text = ""
+                hay = f"{n} {d} {text[:4000]}".lower()
+                idx.append((n, d, p, hay, _fm_block(text)))
         except Exception:
             idx = []
         _search_index = idx
@@ -164,23 +174,26 @@ def match(query: str, limit: int = 5) -> str:
             return ""
         scored = []
 
-        def consider(n, d, p, hay, kind, bias):
-            title_hits = {k for k in kws if k in f"{n} {d}".lower()}   # high-signal: name/description
-            distinct = {k for k in kws if k in hay}                    # any distinct keyword present
-            # gate out noise: surface only on a NAME/DESCRIPTION hit (real relevance) OR a strong
-            # body overlap (3+ distinct keywords). Two stray common words in a body don't qualify.
-            if not title_hits and len(distinct) < 3:
+        def consider(n, d, p, hay, fm, kind, bias):
+            name_l = n.lower()
+            name_hits = sum(1 for k in kws if k in name_l)     # strongest: keyword in the slug/name
+            fm_hits = sum(1 for k in kws if k in fm)           # high-signal: name + description + TAGS
+            distinct = {k for k in kws if k in hay}            # any distinct keyword anywhere
+            # gate out noise: surface only on a frontmatter (name/desc/tag) hit OR a strong body
+            # overlap (3+ distinct keywords). A stray common word in the body alone doesn't qualify.
+            if not fm_hits and len(distinct) < 3:
                 return
-            scored.append((len(distinct) + 3 * len(title_hits) + bias, kind, n, d, p))
+            # weight name >> tags/description >> body, so the on-topic skill ranks above lexical noise
+            scored.append((4 * name_hits + 2 * fm_hits + len(distinct) + bias, kind, n, d, p))
 
         for n, d, p in user_skills():                 # owner's own skills (fresh; few) — tie-break win
             try:
-                body = p.read_text(errors="ignore")[:4000]
+                text = p.read_text(errors="ignore")
             except OSError:
-                body = ""
-            consider(n, d, p, f"{n} {d} {body}".lower(), "your", 3)
-        for n, d, p, hay in _global_index():          # bundled reference library (cached)
-            consider(n, d, p, hay, "ref", 0)
+                text = ""
+            consider(n, d, p, f"{n} {d} {text[:4000]}".lower(), _fm_block(text), "your", 3)
+        for n, d, p, hay, fm in _global_index():      # bundled reference library (cached)
+            consider(n, d, p, hay, fm, "ref", 0)
         if not scored:
             return ""
         scored.sort(key=lambda x: -x[0])

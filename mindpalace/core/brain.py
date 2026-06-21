@@ -703,7 +703,7 @@ def _short(p: str) -> str:
 # count) — never raw shell, flags, or full paths.
 _VERB = {
     "read": "reading", "search": "searching",
-    "skill_find": "looking for skill", "skill_use": "found skill", "skill_run": "running skill",
+    "skill_find": "looking for skill", "skill_use": "using skill", "skill_run": "running skill",
     "w_user": "learning about you", "notify": "messaging you",
     "w_account": "saving", "w_infra": "noting", "w_project": "updating", "w_runbook": "writing",
     "w_log": "logging", "w_skill": "skill saved", "w_memory": "remembering", "w_note": "saving",
@@ -977,11 +977,12 @@ def _chip(blk: dict) -> str:
             target = _quoted(cmd)                # show the fact/message itself
         else:
             target = _bash_target(cat, cmd)
+    lead = "📚" if cat in ("skill_find", "skill_use", "skill_run") else "⚡"  # skills stand out
     if not target:
         if cat in ("bash", "misc"):              # unknown command → no guessed target
-            return f"⚡ {verb}"
+            return f"{lead} {verb}"
         target = _TARGET.get(cat, "")
-    return f"⚡ {verb} · {_trim(target, 60)}" if target else f"⚡ {verb}"
+    return f"{lead} {verb} · {_trim(target, 60)}" if target else f"{lead} {verb}"
 
 
 _sem = None     # caps simultaneous `claude` procs (parallel agents); set via config.concurrency()

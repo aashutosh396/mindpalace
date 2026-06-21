@@ -580,7 +580,7 @@ def run():
 
         async def on_progress(line):
             try:
-                if line.startswith("⚡"):
+                if line[:1] in ("⚡", "📚"):       # step chip (⚡) or skill chip (📚) → stack
                     st["chips"].append(line)
                     await _paint()
                 else:                                   # prose / 🤖 notice → freeze block, post on its own
