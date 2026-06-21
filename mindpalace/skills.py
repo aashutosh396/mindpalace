@@ -197,8 +197,10 @@ def match(query: str, limit: int = 5) -> str:
         if not scored:
             return ""
         scored.sort(key=lambda x: -x[0])
-        lines = ["RELEVANT SKILLS auto-matched to this task — READ the SKILL.md before acting "
-                 "(prefer [your] skills):"]
+        lines = ["RELEVANT SKILLS auto-matched to this task. If the top one fits the request, you "
+                 "MUST `Read` its SKILL.md and FOLLOW its method as your FIRST step — before "
+                 "answering from memory or asking scoping questions. Don't wing it when a skill "
+                 "exists; do the scoping the skill's way. (Prefer [your] skills over [ref].)"]
         for _, kind, n, d, p in scored[:limit]:
             desc = (d[:90] + "…") if d and len(d) > 90 else d
             lines.append(f"  - [{kind}] {n}{' — ' + desc if desc else ''}  ({p})")
@@ -209,10 +211,15 @@ def match(query: str, limit: int = 5) -> str:
 
 SKILL_INSTRUCTIONS = f"""
 SKILLS & LEARNING (be a Hermes-style agent that grows — capture what you do):
-- A "RELEVANT SKILLS auto-matched to this task" list may already be in your context — those were
-  grepped from the library for THIS request. If one fits, READ its SKILL.md and follow it before
-  acting. If none were surfaced (or none fit), search yourself: `grep -ril <keyword> {config.GLOBAL_SKILLS}`.
-  (The owner sees a "⚡ using skill · <name>" chip when you read one, so reach for them.)
+- USE SKILLS — this is not optional. You have two libraries: YOUR tailored skills at
+  {config.user_skills()} and the bundled reference skills at {config.GLOBAL_SKILLS} (both are
+  searched and surfaced for you). When a "RELEVANT SKILLS auto-matched" list is in your context and
+  the top one fits the request, your FIRST action is to `Read` that SKILL.md and follow its method —
+  BEFORE you answer from general knowledge or ask scoping questions. A request like "keyword research"
+  or "SEO audit" must go through the matching skill (e.g. keyword-deep-dive), not improvised.
+- If nothing was surfaced (or none fit), search BOTH yourself: `grep -ril <keyword> {config.user_skills()}`
+  and `grep -ril <keyword> {config.GLOBAL_SKILLS}`, then read the best match.
+  (The owner sees a "📚 using skill · <name>" chip when you open one — so reach for them every time.)
 - CAPTURE PROACTIVELY: whenever you do a concrete, repeatable task — even a "simple" one like an
   ssh routine, a download, a deploy, a fix, a scrape — and there's no skill for it yet, WRITE a
   tailored user skill at {config.user_skills()}/<verb>-<noun>.md so next time is faster. Don't wait
