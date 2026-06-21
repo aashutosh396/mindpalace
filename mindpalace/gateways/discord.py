@@ -94,6 +94,23 @@ def _wants_background(text: str) -> bool:
     return any(k in low for k in _BG_KW)
 
 
+_GOAL_KW = ("keep working until", "keep going until", "loop until", "iterate until",
+            "don't stop until", "do not stop until", "until it's done", "until it is done",
+            "until all tests pass", "until tests pass", "until it works", "ralph ", "ralph:")
+
+
+def _wants_goal(text: str) -> tuple[bool, str]:
+    """Detect a ralph-wiggum GOAL-LOOP intent (grind until done). Returns (yes, task). 'goal: …'
+    prefix or a 'until …' phrasing. Heuristic, no model call."""
+    t = (text or "").strip()
+    low = t.lower()
+    if low.startswith("goal:"):
+        return True, t.split(":", 1)[1].strip()
+    if any(k in low for k in _GOAL_KW):
+        return True, t
+    return False, ""
+
+
 # Merged background-task panel, per channel: one live message listing ALL running bg tasks
 # (label + timer + bar), kept at the bottom; completed ones drop off and post their own ✅ + summary.
 _BG: dict = {}                # channel_id -> {channel, tasks:{tid:{label,t0}}, msg, ticker, done:[]}
@@ -333,6 +350,7 @@ async def _handle_command(msg, text) -> bool:
             "`!update check` — check GitHub for updates right now (just shows them)\n"
             "`!update` — pull the latest from GitHub + reload myself live\n"
             "`!bg` (or `!tasks`) — list running + recently-done background tasks in this channel\n"
+            "say `goal: <task>` or 'keep going until …' — I grind on it (ralph loop) in the background until done\n"
             "`!project <path>` — PIN a project (otherwise I auto-detect it from your message via the vault); `!project none` to unpin\n"
             "`!bots` — list the bots I'm running\n"
             "`!admins` — who can talk to me\n"
@@ -697,12 +715,57 @@ def run():
                     pass
         asyncio.create_task(_run())
 
+    async def _goal_bg(channel, name, task, system):
+        """Ralph-wiggum GOAL LOOP, run in the background: iterate the task until the agent emits
+        the completion promise (or max iterations). Posts each iteration milestone + a final card.
+        Lock-free (its own forked turns), so live chat keeps working."""
+        from ..core import goal
+        cl = clients.get(name)
+        disp = cl.user.display_name if cl and cl.user else name
+        icon = cl.user.display_avatar.url if cl and cl.user else None
+        mx = config.goal_max_iter()
+        await channel.send(f"🎯 **goal loop** started (up to {mx} iterations) — I'll grind on this "
+                           f"and report back:\n> {task[:240]}")
+
+        async def _run():
+            t0 = time.monotonic()
+
+            async def _prog(line):
+                if line.startswith("🔁"):           # post iteration milestones only (skip step noise)
+                    try:
+                        await channel.send(f"_{line}_")
+                    except Exception:
+                        pass
+            try:
+                res = await goal.run_goal(task, _prog, max_iter=mx, system=system)
+            except Exception as e:
+                await channel.send(f"(goal loop error: {e})")
+                return
+            dur = _fmt_dur(time.monotonic() - t0)
+            mark = "✅" if res["done"] else "⚠️"
+            verb = "done" if res["done"] else f"stopped at the {mx}-iteration cap"
+            await channel.send(f"{mark} **goal {verb}** · {res['iterations']} iterations · {dur}")
+            body, files = _extract_attachments(res.get("result") or "(no result)")
+            body = notify.prettify_tables(body)
+            await _send_reply(channel, disp, body, icon,
+                              stats=f"goal · {res['iterations']} iter · {dur}")
+            for fp in files:
+                try:
+                    await channel.send(file=discord.File(fp))
+                except Exception:
+                    pass
+        asyncio.create_task(_run())
+
     async def _dispatch(channel, name, text, system, perms, allowed):
         """Smart steering for a message that lands while the bot is busy:
           • correction ('wait/no/instead') OR an addition while the task JUST started → interrupt,
             merge it in, re-run.
           • addition later in the task → fold in as a continuation after the current turn finishes.
           • new topic → queue normally (serialized behind the current turn)."""
+        is_goal, goal_task = _wants_goal(text)
+        if is_goal:                               # 'goal: …' / 'keep going until …' → ralph loop
+            await _goal_bg(channel, name, goal_task, system)
+            return None
         if _wants_background(text):               # explicit 'in parallel / in the background' → fork it
             await _background(channel, name, text, system)
             return None

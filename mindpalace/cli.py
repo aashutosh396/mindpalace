@@ -5,6 +5,7 @@
   mindpalace setup      re-run onboarding
   mindpalace gateway discord|terminal   configure/switch interface
   mindpalace whatsapp setup   configure WhatsApp Cloud API; `mindpalace whatsapp` runs the webhook (VPS)
+  mindpalace goal "<task>"   ralph-wiggum loop: iterate until done (--max N, --until PROMISE)
   mindpalace daemon     run the background daemon in the FOREGROUND (for systemd/launchd)
   mindpalace stop       stop the background daemon
   mindpalace service install|uninstall|status   install as a reboot-persistent OS service
@@ -198,6 +199,30 @@ def main(argv=None):
         from .core import telemetry
         n = int(argv[1]) if len(argv) > 1 and argv[1].isdigit() else 50
         print(telemetry.summarize(n)); return
+
+    if cmd == "goal":                               # ralph-wiggum loop: grind a task until done
+        rest, mx, promise, parts = argv[1:], None, None, []
+        i = 0
+        while i < len(rest):
+            if rest[i] == "--max" and i + 1 < len(rest):
+                mx = int(rest[i + 1]) if rest[i + 1].isdigit() else None; i += 2
+            elif rest[i] == "--until" and i + 1 < len(rest):
+                promise = rest[i + 1]; i += 2
+            else:
+                parts.append(rest[i]); i += 1
+        task = " ".join(parts).strip()
+        if not task:
+            print('usage: mindpalace goal "<task>" [--max N] [--until PROMISE]'); return
+        import asyncio
+        from .core import goal
+
+        async def _prog(line):
+            print(f"  {line}")
+        res = asyncio.run(goal.run_goal(task, _prog, promise=promise or goal.DEFAULT_PROMISE, max_iter=mx))
+        print(f"\n{'✅ goal done' if res['done'] else '⚠️ stopped at cap'} after "
+              f"{res['iterations']} iteration(s):\n")
+        print(res["result"])
+        return
 
     if cmd == "project":                            # active project → claude understands it (--add-dir)
         if len(argv) > 1:

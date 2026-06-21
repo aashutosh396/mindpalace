@@ -290,6 +290,15 @@ def explore_root() -> str:
     return os.path.expanduser(v) if v else ""       # "" explicitly disables
 
 
+def goal_max_iter() -> int:
+    """Safety cap on the ralph-wiggum goal loop — max iterations before it stops even if the
+    completion promise never appears. Default 10."""
+    try:
+        return max(1, int(load_config().get("goal_max_iter", 10)))
+    except (TypeError, ValueError):
+        return 10
+
+
 def auto_opus() -> bool:
     """Auto-escalate engineering tasks (build/fix/debug/refactor/…) to the power model, not just
     on explicit 'think hard'. ON by default — more capable, but burns the Max limit faster."""
