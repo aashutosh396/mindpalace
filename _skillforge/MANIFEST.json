@@ -1,0 +1,90 @@
+{
+  "_about": "Curated high-value skills to import into mindpalace global skills. Each: slug, source repo (tree URL), target category. Harvest agents resolve the raw SKILL.md from the repo. Deduped against existing globals (see _skip).",
+  "_skip_already_have": [
+    "test-driven-development", "systematic-debugging", "llm-wiki", "deep-research",
+    "google-workspace", "plan", "requesting-code-review", "build-automation",
+    "cost-efficient-coding", "arxiv", "research-paper-writing"
+  ],
+  "skills": [
+    {"slug": "docx",                    "category": "documents", "repo": "https://github.com/anthropics/skills/tree/main/skills/docx"},
+    {"slug": "pdf",                     "category": "documents", "repo": "https://github.com/anthropics/skills/tree/main/skills/pdf"},
+    {"slug": "pptx",                    "category": "documents", "repo": "https://github.com/anthropics/skills/tree/main/skills/pptx"},
+    {"slug": "xlsx",                    "category": "documents", "repo": "https://github.com/anthropics/skills/tree/main/skills/xlsx"},
+    {"slug": "revealjs",               "category": "documents", "repo": "https://github.com/ryanbbrown/revealjs-skill/tree/main"},
+    {"slug": "epub-builder",           "category": "documents", "repo": "https://github.com/smerchek/claude-epub-skill"},
+
+    {"slug": "web-artifacts-builder",  "category": "software-development", "repo": "https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder"},
+    {"slug": "skill-creator",          "category": "software-development", "repo": "https://github.com/anthropics/skills/tree/main/skills/skill-creator"},
+    {"slug": "webapp-testing",         "category": "software-development", "repo": "https://github.com/anthropics/skills/tree/main/skills/webapp-testing"},
+    {"slug": "using-git-worktrees",    "category": "software-development", "repo": "https://github.com/obra/superpowers/tree/main/skills/using-git-worktrees"},
+    {"slug": "finishing-a-dev-branch", "category": "software-development", "repo": "https://github.com/obra/superpowers/tree/main/skills/finishing-a-development-branch"},
+    {"slug": "blueprint-planner",      "category": "software-development", "repo": "https://github.com/imbue-ai/blueprint"},
+    {"slug": "agent-lsp",              "category": "software-development", "repo": "https://github.com/blackwell-systems/agent-lsp"},
+    {"slug": "debug-skill",            "category": "software-development", "repo": "https://github.com/AlmogBaku/debug-skill"},
+    {"slug": "playwright",             "category": "software-development", "repo": "https://github.com/testdino-hq/playwright-skill"},
+    {"slug": "plugin-authoring",       "category": "software-development", "repo": "https://github.com/ivan-magda/claude-code-plugin-template/tree/main/plugins/plugin-development/skills/plugin-authoring"},
+    {"slug": "agnix-config-linter",    "category": "software-development", "repo": "https://github.com/avifenesh/agnix"},
+    {"slug": "skillcheck",             "category": "software-development", "repo": "https://github.com/olgasafonova/SkillCheck-Free"},
+    {"slug": "skill-optimizer",        "category": "software-development", "repo": "https://github.com/hqhq1025/skill-optimizer"},
+    {"slug": "email-html-mjml",        "category": "software-development", "repo": "https://github.com/framix-team/skill-email-html-mjml"},
+    {"slug": "git-pushing",            "category": "software-development", "repo": "https://github.com/mhattingpete/claude-skills-marketplace/tree/main/engineering-workflow-plugin/skills/git-pushing"},
+    {"slug": "review-implementing",    "category": "software-development", "repo": "https://github.com/mhattingpete/claude-skills-marketplace/tree/main/engineering-workflow-plugin/skills/review-implementing"},
+    {"slug": "test-fixing",            "category": "software-development", "repo": "https://github.com/mhattingpete/claude-skills-marketplace/tree/main/engineering-workflow-plugin/skills/test-fixing"},
+
+    {"slug": "aws-cdk",                "category": "devops", "repo": "https://github.com/zxkane/aws-skills"},
+    {"slug": "terraform",             "category": "devops", "repo": "https://github.com/hashicorp/agent-skills"},
+    {"slug": "azure-devops",          "category": "devops", "repo": "https://github.com/sanjay3290/ai-skills/tree/main/skills/azure-devops"},
+    {"slug": "aws-architecture-diagram", "category": "devops", "repo": "https://github.com/vidanov/aws-architecture-diagram-skill"},
+
+    {"slug": "csv-data-summarizer",   "category": "data-science", "repo": "https://github.com/coffeefuelbump/csv-data-summarizer-claude-skill"},
+    {"slug": "postgres",              "category": "data-science", "repo": "https://github.com/sanjay3290/ai-skills/tree/main/skills/postgres"},
+    {"slug": "mysql",                 "category": "data-science", "repo": "https://github.com/sanjay3290/ai-skills/tree/main/skills/mysql"},
+    {"slug": "mssql",                 "category": "data-science", "repo": "https://github.com/sanjay3290/ai-skills/tree/main/skills/mssql"},
+    {"slug": "kaggle",               "category": "data-science", "repo": "https://github.com/shepsci/kaggle-skill"},
+    {"slug": "ecom-report",          "category": "data-science", "repo": "https://github.com/takechanman1228/claude-ecom"},
+    {"slug": "gh-star-history",      "category": "data-science", "repo": "https://github.com/ykdojo/gh-star-history"},
+    {"slug": "qdrant",              "category": "data-science", "repo": "https://github.com/qdrant/skills"},
+
+    {"slug": "paper-search",        "category": "research", "repo": "https://github.com/ykdojo/paper-search"},
+    {"slug": "article-extractor",   "category": "research", "repo": "https://github.com/michalparkola/tapestry-skills-for-claude-code/tree/main/article-extractor"},
+    {"slug": "tapestry-knowledge",  "category": "research", "repo": "https://github.com/michalparkola/tapestry-skills-for-claude-code/tree/main/tapestry"},
+    {"slug": "alpha-insights",      "category": "research", "repo": "https://github.com/Ericyoung-183/alpha-insights"},
+
+    {"slug": "content-research-writer", "category": "writing", "repo": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/content-research-writer"},
+    {"slug": "internal-comms",       "category": "writing", "repo": "https://github.com/anthropics/skills/tree/main/skills/internal-comms"},
+    {"slug": "brainstorming",        "category": "writing", "repo": "https://github.com/obra/superpowers/tree/main/skills/brainstorming"},
+    {"slug": "avoid-ai-writing",     "category": "writing", "repo": "https://github.com/conorbronsdon/avoid-ai-writing"},
+    {"slug": "naming",              "category": "writing", "repo": "https://github.com/glacierphonk/naming"},
+
+    {"slug": "youtube-transcript",  "category": "media", "repo": "https://github.com/michalparkola/tapestry-skills-for-claude-code/tree/main/youtube-transcript"},
+    {"slug": "video-downloader",    "category": "media", "repo": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/video-downloader"},
+    {"slug": "image-enhancer",      "category": "media", "repo": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/image-enhancer"},
+    {"slug": "imagen",             "category": "media", "repo": "https://github.com/sanjay3290/ai-skills/tree/main/skills/imagen"},
+    {"slug": "elevenlabs-tts",      "category": "media", "repo": "https://github.com/sanjay3290/ai-skills/tree/main/skills/elevenlabs"},
+    {"slug": "find-scene",         "category": "media", "repo": "https://github.com/uriva/find-scene-skill"},
+
+    {"slug": "vibesec",            "category": "security", "repo": "https://github.com/BehiSecc/VibeSec-Skill"},
+    {"slug": "defense-in-depth",   "category": "security", "repo": "https://github.com/obra/superpowers/tree/main/skills/defense-in-depth"},
+    {"slug": "owasp-security",     "category": "security", "repo": "https://github.com/agamm/claude-code-owasp"},
+    {"slug": "pii-sanitize",       "category": "security", "repo": "https://github.com/openclaw/skills/tree/main/skills/agentward-ai/sanitize"},
+    {"slug": "shellward-guide",    "category": "security", "repo": "https://github.com/jnMetaCode/shellward/tree/main/skills/security-guide"},
+
+    {"slug": "file-organizer",     "category": "productivity", "repo": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/file-organizer"},
+    {"slug": "invoice-organizer",  "category": "productivity", "repo": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/invoice-organizer"},
+    {"slug": "review-claudemd",    "category": "productivity", "repo": "https://github.com/ykdojo/claude-code-tips/tree/main/skills/review-claudemd"},
+    {"slug": "imprint-profile",    "category": "productivity", "repo": "https://github.com/ilang-ai/Imprint"},
+
+    {"slug": "kanban",            "category": "project-management", "repo": "https://github.com/mattjoyce/kanban-skill"},
+    {"slug": "linear-cli",        "category": "project-management", "repo": "https://github.com/Valian/linear-cli-skill"},
+    {"slug": "meeting-insights",  "category": "project-management", "repo": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/meeting-insights-analyzer"},
+    {"slug": "brainstorming-pm",  "category": "project-management", "repo": "https://github.com/deanpeters/Product-Manager-Skills"},
+
+    {"slug": "harness-evolver",   "category": "autonomous-ai-agents", "repo": "https://github.com/raphaelchristi/harness-evolver"},
+    {"slug": "task-observer",     "category": "autonomous-ai-agents", "repo": "https://github.com/rebelytics/one-skill-to-rule-them-all"}
+  ],
+  "collections_to_mine": [
+    {"repo": "https://github.com/obra/superpowers/tree/main/skills", "note": "enumerate ALL superpowers skills; install any not already covered", "category_hint": "software-development"},
+    {"repo": "https://github.com/anthropics/skills/tree/main/skills", "note": "official Anthropic skills; install any not already in the list", "category_hint": "documents"},
+    {"repo": "https://github.com/sanjay3290/ai-skills/tree/main/skills", "note": "broad utility set; pull google-tts, notebooklm, outline, jules, manus (skip dups)", "category_hint": "productivity"}
+  ]
+}

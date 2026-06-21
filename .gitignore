@@ -17,3 +17,6 @@ dist/
 *.key
 .claude_token
 config.json
+
+# skillforge raw harvest (staging) — installed skills live in mindpalace/skills/global/
+_skillforge/staging/
