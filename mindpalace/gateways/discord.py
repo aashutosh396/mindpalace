@@ -612,6 +612,9 @@ def run():
         dur = int(time.monotonic() - t0)
         reply, _files = _extract_attachments(reply)
         reply = notify.prettify_tables(reply)        # md tables → aligned, fenced (Discord can't render md tables)
+        _fresh = brain.pop_fresh_session_note(system)   # first message of a new day → say so, once
+        if _fresh:
+            reply = f"{_fresh}\n\n{reply}" if reply else _fresh
         cl = clients.get(name)                       # bot's live display name + avatar for the card header
         disp = cl.user.display_name if cl and cl.user else name
         icon = cl.user.display_avatar.url if cl and cl.user else None

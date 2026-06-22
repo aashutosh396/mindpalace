@@ -164,10 +164,30 @@ def _global_index():
     return _search_index
 
 
+_STRONG_MATCH = 6        # top score at/above this (a name hit, or ≥3 fm/tag hits) ⇒ auto-inject the body
+_INJECT_CHARS = 2600     # cap on the injected method (keep the turn lean)
+
+
+def _skill_body(path, max_chars: int = _INJECT_CHARS) -> str:
+    """The skill's METHOD (frontmatter stripped), trimmed — for inlining the top match so the brain
+    APPLIES it instead of merely being told it exists."""
+    try:
+        text = path.read_text(errors="ignore")
+    except OSError:
+        return ""
+    if text.startswith("---"):                       # drop the YAML frontmatter block
+        parts = text.split("---", 2)
+        text = parts[2] if len(parts) >= 3 else text
+    text = text.strip()
+    if len(text) > max_chars:
+        text = text[:max_chars].rsplit("\n", 1)[0] + "\n… (truncated — open the file for the rest)"
+    return text
+
+
 def match(query: str, limit: int = 5) -> str:
-    """Auto-retrieval: grep user + global skills for the task's keywords and surface the best
-    matches (titles + descriptions + paths — NOT full bodies) so the brain reliably sees what's
-    available before acting. Returns '' when nothing matches (adds zero tokens). Fails safe."""
+    """Auto-retrieval: grep user + global skills for the task's keywords and surface the best matches.
+    For a STRONG, clear leader it also AUTO-INJECTS that skill's method inline (so the brain applies it,
+    not just hears it exists); weaker matches are listed as pointers. '' when nothing matches. Fails safe."""
     try:
         kws = _keywords(query)
         if not kws:
@@ -183,8 +203,10 @@ def match(query: str, limit: int = 5) -> str:
             # overlap (3+ distinct keywords). A stray common word in the body alone doesn't qualify.
             if not fm_hits and len(distinct) < 3:
                 return
-            # weight name >> tags/description >> body, so the on-topic skill ranks above lexical noise
-            scored.append((4 * name_hits + 2 * fm_hits + len(distinct) + bias, kind, n, d, p))
+            # weight name >> tags/description >> body, so the on-topic skill ranks above lexical noise.
+            # carry the components too — injection is gated on signal QUALITY, not the blended score.
+            scored.append((4 * name_hits + 2 * fm_hits + len(distinct) + bias, kind, n, d, p,
+                           name_hits, fm_hits, len(distinct)))
 
         for n, d, p in user_skills():                 # owner's own skills (fresh; few) — tie-break win
             try:
@@ -197,14 +219,42 @@ def match(query: str, limit: int = 5) -> str:
         if not scored:
             return ""
         scored.sort(key=lambda x: -x[0])
+        top_score, _tk, top_n, _td, top_p = scored[0][:5]
+        t_nh, t_fh, t_dd = scored[0][5:8]            # name-hits, frontmatter-hits, distinct-keyword count
+        runner = scored[1][0] if len(scored) > 1 else 0
+        # Inject only on a HIGH-QUALITY top match: its name carries a task keyword AND the task shares
+        # ≥2 keywords with it (or ≥3 tag/desc hits, or a 2-word name hit) — so a single common word
+        # like "time" never inlines a body — AND it's strictly the leader (ties stay listed, not inlined).
+        strong = (t_nh >= 1 and t_dd >= 2) or t_fh >= 3 or t_nh >= 2
+        inject = strong and top_score >= _STRONG_MATCH and (len(scored) == 1 or top_score > runner)
+        out = []
+        if inject:
+            body = _skill_body(top_p)
+            if body:
+                try:
+                    bump_use(top_n)                  # auto-applied counts as used (feeds the curator)
+                except Exception:
+                    pass
+                out.append(
+                    f"ACTIVE SKILL — apply this method NOW as your first step (don't improvise a "
+                    f"different approach when this fits): **{top_n}**  ({top_p})\n{body}")
         lines = ["RELEVANT SKILLS auto-matched to this task. If the top one fits the request, you "
-                 "MUST `Read` its SKILL.md and FOLLOW its method as your FIRST step — before "
-                 "answering from memory or asking scoping questions. Don't wing it when a skill "
-                 "exists; do the scoping the skill's way. (Prefer [your] skills over [ref].)"]
-        for _, kind, n, d, p in scored[:limit]:
+                 "MUST follow its method as your FIRST step — before answering from memory or asking "
+                 "scoping questions. Don't wing it when a skill exists. (Prefer [your] over [ref].)"]
+        for row in scored[:limit]:
+            _, kind, n, d, p = row[:5]
             desc = (d[:90] + "…") if d and len(d) > 90 else d
-            lines.append(f"  - [{kind}] {n}{' — ' + desc if desc else ''}  ({p})")
-        return "\n".join(lines)
+            tag = " ⟵ ACTIVE (injected above)" if (inject and p == top_p) else ""
+            lines.append(f"  - [{kind}] {n}{' — ' + desc if desc else ''}  ({p}){tag}")
+        out.append("\n".join(lines))
+        # skill-chaining: if the top is injected AND ≥2 OTHER strong skills also fit, the request is
+        # likely multi-step — suggest applying them in order rather than just the one.
+        strong_others = [r for r in scored[1:4] if r[0] >= _STRONG_MATCH]
+        if inject and len(strong_others) >= 2:
+            chain = " → ".join([top_n] + [r[2] for r in strong_others[:2]])
+            out.append(f"MULTI-STEP HINT: several skills fit — if this is a multi-part task, plan it "
+                       f"as a chain and apply each in order: {chain}.")
+        return "\n\n".join(out)
     except Exception:
         return ""
 
@@ -213,10 +263,12 @@ SKILL_INSTRUCTIONS = f"""
 SKILLS & LEARNING (be a Hermes-style agent that grows — capture what you do):
 - USE SKILLS — this is not optional. You have two libraries: YOUR tailored skills at
   {config.user_skills()} and the bundled reference skills at {config.GLOBAL_SKILLS} (both are
-  searched and surfaced for you). When a "RELEVANT SKILLS auto-matched" list is in your context and
-  the top one fits the request, your FIRST action is to `Read` that SKILL.md and follow its method —
-  BEFORE you answer from general knowledge or ask scoping questions. A request like "keyword research"
-  or "SEO audit" must go through the matching skill (e.g. keyword-deep-dive), not improvised.
+  searched and surfaced for you). Two things may appear in your context:
+  (1) an "ACTIVE SKILL" block — the top match's method, already inlined for you. APPLY it as your
+  FIRST step; don't improvise a different approach when it fits. (2) a "RELEVANT SKILLS auto-matched"
+  list — pointers; `Read` the best one's SKILL.md and follow it before answering from memory or asking
+  scoping questions. If a "MULTI-STEP HINT" appears, plan the task as that chain and apply each in order.
+  A request like "keyword research" or "SEO audit" must go through the matching skill, not improvised.
 - If nothing was surfaced (or none fit), search BOTH yourself: `grep -ril <keyword> {config.user_skills()}`
   and `grep -ril <keyword> {config.GLOBAL_SKILLS}`, then read the best match.
   (The owner sees a "📚 using skill · <name>" chip when you open one — so reach for them every time.)

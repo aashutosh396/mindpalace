@@ -342,6 +342,13 @@ def session_continuity() -> bool:
     return bool(load_config().get("session_continuity", True))
 
 
+def session_reset_notice() -> bool:
+    """On the FIRST message of a new day (the one that creates the fresh daily session), prepend a
+    short 'this started a fresh session — clean plate' line to that reply. ON by default; set
+    "session_reset_notice": false to silence it."""
+    return bool(load_config().get("session_reset_notice", True))
+
+
 def lean_voice() -> bool:
     """Lean, more-to-the-point replies: short answers, no filler, ONE opener instead of running
     narration (chips still show progress) — while staying warm/human. ON by default; set

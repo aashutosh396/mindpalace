@@ -20,3 +20,5 @@ config.json
 
 # skillforge raw harvest (staging) — installed skills live in mindpalace/skills/global/
 _skillforge/staging/
+_skillforge/staging*/
+_skillforge/new_manifest.json

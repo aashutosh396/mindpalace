@@ -591,21 +591,53 @@ def _session_uuid(system: str | None, seg: int | None = None) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"mindpalace-session-{_session_key(system)}-s{seg}"))
 
 
+_FRESH_DAY: dict = {}     # per-identity flag: today's session was just created → announce once
+_ROTATED: dict = {}       # per-identity: this turn rolled to a fresh leaner segment → announce once (value = seg)
+
+
+def pop_fresh_session_note(system: str | None = None) -> str:
+    """If THIS turn started a fresh session — either the day's FIRST message (new daily session) or a
+    mid-day ROLL to a leaner segment after the turn budget — return a one-line note (once) for the
+    gateway to prepend to the reply, then clear the flag. '' otherwise. Off via config toggle."""
+    key = _session_key(system)
+    if not config.session_reset_notice():
+        _FRESH_DAY.pop(key, None)
+        _ROTATED.pop(key, None)
+        return ""
+    if _FRESH_DAY.pop(key, None):
+        _ROTATED.pop(key, None)                  # day-start wins if both somehow set
+        return ("🧼 This message started a **fresh session** — clean plate for the day. I'm not "
+                "carrying over yesterday's chat (my skills + vault knowledge stay).")
+    seg = _ROTATED.pop(key, None)
+    if seg is not None:
+        return (f"🔄 Rolled to a **fresh session segment** (#{seg}) — this chat got long, so I'm "
+                "starting a leaner one. I kept my distilled memory (CORE) + skills; only the raw "
+                "back-and-forth is shed to stay fast.")
+    return ""
+
+
 def _advance_session(system: str | None) -> tuple[str, bool]:
     """Called once per streamed turn. Advances the turn counter for today's session SEGMENT and,
     when the per-session turn budget (config.session_rotate_turns) is exceeded, ROTATES to a fresh
     leaner segment — a new session seeded with the persona + current CORE.md working memory (so
     distilled knowledge carries over while raw transcript bloat is shed). Returns
     (session_uuid, is_new): is_new True ⇒ CREATE (--session-id), else RESUME (--resume)."""
+    p = _session_state_path(system)
+    fresh_day = not p.exists()                    # no state file for today's key yet → first msg of the day
     st = _load_session_state(system)
     seg, turns = int(st.get("seg", 0)), int(st.get("turns", 0))
     limit = config.session_rotate_turns()
-    if limit and turns >= limit:                 # budget hit → roll to a fresh, leaner segment
+    rotated = bool(limit and turns >= limit)      # budget hit → roll to a fresh, leaner segment
+    if rotated:
         seg, turns = seg + 1, 0
     turns += 1
     is_new = (turns == 1)                        # first turn of this segment → create the session
+    key = _session_key(system)
+    if is_new and fresh_day:                     # brand-new DAILY session (first message of the day)
+        _FRESH_DAY[key] = True                    # → gateway prepends a 'fresh session' line to the reply
+    elif rotated:                                # mid-day roll to a fresh leaner segment
+        _ROTATED[key] = seg                       # → gateway prepends a 'rolled to segment N' line
     try:
-        p = _session_state_path(system)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({"seg": seg, "turns": turns, "ts": time.time()}))
     except OSError:

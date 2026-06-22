@@ -18,3 +18,19 @@ writing, media, security, productivity, project-management, autonomous-ai-agents
 note-taking). Each imported `SKILL.md` carries its own `source:` (upstream repo) and
 `derived_from: awesomeclaude` in frontmatter, and retains the upstream `license:`. Thanks to
 all the original skill authors. The ralph-wiggum goal-loop pattern is from Geoffrey Huntley.
+
+---
+
+## mcpmarket-sourced imports (2026-06-22)
+
+363 further skills were harvested from the open-source repositories aggregated by
+**[MCP Market](https://mcpmarket.com/tools/skills)** — primarily
+**[alirezarezvani/claude-skills](https://github.com/alirezarezvani/claude-skills)**,
+**[daymade/claude-code-skills](https://github.com/daymade/claude-code-skills)**, and the
+official **[anthropics/skills](https://github.com/anthropics/skills)** — deduped against the
+existing library. These added the business/leadership/ops depth: `leadership-advisory`,
+`marketing`, `product-management`, `compliance`, `sales-commercial`, `customer-success`,
+`business-operations`, `browser-automation`, `cloud-infra`, `analytics-monitoring`,
+`api-development`, `database`, `web-scraping`, `mobile-development`. Each `SKILL.md` carries
+its upstream `source:` + `derived_from:` in frontmatter. Bundle-index/router and stub skills
+were intentionally skipped. Thanks to all the original authors.
