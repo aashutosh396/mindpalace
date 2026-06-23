@@ -17,6 +17,7 @@ import time
 import uuid
 
 from .. import config, skills
+from .. import mcp as mcpreg                          # MCP server registry (aliased — _project_args has a local `mcp`)
 from ..memory import store as mem
 from . import telemetry
 
@@ -348,6 +349,7 @@ def build_prompt(text: str, history: list[dict], system: str | None = None) -> s
         mem.recall_block(text),
         skills.index_block(),
         skills.match(text),          # auto-surface skills matching THIS task (recall > recall-luck)
+        mcpreg.match(text),          # auto-surface MCP servers relevant to THIS task
     ) if b]
     head = system if system else system_prompt()
     return (
@@ -465,6 +467,7 @@ def _project_args(match_text: str = "") -> list[str]:
             if os.path.isfile(mcp):
                 out += ["--mcp-config", mcp]
                 break
+    out += mcpreg.config_args()                        # registry: globally-enabled MCP servers (every turn)
     return out
 
 
@@ -657,7 +660,7 @@ def _turn_input(text: str) -> str:
     """Per-turn user message under continuity: only query-specific dynamic context (recalled
     history + skills matched to THIS task) + the owner's text. History lives in the resumed
     session, so we don't restuff history[-12:]."""
-    ctx = [b for b in (mem.recall_block(text), skills.match(text)) if b]
+    ctx = [b for b in (mem.recall_block(text), skills.match(text), mcpreg.match(text)) if b]
     return (("\n\n".join(ctx) + "\n\n") if ctx else "") + f"Owner: {text}\nAssistant:"
 
 

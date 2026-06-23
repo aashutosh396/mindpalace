@@ -94,19 +94,34 @@ def _wants_background(text: str) -> bool:
     return any(k in low for k in _BG_KW)
 
 
-_GOAL_KW = ("keep working until", "keep going until", "loop until", "iterate until",
-            "don't stop until", "do not stop until", "until it's done", "until it is done",
-            "until all tests pass", "until tests pass", "until it works", "ralph ", "ralph:")
+# imperative "grind until done" phrases — only honored when the message is NOT a question
+_GOAL_UNTIL = ("keep working until", "keep going until", "keep iterating until", "loop until",
+               "iterate until", "don't stop until", "do not stop until", "until it's done",
+               "until it is done", "until all tests pass", "until tests pass", "until it works")
+_Q_STARTS = ("how", "what", "why", "did", "do", "does", "can", "could", "is", "are", "was",
+             "were", "when", "where", "who", "which", "explain", "tell", "should", "would", "will")
 
 
 def _wants_goal(text: str) -> tuple[bool, str]:
-    """Detect a ralph-wiggum GOAL-LOOP intent (grind until done). Returns (yes, task). 'goal: …'
-    prefix or a 'until …' phrasing. Heuristic, no model call."""
+    """Detect an EXPLICIT ralph-wiggum GOAL-LOOP request — GATED so a casual mention ("how does the
+    ralph loop work?", "explain the goal loop") never triggers it. Fires ONLY on:
+      • a `goal:` / `ralph:` PREFIX,
+      • an ALL-CAPS `GOAL` standalone token (the owner deliberately flags it),
+      • a quoted "goal",
+      • an unambiguous 'keep going until …' imperative that is NOT a question.
+    Returns (yes, task). Heuristic, no model call."""
+    import re
     t = (text or "").strip()
     low = t.lower()
-    if low.startswith("goal:"):
+    if low.startswith(("goal:", "ralph:")):                       # canonical explicit form
         return True, t.split(":", 1)[1].strip()
-    if any(k in low for k in _GOAL_KW):
+    if re.search(r"\bGOAL\b", t):                                 # ALL-CAPS GOAL marker
+        return True, (re.sub(r"\bGOAL\b", "", t).strip(" :-—") or t)
+    if re.search(r"""['"‘’“”]\s*goal\s*['"‘’“”]""", low):
+        return True, t                                            # quoted "goal"
+    first = low.split()[0] if low.split() else ""
+    is_question = low.endswith("?") or first in _Q_STARTS
+    if not is_question and any(k in low for k in _GOAL_UNTIL):    # imperative, not a question
         return True, t
     return False, ""
 
@@ -350,8 +365,10 @@ async def _handle_command(msg, text) -> bool:
             "`!update check` — check GitHub for updates right now (just shows them)\n"
             "`!update` — pull the latest from GitHub + reload myself live\n"
             "`!bg` (or `!tasks`) — list running + recently-done background tasks in this channel\n"
-            "say `goal: <task>` or 'keep going until …' — I grind on it (ralph loop) in the background until done\n"
+            "`goal: <task>` (or `GOAL <task>`, or 'keep going until …') — I grind on it (ralph loop) in the "
+            "background until done. Just *mentioning* 'goal'/'loop'/'ralph' in a question won't trigger it.\n"
             "`!project <path>` — PIN a project (otherwise I auto-detect it from your message via the vault); `!project none` to unpin\n"
+            "`!mcp` — list MCP servers (✓=on); `!mcp enable <slug> KEY=val` / `!mcp disable <slug>` / `!mcp info <slug>`\n"
             "`!bots` — list the bots I'm running\n"
             "`!admins` — who can talk to me\n"
             "`!add-admin @user` — let someone in\n"
@@ -403,6 +420,53 @@ async def _handle_command(msg, text) -> bool:
             await msg.channel.send(
                 f"voice: **{'lean' if config.lean_voice() else 'full'}** · "
                 "`!voice lean` (brief) / `!voice full` (chatty) — applies on your next message.")
+    elif cmd == "mcp":
+        from .. import mcp as reg
+        sub = args[0].lower() if args else "list"
+        en = reg.enabled()
+        if sub in ("list", "ls"):
+            lines = [f"**MCP servers** ({len(reg.catalog())}) — ✓ = wired in:"]
+            for c in reg.catalog():
+                m = "✓" if c["slug"] in en else "▫️"
+                lines.append(f"{m} `{c['slug']}` — {c['description'][:46]}")
+            lines.append("`!mcp enable <slug> KEY=val` · `!mcp disable <slug>` · `!mcp info <slug>`")
+            buf = ""
+            for ln in lines:
+                if len(buf) + len(ln) > 1800:
+                    await msg.channel.send(buf); buf = ""
+                buf += ln + "\n"
+            if buf:
+                await msg.channel.send(buf)
+        elif sub == "info":
+            c = reg.get(args[1]) if len(args) > 1 else None
+            if not c:
+                await msg.channel.send("usage: `!mcp info <slug>`")
+            else:
+                import json as _j
+                await msg.channel.send(
+                    f"**{c['name']}** (`{c['slug']}`) · {c['category']}\n{c['description']}\n"
+                    f"env: {', '.join(c['env']) or 'none'} · {c['homepage']}\n"
+                    f"```json\n{_j.dumps(c['config'], indent=2)[:1200]}\n```")
+        elif sub == "enable":
+            if not args[1:]:
+                await msg.channel.send("usage: `!mcp enable <slug> [KEY=val ...]`  (tip: set secrets via "
+                                       "the terminal `mindpalace mcp enable` to keep keys out of chat)")
+            else:
+                slug = args[1].lower()
+                kv = {t.split("=", 1)[0]: t.split("=", 1)[1] for t in args[2:] if "=" in t}
+                if not reg.enable(slug, kv or None):
+                    await msg.channel.send(f"no server `{slug}` — `!mcp list`")
+                else:
+                    miss = reg.missing_env(slug)
+                    await msg.channel.send(f"✅ enabled `{slug}`." + (f" still needs: {', '.join(miss)}"
+                        if miss else " ready.") + " (restart to wire it into running turns)")
+        elif sub == "disable":
+            if not args[1:]:
+                await msg.channel.send("usage: `!mcp disable <slug>`")
+            else:
+                reg.disable(args[1].lower()); await msg.channel.send(f"disabled `{args[1].lower()}`.")
+        else:
+            await msg.channel.send("`!mcp` · `!mcp info <slug>` · `!mcp enable <slug> KEY=val` · `!mcp disable <slug>`")
     elif cmd in ("curate", "curator"):
         sub = args[0].lower() if args else "status"
         if sub in ("now", "run", "force"):

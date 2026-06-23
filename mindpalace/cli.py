@@ -200,6 +200,47 @@ def main(argv=None):
         n = int(argv[1]) if len(argv) > 1 and argv[1].isdigit() else 50
         print(telemetry.summarize(n)); return
 
+    if cmd == "mcp":                            # MCP server registry — catalog + enable/disable
+        from . import mcp as reg
+        sub = argv[1].lower() if len(argv) > 1 else "list"
+        en = reg.enabled()
+        if sub in ("list", "ls"):
+            print(f"MCP catalog ({len(reg.catalog())} servers) — ✓ = enabled:")
+            for c in reg.catalog():
+                mark = "✓" if c["slug"] in en else " "
+                need = (" [needs: " + ",".join(reg.missing_env(c["slug"])) + "]") if (c["slug"] in en and reg.missing_env(c["slug"])) else ""
+                print(f"  {mark} {c['slug']:18} {c['category']:13} {c['description'][:54]}{need}")
+            print("\n  mindpalace mcp enable <slug> [KEY=val ...] | disable <slug> | info <slug>")
+            return
+        if sub == "info":
+            c = reg.get(argv[2]) if len(argv) > 2 else None
+            if not c:
+                print("usage: mindpalace mcp info <slug>"); return
+            import json as _j
+            print(f"{c['name']} ({c['slug']}) — {c['category']}\n{c['description']}\nenv: {c['env'] or 'none'}\n"
+                  f"homepage: {c['homepage']}\nconfig:\n{_j.dumps(c['config'], indent=2)}")
+            return
+        if sub == "enable":
+            if len(argv) < 3:
+                print("usage: mindpalace mcp enable <slug> [KEY=val ...]"); return
+            slug = argv[2].lower()
+            kv = {}
+            for tok in argv[3:]:
+                if "=" in tok:
+                    k, v = tok.split("=", 1); kv[k] = v
+            if not reg.enable(slug, kv or None):
+                print(f"no such server '{slug}' — see `mindpalace mcp list`"); return
+            miss = reg.missing_env(slug)
+            print(f"enabled '{slug}'." + (f" still needs creds: {', '.join(miss)} "
+                  f"→ `mindpalace mcp enable {slug} {miss[0]}=...`" if miss else " ready."))
+            print("(restart the daemon to wire it into running turns: mindpalace restart)")
+            return
+        if sub == "disable":
+            if len(argv) < 3:
+                print("usage: mindpalace mcp disable <slug>"); return
+            reg.disable(argv[2].lower()); print(f"disabled '{argv[2].lower()}'."); return
+        print("usage: mindpalace mcp [list | info <slug> | enable <slug> [KEY=val] | disable <slug>]"); return
+
     if cmd == "goal":                               # ralph-wiggum loop: grind a task until done
         rest, mx, promise, parts = argv[1:], None, None, []
         i = 0
