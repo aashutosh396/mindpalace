@@ -381,6 +381,46 @@ def _extract_plan(raw: str, valid_names: set) -> list:
     return out
 
 
+def _extract_arch_plan(raw: str) -> list:
+    """Parse the architect's plan: [{role, task, room?}]. room is optional (route to a real room
+    if named, else run as an ephemeral agent). Tolerant of prose around the JSON."""
+    if not raw:
+        return []
+    m = _re.search(r"\[.*\]", raw, _re.S)
+    if not m:
+        return []
+    try:
+        arr = json.loads(m.group(0))
+    except Exception:
+        return []
+    out = []
+    for it in arr if isinstance(arr, list) else []:
+        if isinstance(it, dict) and it.get("task"):
+            out.append({"role": str(it.get("role") or "agent").strip()[:40],
+                        "task": str(it["task"]).strip(),
+                        "room": it["room"] if isinstance(it.get("room"), str) else None})
+    return out
+
+
+def _augment_with_attachments(text: str, atts: list) -> str:
+    """Append a note pointing the brain at saved attachment paths. Attachments are saved to a
+    LOCAL path on the box, so any turn (home OR another room) can Read them — the note carries
+    the paths into whichever room handles the message (fixes images lost on cross-room dispatch)."""
+    if not atts:
+        return text
+    imgs = [a for a in atts if a["is_image"]]
+    files = [a for a in atts if not a["is_image"]]
+    notes = []
+    if imgs:
+        notes.append("VIEW these image(s) with the Read tool: " + ", ".join(a["path"] for a in imgs))
+    if files:
+        notes.append("READ/process these file(s) with the Read tool or bash (they are saved "
+                     "locally): " + ", ".join(f'{a["name"]} -> {a["path"]}' for a in files))
+    return (text or "(no caption)") + (
+        "\n\n[The owner attached files. " + " | ".join(notes)
+        + ". Open them before replying — don't say the attachment didn't load.]")
+
+
 async def _handle_command(msg, text) -> bool:
     """Admin commands (home channel). Returns True if it was a command."""
     parts = text[1:].split()
@@ -400,6 +440,9 @@ async def _handle_command(msg, text) -> bool:
             "background until done. Just *mentioning* 'goal'/'loop'/'ralph' in a question won't trigger it.\n"
             "`!project <path>` — PIN a project (otherwise I auto-detect it from your message via the vault); `!project none` to unpin\n"
             "`!mcp` — list MCP servers (✓=on); `!mcp enable <slug> KEY=val` / `!mcp disable <slug>` / `!mcp info <slug>`\n"
+            "`!architect <goal>` — team on demand, ANY channel, no setup: I split the goal into "
+            "parallel agents (routing to real rooms if they fit, else spawning ephemeral ones), run "
+            "them at once, and merge into one answer. Simple goal = just answered.\n"
             "`#room <task>` — from here, send a task INTO an activated room; it runs there as that "
             "room's assistant and reports a one-liner back here (command the fleet from home).\n"
             "`!activate #channel <what it does>` — turn another channel into its OWN assistant "
@@ -1024,6 +1067,71 @@ def run():
         await _send_reply(channel, sc["name"], final or "(merge produced nothing)",
                           None, stats=f"orchestrated · {len(results)} room(s)")
 
+    async def _architect(channel, goal):
+        """Team-on-demand, ANY channel, ZERO setup. PLAN the goal into role-tagged sub-tasks →
+        run them in PARALLEL (route to a real room if one fits, else spawn an EPHEMERAL agent — a
+        forked brain wearing that role) → MERGE. A simple goal returns one item = solo answer."""
+        if not goal:
+            await channel.send("usage: `!architect <goal>` — I split it into parallel agents, run "
+                               "them, and merge. Works anywhere, no setup needed."); return
+        workers = {cid: s for cid, s in _SCOPES.items() if not s.get("orchestrator")}
+        roster = "\n".join(
+            f"- {s['name']}: {((s.get('system') or '').strip().splitlines() or [''])[0][:100]}"
+            for s in workers.values()) or "(none)"
+        await channel.send("🧭 planning…")
+        plan_prompt = (
+            "Break the owner's goal into 1–5 INDEPENDENT sub-tasks that can run in parallel; give each "
+            "a short role label. If a sub-task fits one of these existing rooms, put its exact name in "
+            f'"room" (else null):\n{roster}\n\nGoal: {goal}\n\n'
+            'Return ONLY JSON: [{"role":"<role>","task":"<sub-task>","room":<"name" or null>}]. '
+            "If the goal is simple, return a single item.")
+        try:
+            raw = await brain.ask_async(plan_prompt, [], system=None)
+        except Exception as e:
+            await channel.send(f"⚠️ planning failed: {e}"); return
+        plan = _extract_arch_plan(raw)
+        if not plan:
+            await channel.send("couldn't plan that — my take:\n> "
+                               + " ".join((raw or "").split())[:600]); return
+        n2c = {s["name"]: cid for cid, s in workers.items()}
+        head = "solo" if len(plan) == 1 else f"{len(plan)} agents in parallel"
+        await channel.send(f"🧭 **plan** ({head})\n" + "\n".join(
+            f"{i+1}. **{p['role']}**" + (f" → <#{n2c[p['room']]}>" if p.get("room") in n2c else " · agent")
+            + f" — {p['task'][:120]}" for i, p in enumerate(plan)))
+
+        sem = asyncio.Semaphore(3)                  # cap parallel heavy turns — the box is small
+        async def _one(p):
+            async with sem:
+                try:
+                    if p.get("room") in n2c:        # a real room fits → use its persona + fence
+                        cid = n2c[p["room"]]; w = workers[cid]
+                        ch = client.get_channel(cid) or channel
+                        r = await _run_brain(ch, "scope-" + w["name"], p["task"], w.get("system"),
+                                             w.get("permissions", "readonly"), w.get("allowed_tools"))
+                    else:                           # ephemeral agent — role hat, full brain, no channel
+                        r = await brain.ask_async(
+                            f"You are acting as: {p['role']}. Do this sub-task autonomously, then "
+                            f"report a concise result.\n\nSub-task: {p['task']}", [])
+                except Exception as e:
+                    r = f"(error: {e})"
+            return {**p, "result": r or "(no reply)"}
+        results = await asyncio.gather(*[_one(p) for p in plan])
+
+        for r in results:                           # show each agent's result
+            await _send_reply(channel, r["role"], r["result"], None, stats="agent")
+        if len(results) == 1:
+            return                                  # solo — that single result IS the answer
+        await channel.send("🪢 merging…")
+        merge_prompt = ("Synthesize these parallel agent results into ONE clear, complete answer for "
+                        f"the owner — resolve overlaps, flag conflicts, keep it tight.\n\nGoal: {goal}\n\n"
+                        + "\n\n".join(f"### {r['role']}\n{(r['result'] or '')[:2000]}" for r in results))
+        try:
+            final = await brain.ask_async(merge_prompt, [], system=None)
+        except Exception as e:
+            final = f"(merge failed: {e}) — see the agent results above."
+        await _send_reply(channel, "architect", final or "(nothing)", None,
+                          stats=f"merged · {len(results)} agents")
+
     def make_client(name: str, spec: dict):
         is_main = spec.get("trigger", "mention") == "home"
         system = None if is_main else bots.load_system(name)
@@ -1060,6 +1168,9 @@ def run():
 
             # admin commands (home channel) — handled here, not sent to the brain
             raw = (msg.content or "").strip()
+            if is_main and raw[:10].lower() == "!architect":   # team-on-demand, works in ANY channel
+                await _architect(msg.channel, raw[10:].strip())
+                return
             if is_main and in_home and raw.startswith("!"):
                 await _handle_command(msg, raw)
                 return
@@ -1080,9 +1191,13 @@ def run():
                     if routed:
                         sc = _SCOPES[routed.id]
                         task = (msg.content or "").replace(f"<#{routed.id}>", "").strip()
+                        # carry any attached images/files too (saved locally → the room can Read them)
+                        atts = await _save_attachments(msg)
+                        task = _augment_with_attachments(task, atts)
                         if task:
                             target = client.get_channel(routed.id) or routed
-                            await msg.channel.send(f"📨 routing to <#{routed.id}> (**{sc['name']}**)…")
+                            note = " (with attachment)" if atts else ""
+                            await msg.channel.send(f"📨 routing to <#{routed.id}> (**{sc['name']}**){note}…")
                             r = await _dispatch(target, "scope-" + sc["name"], task,
                                                 sc.get("system"), sc.get("permissions", "readonly"),
                                                 sc.get("allowed_tools"))
@@ -1121,20 +1236,7 @@ def run():
             atts = await _save_attachments(msg)
             if not text and not atts:
                 return
-            if atts:
-                imgs = [a for a in atts if a["is_image"]]
-                files = [a for a in atts if not a["is_image"]]
-                notes = []
-                if imgs:
-                    notes.append("VIEW these image(s) with the Read tool: "
-                                 + ", ".join(a["path"] for a in imgs))
-                if files:
-                    notes.append("READ/process these file(s) with the Read tool or bash "
-                                 "(they are saved locally): "
-                                 + ", ".join(f'{a["name"]} -> {a["path"]}' for a in files))
-                text = (text or "(no caption)") + (
-                    "\n\n[The owner attached files. " + " | ".join(notes)
-                    + ". Open them before replying — don't say the attachment didn't load.]")
+            text = _augment_with_attachments(text, atts)
 
             # pending git update + owner says "yes" → pull + self-restart (deterministic,
             # never goes to the brain). Only in the home channel's main bot.
