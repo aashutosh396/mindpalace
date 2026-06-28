@@ -241,7 +241,14 @@ async def _send_reply(channel, name, reply, icon_url=None, stats=None, color=COR
                     else em.set_footer(text=f"{bar}  {label}  {bar}")
             except Exception:
                 em.set_footer(text=f"{bar}  {label}  {bar}")
-        await channel.send(embed=em)
+        try:
+            await channel.send(embed=em)
+        except discord.Forbidden:
+            # channel doesn't grant this bot "Embed Links" → plain-text fallback so the reply
+            # still lands (common in a freshly-activated channel before perms are widened).
+            prefix = f"**{head}**\n" if i == 0 else ""
+            for part in _chunks(prefix + c):
+                await channel.send(part)
 
 
 import re as _re
