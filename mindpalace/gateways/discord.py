@@ -362,6 +362,25 @@ def _ids_from(msg, parts):
     return list(dict.fromkeys(ids))
 
 
+def _extract_plan(raw: str, valid_names: set) -> list:
+    """Pull the orchestrator's JSON plan out of its reply: a list of {room, task}, keeping only
+    items that target a real room. Tolerant of prose around the JSON (claude often wraps it)."""
+    if not raw:
+        return []
+    m = _re.search(r"\[.*\]", raw, _re.S)
+    if not m:
+        return []
+    try:
+        arr = json.loads(m.group(0))
+    except Exception:
+        return []
+    out = []
+    for it in arr if isinstance(arr, list) else []:
+        if isinstance(it, dict) and it.get("room") in valid_names and it.get("task"):
+            out.append({"room": it["room"], "task": str(it["task"]).strip()})
+    return out
+
+
 async def _handle_command(msg, text) -> bool:
     """Admin commands (home channel). Returns True if it was a command."""
     parts = text[1:].split()
@@ -386,6 +405,8 @@ async def _handle_command(msg, text) -> bool:
             "`!activate #channel <what it does>` — turn another channel into its OWN assistant "
             "(own session, own memory, persona drafted by me); add `readonly`/`full`/`custom` to set its "
             "powers. `!scopes` lists them · `!deactivate #channel` turns one off.\n"
+            "`!activate #channel orchestrator <goal focus>` — make a room that SPLITS a goal across the "
+            "other rooms, runs them in parallel, and MERGES the results. Then just talk to that room.\n"
             "`!bots` — list the bots I'm running\n"
             "`!admins` — who can talk to me\n"
             "`!add-admin @user` — let someone in\n"
@@ -596,10 +617,15 @@ async def _handle_command(msg, text) -> bool:
         if target.id == msg.channel.id:
             await msg.channel.send("that's the home channel — pick a *different* channel to activate.")
             return True
-        tier = "full"
+        tier, is_orch = "full", False
+        if rest and rest[0].lower() == "orchestrator":
+            is_orch = True; rest = rest[1:]          # an orchestrator room: fans out + merges
         if rest and rest[0].lower() in ("readonly", "full", "custom"):
             tier = rest[0].lower(); rest = rest[1:]
         intent = " ".join(rest).strip()
+        if is_orch and not intent:
+            intent = ("Coordinate the other activated rooms: take the owner's goal, split it across "
+                      "the best-suited rooms, and merge their results into one clear answer.")
         if not intent:
             await msg.channel.send("tell me what that channel's assistant should do, e.g. "
                                    "`!activate #deploy handle deploys and read logs only`.")
@@ -608,17 +634,21 @@ async def _handle_command(msg, text) -> bool:
         try:
             persona = await asyncio.to_thread(scopes.draft_persona, intent)
             name = (target.name or f"chan{target.id}").replace(" ", "-")
+            allowed = ("Read" if tier == "custom" else None)
             scopes.add_scope(name, target.id, system=persona, permissions=tier,
-                             allowed_tools=("Read" if tier == "custom" else None))
-            _SCOPES[target.id] = {"name": name, "permissions": tier,
-                                  "allowed_tools": ("Read" if tier == "custom" else None),
-                                  "system": persona}
+                             allowed_tools=allowed, orchestrator=is_orch)
+            spec = {"name": name, "permissions": tier, "allowed_tools": allowed, "system": persona}
+            if is_orch:
+                spec["orchestrator"] = True
+            _SCOPES[target.id] = spec
         except Exception as e:
             await msg.channel.send(f"⚠️ couldn't activate: {e}"); return True
         prev = persona.strip().replace("\n", " ")[:300]
+        kind = "🧭 ORCHESTRATOR room (fans out to the other rooms + merges)" if is_orch \
+            else f"its own assistant **{name}** ({tier})"
         await msg.channel.send(
-            f"✅ <#{target.id}> is now its own assistant **{name}** ({tier}) — its own session, "
-            f"memory and persona. Live now, no restart.\n> _{prev}…_\n"
+            f"✅ <#{target.id}> is now {kind} — its own session, memory and persona. "
+            f"Live now, no restart.\n> _{prev}…_\n"
             f"Edit its persona anytime: `scopes/{name}/system.md` · turn off: `!deactivate <#{target.id}>`")
     elif cmd in ("deactivate", "remove-scope", "unscope"):
         target = msg.channel_mentions[0] if msg.channel_mentions else None
@@ -633,8 +663,9 @@ async def _handle_command(msg, text) -> bool:
             await msg.channel.send("no activated channels yet — `!activate #channel <what it does>`.")
         else:
             await msg.channel.send("**activated channels** (each its own assistant):\n" + "\n".join(
-                f"• <#{cid}> → **{s['name']}** ({s.get('permissions','?')}"
-                + (f", allow={s['allowed_tools']}" if s.get('allowed_tools') else "") + ")"
+                f"• <#{cid}> → **{s['name']}** "
+                + ("🧭 orchestrator" if s.get("orchestrator") else f"({s.get('permissions','?')}"
+                   + (f", allow={s['allowed_tools']}" if s.get('allowed_tools') else "") + ")")
                 for cid, s in _SCOPES.items()))
     elif cmd == "bots":
         reg = bots.registry()
@@ -932,6 +963,67 @@ def run():
                 return None
         return await _run_brain(channel, name, text, system, perms, allowed)
 
+    async def _orchestrate(channel, task, sc):
+        """An orchestrator room: PLAN (split the task across the other rooms) → FAN OUT in parallel
+        (capped, to spare the box) → MERGE the results into one answer. Each sub-task runs in its
+        target room as that room's persona (own session/memory/fence)."""
+        workers = {cid: s for cid, s in _SCOPES.items()
+                   if not s.get("orchestrator") and cid != channel.id}
+        if not workers:
+            await channel.send("no worker rooms yet — `!activate #room <intent>` a few first, then "
+                               "give me a goal and I'll split it across them.")
+            return
+        name_to_cid = {s["name"]: cid for cid, s in workers.items()}
+        roster = "\n".join(
+            f"- {s['name']}: {((s.get('system') or '').strip().splitlines() or [''])[0][:120]}"
+            for s in workers.values())
+        await channel.send("🧭 planning the fan-out…")
+        plan_prompt = (
+            "You are an orchestrator. Split the owner's goal into independent sub-tasks and assign each "
+            "to the ONE best-suited room from this roster:\n" + roster +
+            f"\n\nGoal: {task}\n\nReturn ONLY a JSON array (1–5 items), no prose:\n"
+            '[{"room":"<exact room name>","task":"<what that room should do>"}]\n'
+            "Use only the room names listed.")
+        try:
+            raw = await brain.ask_async(plan_prompt, [], system=sc.get("system"))
+        except Exception as e:
+            await channel.send(f"⚠️ planning failed: {e}"); return
+        plan = _extract_plan(raw, set(name_to_cid))
+        if not plan:
+            await channel.send("couldn't form a plan from the available rooms. My raw take:\n> "
+                               + " ".join((raw or "").split())[:400]); return
+        await channel.send("🧭 **plan**\n" + "\n".join(
+            f"{i+1}. <#{name_to_cid[p['room']]}> (**{p['room']}**) → {p['task'][:140]}"
+            for i, p in enumerate(plan)))
+
+        sem = asyncio.Semaphore(3)                 # cap parallel heavy turns — the box is small
+        async def _one(p):
+            cid = name_to_cid[p["room"]]; w = workers[cid]
+            ch = client.get_channel(cid)
+            if ch is None:
+                return {**p, "result": "(room channel not reachable)"}
+            async with sem:
+                try:
+                    r = await _run_brain(ch, "scope-" + w["name"], p["task"], w.get("system"),
+                                         w.get("permissions", "readonly"), w.get("allowed_tools"))
+                except Exception as e:
+                    r = f"(error: {e})"
+            return {**p, "result": r or "(no reply)"}
+        results = await asyncio.gather(*[_one(p) for p in plan])
+
+        await channel.send("🪢 merging the results…")
+        merge_prompt = (
+            "You fanned this goal out to several rooms. Synthesize their results into ONE clear, "
+            "complete answer for the owner — resolve overlaps, flag conflicts, keep it tight.\n\n"
+            f"Goal: {task}\n\n" + "\n\n".join(
+                f"### {r['room']} — did: {r['task'][:80]}\n{(r['result'] or '')[:2000]}" for r in results))
+        try:
+            final = await brain.ask_async(merge_prompt, [], system=sc.get("system"))
+        except Exception as e:
+            final = f"(merge failed: {e}) — but each room posted its own result above."
+        await _send_reply(channel, sc["name"], final or "(merge produced nothing)",
+                          None, stats=f"orchestrated · {len(results)} room(s)")
+
     def make_client(name: str, spec: dict):
         is_main = spec.get("trigger", "mention") == "home"
         system = None if is_main else bots.load_system(name)
@@ -1006,6 +1098,10 @@ def run():
                     sc = _SCOPES[msg.channel.id]
                     text = msg.content.replace(f"<@{client.user.id}>", "").replace(
                         f"<@!{client.user.id}>", "").strip()
+                    if sc.get("orchestrator"):       # this room plans → fans out to others → merges
+                        if text:
+                            await _orchestrate(msg.channel, text, sc)
+                        return
                     eff_name = "scope-" + sc["name"]
                     eff_system = sc.get("system")
                     eff_perms = sc.get("permissions", "readonly")
