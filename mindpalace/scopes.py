@@ -61,10 +61,11 @@ def draft_persona(intent: str) -> str:
 
 def add_scope(name: str, channel_id: int, *, system: str,
               permissions: str = "readonly", allowed_tools: str | None = None,
-              orchestrator: bool = False) -> dict:
+              orchestrator: bool = False, model: str | None = None) -> dict:
     """Persist a scope (persona file + config binding). Returns the saved spec.
     Non-interactive — safe to call from the CLI, a script, or the agent itself.
-    orchestrator=True marks a room that fans a task out to the other rooms and merges."""
+    orchestrator=True marks a room that fans a task out to the other rooms and merges.
+    model: pin this room to a model (opus/sonnet/haiku); None → the brain auto-picks."""
     name = (name or "").strip().replace(" ", "-")
     if not name:
         raise ValueError("scope needs a name")
@@ -87,6 +88,8 @@ def add_scope(name: str, channel_id: int, *, system: str,
     }
     if orchestrator:
         spec["orchestrator"] = True
+    if model:
+        spec["model"] = model
     cfg.setdefault("scopes", {})[str(channel_id)] = spec
     config.save_config(cfg)
     return spec
@@ -134,12 +137,15 @@ def add_scope_cli(argv: list[str]):
 
     Scriptable: pass --intent (Claude drafts the persona) or --system/--system-file (verbatim).
     With neither, falls back to interactive prompts when run from a terminal."""
-    pos, intent, tier, allow, system, sysfile, orch = [], None, None, None, None, None, False
+    pos, intent, tier, allow, system, sysfile, orch, model = \
+        [], None, None, None, None, None, False, None
     i = 0
     while i < len(argv):
         a = argv[i]
         if a == "--orchestrator":
             orch = True; i += 1
+        elif a == "--model" and i + 1 < len(argv):
+            model = argv[i + 1]; i += 2
         elif a == "--intent" and i + 1 < len(argv):
             intent = argv[i + 1]; i += 2
         elif a == "--tier" and i + 1 < len(argv):
@@ -195,9 +201,9 @@ def add_scope_cli(argv: list[str]):
             if __import__("sys").stdin.isatty() else "Read"
 
     add_scope(name, channel_id, system=system, permissions=tier,
-              allowed_tools=(allow if tier == "custom" else None), orchestrator=orch)
+              allowed_tools=(allow if tier == "custom" else None), orchestrator=orch, model=model)
     print(f"\n✓ scope '{name}' bound to channel {channel_id} ({tier}"
-          f"{', orchestrator' if orch else ''}). "
+          f"{', orchestrator' if orch else ''}{', ' + model if model else ''}). "
           "Restart the daemon to bring it live:  mindpalace restart")
 
 

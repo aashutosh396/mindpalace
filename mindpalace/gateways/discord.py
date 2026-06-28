@@ -446,8 +446,9 @@ async def _handle_command(msg, text) -> bool:
             "`#room <task>` — from here, send a task INTO an activated room; it runs there as that "
             "room's assistant and reports a one-liner back here (command the fleet from home).\n"
             "`!activate #channel <what it does>` — turn another channel into its OWN assistant "
-            "(own session, own memory, persona drafted by me); add `readonly`/`full`/`custom` to set its "
-            "powers. `!scopes` lists them · `!deactivate #channel` turns one off.\n"
+            "(own session, own memory, persona drafted by me); add `readonly`/`full`/`custom` for its "
+            "powers and `opus`/`sonnet`/`haiku` to pin its model (cheaper = run more in parallel). "
+            "`!scopes` lists them · `!deactivate #channel` turns one off.\n"
             "`!activate #channel orchestrator <goal focus>` — make a room that SPLITS a goal across the "
             "other rooms, runs them in parallel, and MERGES the results. Then just talk to that room.\n"
             "`!bots` — list the bots I'm running\n"
@@ -660,11 +661,17 @@ async def _handle_command(msg, text) -> bool:
         if target.id == msg.channel.id:
             await msg.channel.send("that's the home channel — pick a *different* channel to activate.")
             return True
-        tier, is_orch = "full", False
-        if rest and rest[0].lower() == "orchestrator":
-            is_orch = True; rest = rest[1:]          # an orchestrator room: fans out + merges
-        if rest and rest[0].lower() in ("readonly", "full", "custom"):
-            tier = rest[0].lower(); rest = rest[1:]
+        tier, is_orch, model = "full", False, None
+        while rest:                                  # consume leading keywords in any order
+            t = rest[0].lower()
+            if t == "orchestrator":
+                is_orch = True; rest = rest[1:]      # a room that fans out + merges
+            elif t in ("readonly", "full", "custom"):
+                tier = t; rest = rest[1:]            # the tool fence
+            elif t in ("opus", "sonnet", "haiku"):
+                model = t; rest = rest[1:]           # pin this room's model (cost control)
+            else:
+                break
         intent = " ".join(rest).strip()
         if is_orch and not intent:
             intent = ("Coordinate the other activated rooms: take the owner's goal, split it across "
@@ -679,16 +686,19 @@ async def _handle_command(msg, text) -> bool:
             name = (target.name or f"chan{target.id}").replace(" ", "-")
             allowed = ("Read" if tier == "custom" else None)
             scopes.add_scope(name, target.id, system=persona, permissions=tier,
-                             allowed_tools=allowed, orchestrator=is_orch)
+                             allowed_tools=allowed, orchestrator=is_orch, model=model)
             spec = {"name": name, "permissions": tier, "allowed_tools": allowed, "system": persona}
             if is_orch:
                 spec["orchestrator"] = True
+            if model:
+                spec["model"] = model
             _SCOPES[target.id] = spec
         except Exception as e:
             await msg.channel.send(f"⚠️ couldn't activate: {e}"); return True
         prev = persona.strip().replace("\n", " ")[:300]
-        kind = "🧭 ORCHESTRATOR room (fans out to the other rooms + merges)" if is_orch \
-            else f"its own assistant **{name}** ({tier})"
+        mtag = f" · {model}" if model else ""
+        kind = ("🧭 ORCHESTRATOR room (fans out to the other rooms + merges)" if is_orch
+                else f"its own assistant **{name}** ({tier})") + mtag
         await msg.channel.send(
             f"✅ <#{target.id}> is now {kind} — its own session, memory and persona. "
             f"Live now, no restart.\n> _{prev}…_\n"
@@ -709,6 +719,7 @@ async def _handle_command(msg, text) -> bool:
                 f"• <#{cid}> → **{s['name']}** "
                 + ("🧭 orchestrator" if s.get("orchestrator") else f"({s.get('permissions','?')}"
                    + (f", allow={s['allowed_tools']}" if s.get('allowed_tools') else "") + ")")
+                + (f" · {s['model']}" if s.get("model") else "")
                 for cid, s in _SCOPES.items()))
     elif cmd == "bots":
         reg = bots.registry()
@@ -761,8 +772,9 @@ def run():
     turn_locks: dict = {}                        # per-bot: serialize a WHOLE turn (work + reply post)
     active: dict = {}                            # per-bot live turn state (for smart steering)
 
-    async def _do_turn(channel, name, text, system, perms, allowed):
-        """Drive one bot's brain; STREAM its steps live; reply; persist; file in background."""
+    async def _do_turn(channel, name, text, system, perms, allowed, model=None):
+        """Drive one bot's brain; STREAM its steps live; reply; persist; file in background.
+        model: per-room/per-agent model override (None → brain auto-picks Sonnet/Opus)."""
         history = _load(name)
         t0 = time.monotonic()
 
@@ -814,7 +826,8 @@ def run():
         try:
             async with channel.typing():               # instant + continuous typing
                 reply = await brain.ask_async_streaming(
-                    text, history, on_progress, system=system, permissions=perms, allowed_tools=allowed)
+                    text, history, on_progress, system=system, permissions=perms,
+                    allowed_tools=allowed, model=model)
         finally:
             st["active"] = False
             ticker.cancel()
@@ -837,7 +850,7 @@ def run():
         cl = clients.get(name)                       # bot's live display name + avatar for the card header
         disp = cl.user.display_name if cl and cl.user else name.replace("scope-", "", 1)
         icon = cl.user.display_avatar.url if cl and cl.user else None
-        stats = f"{brain.model_label_for(text)} · {_fmt_dur(dur)}"   # end-bar run summary
+        stats = f"{(model.capitalize() if model else brain.model_label_for(text))} · {_fmt_dur(dur)}"  # end-bar run summary
         await _send_reply(channel, disp, reply, icon, stats=stats)
         for _fp in _files:                       # attach rendered tables/images/CSVs for big data
             try:
@@ -857,7 +870,7 @@ def run():
             asyncio.create_task(_compact(channel, system))
         return reply
 
-    async def _run_brain(channel, name, text, system, perms, allowed):
+    async def _run_brain(channel, name, text, system, perms, allowed, model=None):
         """Serialize a bot's turns END-TO-END (work + reply post). Holds the lock across a loop so a
         mid-task correction can INTERRUPT + re-run with the addition merged, and queued follow-ups
         run as a continuation — before any unrelated queued message. Order stays: prior answer →
@@ -874,7 +887,7 @@ def run():
             cur_text, reply = text, None
             while True:
                 t0 = time.monotonic()
-                dt = asyncio.create_task(_do_turn(channel, name, cur_text, system, perms, allowed))
+                dt = asyncio.create_task(_do_turn(channel, name, cur_text, system, perms, allowed, model))
                 active[name] = {"task": dt, "text": cur_text, "t0": t0, "additions": [], "merge": None}
                 try:
                     reply = await dt
@@ -891,7 +904,7 @@ def run():
             active.pop(name, None)
             return reply
 
-    async def _background(channel, name, text, system):
+    async def _background(channel, name, text, system, model=None):
         """Run a task in PARALLEL (the owner asked to background it): forks the session so it's
         lock-free — it runs ALONGSIDE live chat. Tracked in the merged per-channel background PANEL
         (one live message listing all running tasks); on finish it drops off the panel and posts a
@@ -916,9 +929,10 @@ def run():
             try:
                 sid = brain.current_session_id(system)
                 if sid:
-                    reply = await brain.ask_resumed(wrapped, sid, timeout=config.agent_job_timeout())
+                    reply = await brain.ask_resumed(wrapped, sid, timeout=config.agent_job_timeout(),
+                                                    model=model)
                 else:
-                    reply = await brain.ask_async(wrapped, [], system=system)
+                    reply = await brain.ask_async(wrapped, [], system=system, model=model)
             except Exception as e:
                 reply = f"(background task hit an error: {e})"
             done = _fmt_dur(time.monotonic() - t0)
@@ -978,7 +992,7 @@ def run():
                     pass
         asyncio.create_task(_run())
 
-    async def _dispatch(channel, name, text, system, perms, allowed):
+    async def _dispatch(channel, name, text, system, perms, allowed, model=None):
         """Smart steering for a message that lands while the bot is busy:
           • correction ('wait/no/instead') OR an addition while the task JUST started → interrupt,
             merge it in, re-run.
@@ -989,7 +1003,7 @@ def run():
             await _goal_bg(channel, name, goal_task, system)
             return None
         if _wants_background(text):               # explicit 'in parallel / in the background' → fork it
-            await _background(channel, name, text, system)
+            await _background(channel, name, text, system, model)
             return None
         cur = active.get(name)
         if cur and not cur["task"].done():
@@ -1004,7 +1018,7 @@ def run():
                     cur.setdefault("additions", []).append(text)
                     await channel.send("📎 noted — I'll fold that in right after this step.")
                 return None
-        return await _run_brain(channel, name, text, system, perms, allowed)
+        return await _run_brain(channel, name, text, system, perms, allowed, model)
 
     async def _orchestrate(channel, task, sc):
         """An orchestrator room: PLAN (split the task across the other rooms) → FAN OUT in parallel
@@ -1048,7 +1062,8 @@ def run():
             async with sem:
                 try:
                     r = await _run_brain(ch, "scope-" + w["name"], p["task"], w.get("system"),
-                                         w.get("permissions", "readonly"), w.get("allowed_tools"))
+                                         w.get("permissions", "readonly"), w.get("allowed_tools"),
+                                         w.get("model") or config.background_model())  # cheap fan-out
                 except Exception as e:
                     r = f"(error: {e})"
             return {**p, "result": r or "(no reply)"}
@@ -1107,11 +1122,13 @@ def run():
                         cid = n2c[p["room"]]; w = workers[cid]
                         ch = client.get_channel(cid) or channel
                         r = await _run_brain(ch, "scope-" + w["name"], p["task"], w.get("system"),
-                                             w.get("permissions", "readonly"), w.get("allowed_tools"))
-                    else:                           # ephemeral agent — role hat, full brain, no channel
+                                             w.get("permissions", "readonly"), w.get("allowed_tools"),
+                                             w.get("model") or config.background_model())  # cheap fan-out
+                    else:                           # ephemeral agent — role hat, full brain, cheap model
                         r = await brain.ask_async(
                             f"You are acting as: {p['role']}. Do this sub-task autonomously, then "
-                            f"report a concise result.\n\nSub-task: {p['task']}", [])
+                            f"report a concise result.\n\nSub-task: {p['task']}", [],
+                            model=config.background_model())
                 except Exception as e:
                     r = f"(error: {e})"
             return {**p, "result": r or "(no reply)"}
@@ -1178,7 +1195,7 @@ def run():
             mentioned = client.user in msg.mentions
             scoped_mention = any(m.id in scoped_ids for m in msg.mentions)
             # effective identity for this turn — overridden below in an activated (scoped) channel
-            eff_name, eff_system, eff_perms, eff_allowed = name, system, perms, allowed
+            eff_name, eff_system, eff_perms, eff_allowed, eff_model = name, system, perms, allowed, None
 
             if is_main:
                 # home: handle everything EXCEPT messages aimed at a scoped bot (supervise instead)
@@ -1200,7 +1217,7 @@ def run():
                             await msg.channel.send(f"📨 routing to <#{routed.id}> (**{sc['name']}**){note}…")
                             r = await _dispatch(target, "scope-" + sc["name"], task,
                                                 sc.get("system"), sc.get("permissions", "readonly"),
-                                                sc.get("allowed_tools"))
+                                                sc.get("allowed_tools"), sc.get("model"))
                             if r:
                                 await msg.channel.send(
                                     f"📋 <#{routed.id}> done: {' '.join(r.split())[:280]}")
@@ -1221,6 +1238,7 @@ def run():
                     eff_system = sc.get("system")
                     eff_perms = sc.get("permissions", "readonly")
                     eff_allowed = sc.get("allowed_tools")
+                    eff_model = sc.get("model")      # per-room model (None → brain auto-picks)
                 elif mentioned:
                     text = msg.content.replace(f"<@{client.user.id}>", "").replace(
                         f"<@!{client.user.id}>", "").strip()
@@ -1246,7 +1264,7 @@ def run():
                 await msg.channel.send(result)
                 return
 
-            reply = await _dispatch(msg.channel, eff_name, text, eff_system, eff_perms, eff_allowed)
+            reply = await _dispatch(msg.channel, eff_name, text, eff_system, eff_perms, eff_allowed, eff_model)
 
             # supervision: a scoped bot finished a task in the HOME channel → main reports back
             if reply and (not is_main) and in_home and "main" in clients:
