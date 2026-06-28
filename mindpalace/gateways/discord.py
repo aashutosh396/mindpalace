@@ -381,6 +381,8 @@ async def _handle_command(msg, text) -> bool:
             "background until done. Just *mentioning* 'goal'/'loop'/'ralph' in a question won't trigger it.\n"
             "`!project <path>` — PIN a project (otherwise I auto-detect it from your message via the vault); `!project none` to unpin\n"
             "`!mcp` — list MCP servers (✓=on); `!mcp enable <slug> KEY=val` / `!mcp disable <slug>` / `!mcp info <slug>`\n"
+            "`#room <task>` — from here, send a task INTO an activated room; it runs there as that "
+            "room's assistant and reports a one-liner back here (command the fleet from home).\n"
             "`!activate #channel <what it does>` — turn another channel into its OWN assistant "
             "(own session, own memory, persona drafted by me); add `readonly`/`full`/`custom` to set its "
             "powers. `!scopes` lists them · `!deactivate #channel` turns one off.\n"
@@ -980,6 +982,22 @@ def run():
                 if in_home:
                     if scoped_mention:
                         return  # the scoped bot handles it; we report after (see scoped branch)
+                    # cross-room dispatch: "#room <task>" in home → run it IN that activated room
+                    # AS its persona (own session/memory/fence), then a one-line report back here.
+                    routed = next((c for c in msg.channel_mentions if c.id in _SCOPES), None)
+                    if routed:
+                        sc = _SCOPES[routed.id]
+                        task = (msg.content or "").replace(f"<#{routed.id}>", "").strip()
+                        if task:
+                            target = client.get_channel(routed.id) or routed
+                            await msg.channel.send(f"📨 routing to <#{routed.id}> (**{sc['name']}**)…")
+                            r = await _dispatch(target, "scope-" + sc["name"], task,
+                                                sc.get("system"), sc.get("permissions", "readonly"),
+                                                sc.get("allowed_tools"))
+                            if r:
+                                await msg.channel.send(
+                                    f"📋 <#{routed.id}> done: {' '.join(r.split())[:280]}")
+                            return
                     text = (msg.content or "").strip()
                 elif msg.channel.id in _SCOPES:
                     # an ACTIVATED channel → answer here AS that persona, no @mention needed.
