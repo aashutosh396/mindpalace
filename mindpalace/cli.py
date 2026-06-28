@@ -9,7 +9,10 @@
   mindpalace daemon     run the background daemon in the FOREGROUND (for systemd/launchd)
   mindpalace stop       stop the background daemon
   mindpalace service install|uninstall|status   install as a reboot-persistent OS service
-  mindpalace add-bot / bots             scoped bots
+  mindpalace add-bot / bots             scoped bots (own Discord token each)
+  mindpalace add-scope <name> <channel-id> / scopes / remove-scope <channel-id>
+                                        channel-scoped personas — many assistants on the ONE
+                                        main bot, no new Discord app/token (the easy auto-spawn)
   mindpalace add-admin <id> / admins / remove-admin <id>
   mindpalace add-webhook <name> <url> / notify "msg"
   mindpalace status / version
@@ -131,6 +134,20 @@ def main(argv=None):
         for name, b in reg.items():
             print(f"  {name:14} {b.get('permissions','?'):9} trigger={b.get('trigger','?')}")
         return
+
+    if cmd in ("add-scope", "addscope"):        # channel-scoped persona on the main bot (no new token)
+        from . import scopes
+        scopes.add_scope_cli(argv[1:]); return
+    if cmd == "scopes":
+        from . import scopes
+        scopes.list_cli(); return
+    if cmd in ("remove-scope", "rm-scope", "unscope"):
+        from . import scopes
+        cid = scopes.resolve_channel(argv[1]) if len(argv) > 1 else None
+        if not cid:
+            print("usage: mindpalace remove-scope <channel-id>"); return
+        print("removed" if scopes.remove(cid) else "no scope on that channel")
+        print("(restart the daemon to drop it from the running gateway: mindpalace restart)"); return
 
     # --- admin management (local terminal is trusted; gates remote/Discord use) ---
     if cmd == "admins":

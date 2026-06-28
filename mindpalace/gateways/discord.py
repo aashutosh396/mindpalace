@@ -21,11 +21,16 @@ import json
 import time
 
 from ..core import brain, jobs, heartbeat, updater, notify
-from .. import bots, config
+from .. import bots, config, scopes
 from ..memory import store as mem
 
 HEARTBEAT_AFTER = 60
 KEEP = 24
+
+# Channel-scoped personas, live. channel_id(int) -> {name, permissions, allowed_tools, system}.
+# The ONE main bot answers AS this persona in this channel (own session, own history, own fence).
+# Populated by run() at startup; mutated live by `!activate` / `!deactivate` (one gateway process).
+_SCOPES: dict = {}
 
 
 def _load(name):
@@ -369,6 +374,9 @@ async def _handle_command(msg, text) -> bool:
             "background until done. Just *mentioning* 'goal'/'loop'/'ralph' in a question won't trigger it.\n"
             "`!project <path>` — PIN a project (otherwise I auto-detect it from your message via the vault); `!project none` to unpin\n"
             "`!mcp` — list MCP servers (✓=on); `!mcp enable <slug> KEY=val` / `!mcp disable <slug>` / `!mcp info <slug>`\n"
+            "`!activate #channel <what it does>` — turn another channel into its OWN assistant "
+            "(own session, own memory, persona drafted by me); add `readonly`/`full`/`custom` to set its "
+            "powers. `!scopes` lists them · `!deactivate #channel` turns one off.\n"
             "`!bots` — list the bots I'm running\n"
             "`!admins` — who can talk to me\n"
             "`!add-admin @user` — let someone in\n"
@@ -561,6 +569,64 @@ async def _handle_command(msg, text) -> bool:
         gone = [i for i in _ids_from(msg, args) if config.remove_admin(i)]
         await msg.channel.send("removed " + ", ".join(f"<@{i}>" for i in gone)
                                if gone else "not an admin")
+    elif cmd in ("activate", "scope", "add-scope"):
+        # `!activate #channel [readonly|full|custom] <what it should do>`
+        # Turn another channel into its own assistant — own session, own memory, own persona
+        # (drafted live by Claude), all on THIS one bot. No new Discord app/token.
+        target = msg.channel_mentions[0] if msg.channel_mentions else None
+        rest = [a for a in args if not a.startswith("<#")]
+        if not target:                                   # allow a raw numeric id too
+            cid0 = scopes.resolve_channel(rest[0]) if rest else None
+            if cid0:
+                target = msg.guild.get_channel(cid0) if msg.guild else None
+                rest = rest[1:]
+        if not target:
+            await msg.channel.send("usage: `!activate #channel [readonly|full|custom] <what it should do>` "
+                                   "— mention the channel to turn into its own assistant.")
+            return True
+        if target.id == msg.channel.id:
+            await msg.channel.send("that's the home channel — pick a *different* channel to activate.")
+            return True
+        tier = "full"
+        if rest and rest[0].lower() in ("readonly", "full", "custom"):
+            tier = rest[0].lower(); rest = rest[1:]
+        intent = " ".join(rest).strip()
+        if not intent:
+            await msg.channel.send("tell me what that channel's assistant should do, e.g. "
+                                   "`!activate #deploy handle deploys and read logs only`.")
+            return True
+        await msg.channel.send(f"🧬 activating <#{target.id}> — drafting its persona with Claude…")
+        try:
+            persona = await asyncio.to_thread(scopes.draft_persona, intent)
+            name = (target.name or f"chan{target.id}").replace(" ", "-")
+            scopes.add_scope(name, target.id, system=persona, permissions=tier,
+                             allowed_tools=("Read" if tier == "custom" else None))
+            _SCOPES[target.id] = {"name": name, "permissions": tier,
+                                  "allowed_tools": ("Read" if tier == "custom" else None),
+                                  "system": persona}
+        except Exception as e:
+            await msg.channel.send(f"⚠️ couldn't activate: {e}"); return True
+        prev = persona.strip().replace("\n", " ")[:300]
+        await msg.channel.send(
+            f"✅ <#{target.id}> is now its own assistant **{name}** ({tier}) — its own session, "
+            f"memory and persona. Live now, no restart.\n> _{prev}…_\n"
+            f"Edit its persona anytime: `scopes/{name}/system.md` · turn off: `!deactivate <#{target.id}>`")
+    elif cmd in ("deactivate", "remove-scope", "unscope"):
+        target = msg.channel_mentions[0] if msg.channel_mentions else None
+        cid = target.id if target else (scopes.resolve_channel(args[0]) if args else None)
+        if not cid:
+            await msg.channel.send("usage: `!deactivate #channel` (or the channel id)"); return True
+        scopes.remove(cid); _SCOPES.pop(cid, None)
+        await msg.channel.send(f"🔌 turned off — <#{cid}> is no longer an assistant channel. "
+                               "(its history is kept on disk.)")
+    elif cmd in ("scopes", "channels"):
+        if not _SCOPES:
+            await msg.channel.send("no activated channels yet — `!activate #channel <what it does>`.")
+        else:
+            await msg.channel.send("**activated channels** (each its own assistant):\n" + "\n".join(
+                f"• <#{cid}> → **{s['name']}** ({s.get('permissions','?')}"
+                + (f", allow={s['allowed_tools']}" if s.get('allowed_tools') else "") + ")"
+                for cid, s in _SCOPES.items()))
     elif cmd == "bots":
         reg = bots.registry()
         await msg.channel.send("\n".join(
@@ -600,6 +666,12 @@ def run():
     dcfg = cfg.get("discord", {})
     home_channel = int(dcfg.get("home_channel", 0))
     registry = cfg.get("bots", {}) or {"main": {"permissions": "full", "trigger": "home"}}
+
+    _SCOPES.clear()                              # load activated channels (own persona/session each)
+    _SCOPES.update(scopes.active_map())
+    if _SCOPES:
+        print(f"[scopes] {len(_SCOPES)} activated channel(s): "
+              + ", ".join(s["name"] for s in _SCOPES.values()))
 
     clients: dict[str, "discord.Client"] = {}   # name -> client
     scoped_ids: set[int] = set()                 # user-ids of non-main bots (for mention checks)
@@ -680,7 +752,7 @@ def run():
         if _fresh:
             reply = f"{_fresh}\n\n{reply}" if reply else _fresh
         cl = clients.get(name)                       # bot's live display name + avatar for the card header
-        disp = cl.user.display_name if cl and cl.user else name
+        disp = cl.user.display_name if cl and cl.user else name.replace("scope-", "", 1)
         icon = cl.user.display_avatar.url if cl and cl.user else None
         stats = f"{brain.model_label_for(text)} · {_fmt_dur(dur)}"   # end-bar run summary
         await _send_reply(channel, disp, reply, icon, stats=stats)
@@ -893,6 +965,8 @@ def run():
 
             mentioned = client.user in msg.mentions
             scoped_mention = any(m.id in scoped_ids for m in msg.mentions)
+            # effective identity for this turn — overridden below in an activated (scoped) channel
+            eff_name, eff_system, eff_perms, eff_allowed = name, system, perms, allowed
 
             if is_main:
                 # home: handle everything EXCEPT messages aimed at a scoped bot (supervise instead)
@@ -900,6 +974,17 @@ def run():
                     if scoped_mention:
                         return  # the scoped bot handles it; we report after (see scoped branch)
                     text = (msg.content or "").strip()
+                elif msg.channel.id in _SCOPES:
+                    # an ACTIVATED channel → answer here AS that persona, no @mention needed.
+                    # Distinct name → own history file + own brain session + own turn-lock; the
+                    # persona is its system prompt; the tier is its tool fence. Different everything.
+                    sc = _SCOPES[msg.channel.id]
+                    text = msg.content.replace(f"<@{client.user.id}>", "").replace(
+                        f"<@!{client.user.id}>", "").strip()
+                    eff_name = "scope-" + sc["name"]
+                    eff_system = sc.get("system")
+                    eff_perms = sc.get("permissions", "readonly")
+                    eff_allowed = sc.get("allowed_tools")
                 elif mentioned:
                     text = msg.content.replace(f"<@{client.user.id}>", "").replace(
                         f"<@!{client.user.id}>", "").strip()
@@ -938,7 +1023,7 @@ def run():
                 await msg.channel.send(result)
                 return
 
-            reply = await _dispatch(msg.channel, name, text, system, perms, allowed)
+            reply = await _dispatch(msg.channel, eff_name, text, eff_system, eff_perms, eff_allowed)
 
             # supervision: a scoped bot finished a task in the HOME channel → main reports back
             if reply and (not is_main) and in_home and "main" in clients:
