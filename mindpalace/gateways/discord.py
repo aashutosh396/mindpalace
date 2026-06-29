@@ -428,7 +428,7 @@ async def _handle_command(msg, text) -> bool:
         return False
     cmd, args = parts[0].lower(), parts[1:]
     if cmd == "help":
-        await msg.channel.send(
+        _help = (
             "**Commands** (admins only, here in the home channel):\n"
             "`!help` — show this list\n"
             "`!stop` — 🛑 EMERGENCY STOP: kill whatever I'm running right now (a runaway task / "
@@ -462,6 +462,13 @@ async def _handle_command(msg, text) -> bool:
             "`!curate now` — tidy my skill library now; `!curate pause`/`resume`; `!curate` shows status\n"
             "`!voice lean` / `!voice full` — switch my reply style (brief vs chatty); `!voice` shows current\n"
             "\nEverything else you say just goes straight to me — no command needed.")
+        buf = ""                                   # Discord caps a message at 2000 chars → split by line
+        for ln in _help.split("\n"):
+            if len(buf) + len(ln) + 1 > 1900:
+                await msg.channel.send(buf); buf = ""
+            buf += ln + "\n"
+        if buf.strip():
+            await msg.channel.send(buf)
     elif cmd in ("heartbeat", "hb"):
         sub = args[0].lower() if args else ""
         if sub in ("scan-now", "scan", "now", "run"):
