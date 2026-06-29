@@ -32,6 +32,11 @@ KEEP = 24
 # Populated by run() at startup; mutated live by `!activate` / `!deactivate` (one gateway process).
 _SCOPES: dict = {}
 
+# Running goal loops, so they can be listed + killed from Discord (`!goals`, `!goals stop <id>`).
+# gid(int) -> {task, cid, t0, iter, atask, name}. One gateway process, so a module global is fine.
+_GOALS: dict = {}
+_GOAL_SEQ = [0]
+
 
 def _load(name):
     try:
@@ -433,9 +438,10 @@ async def _handle_command(msg, text) -> bool:
             "\n"
             "__Core__\n"
             "`!help` — show this list\n"
-            "`!stop` — 🛑 stop whatever I'm running now (I stay online)\n"
+            "`!stop` — 🛑 stop ALL running work everywhere (every channel/goal/agent; I stay online)\n"
             "`!update` — pull latest + reload  ·  `!update check` — just check\n"
             "`!bg` — list background tasks here\n"
+            "`!goals` — list running goal loops  ·  `!goals stop <id>` — stop just one\n"
             "`goal: <task>` — grind on it in the background until done (ralph loop)\n"
             "`!project <path>` — pin a project  ·  `!project none` — unpin\n"
             "`!mcp` — list MCP servers  ·  `!mcp enable|disable|info <slug>`\n"
@@ -607,6 +613,31 @@ async def _handle_command(msg, text) -> bool:
         await msg.channel.send("🔄 on it — grabbing the latest and reloading myself, back in a few secs…")
         result = await asyncio.to_thread(updater.accept)
         await msg.channel.send(result)
+    elif cmd in ("goals", "goal-list", "goallist"):
+        sub = args[0].lower() if args else "list"
+        if sub in ("stop", "kill", "cancel"):
+            if len(args) < 2 or not args[1].isdigit():
+                await msg.channel.send("usage: `!goals stop <id>` — see ids with `!goals`"); return True
+            gid = int(args[1]); e = _GOALS.get(gid)
+            if not e:
+                await msg.channel.send(f"no running goal #{gid}. `!goals` to list."); return True
+            if e.get("atask"):
+                e["atask"].cancel()
+            _GOALS.pop(gid, None)
+            await msg.channel.send(
+                f"🛑 stopping goal #{gid} — no more iterations. (The step in flight may take a "
+                "moment to wind down; `!stop` hard-kills everything currently running.)")
+        else:
+            if not _GOALS:
+                await msg.channel.send("no goals running. Start one with `goal: <task>`.")
+            else:
+                lines = ["🎯 **running goals**"]
+                for gid, e in _GOALS.items():
+                    el = _fmt_dur(time.monotonic() - e["t0"])
+                    lines.append(f"• `#{gid}` · iter {e.get('iter','?')} · {el} · <#{e['cid']}> · "
+                                 f"{e['task'][:60]}")
+                lines.append("_stop one with_ `!goals stop <id>`")
+                await msg.channel.send("\n".join(lines))
     elif cmd in ("bg", "tasks", "background"):
         s = _BG.get(msg.channel.id)
         running = list((s or {}).get("tasks", {}).values())
@@ -965,8 +996,10 @@ def run():
         disp = cl.user.display_name if cl and cl.user else name
         icon = cl.user.display_avatar.url if cl and cl.user else None
         mx = config.goal_max_iter()
-        await channel.send(f"🎯 **goal loop** started (up to {mx} iterations) — I'll grind on this "
-                           f"and report back:\n> {task[:240]}")
+        _GOAL_SEQ[0] += 1
+        gid = _GOAL_SEQ[0]
+        await channel.send(f"🎯 **goal #{gid}** started (up to {mx} iterations) — I'll grind on this "
+                           f"and report back. Stop it anytime: `!goals stop {gid}`.\n> {task[:240]}")
 
         async def _run():
             t0 = time.monotonic()
@@ -975,6 +1008,9 @@ def run():
                 # iteration headers (🔁) + per-iteration recaps (📝) — progress without step spam
                 try:
                     if line.startswith("🔁"):
+                        m = _re.search(r"\d+/\d+", line)     # track current iteration for !goals
+                        if m and gid in _GOALS:
+                            _GOALS[gid]["iter"] = m.group(0)
                         await channel.send(f"_{line}_")
                     elif line.startswith("📝"):
                         await channel.send(line)
@@ -982,13 +1018,17 @@ def run():
                     pass
             try:
                 res = await goal.run_goal(task, _prog, max_iter=mx, system=system)
+            except asyncio.CancelledError:
+                raise                                       # stopped via `!goals stop` — let it unwind
             except Exception as e:
                 await channel.send(f"(goal loop error: {e})")
                 return
+            finally:
+                _GOALS.pop(gid, None)
             dur = _fmt_dur(time.monotonic() - t0)
             mark = "✅" if res["done"] else "⚠️"
             verb = "done" if res["done"] else f"stopped at the {mx}-iteration cap"
-            await channel.send(f"{mark} **goal {verb}** · {res['iterations']} iterations · {dur}")
+            await channel.send(f"{mark} **goal #{gid} {verb}** · {res['iterations']} iterations · {dur}")
             body, files = _extract_attachments(res.get("result") or "(no result)")
             body = notify.prettify_tables(body)
             await _send_reply(channel, disp, body, icon,
@@ -998,7 +1038,9 @@ def run():
                     await channel.send(file=discord.File(fp))
                 except Exception:
                     pass
-        asyncio.create_task(_run())
+        _GOALS[gid] = {"task": task, "cid": channel.id, "t0": time.monotonic(),
+                       "iter": f"0/{mx}", "name": disp, "atask": None}
+        _GOALS[gid]["atask"] = asyncio.create_task(_run())
 
     async def _dispatch(channel, name, text, system, perms, allowed, model=None):
         """Smart steering for a message that lands while the bot is busy:
