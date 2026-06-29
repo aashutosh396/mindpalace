@@ -972,11 +972,14 @@ def run():
             t0 = time.monotonic()
 
             async def _prog(line):
-                if line.startswith("🔁"):           # post iteration milestones only (skip step noise)
-                    try:
+                # iteration headers (🔁) + per-iteration recaps (📝) — progress without step spam
+                try:
+                    if line.startswith("🔁"):
                         await channel.send(f"_{line}_")
-                    except Exception:
-                        pass
+                    elif line.startswith("📝"):
+                        await channel.send(line)
+                except Exception:
+                    pass
             try:
                 res = await goal.run_goal(task, _prog, max_iter=mx, system=system)
             except Exception as e:

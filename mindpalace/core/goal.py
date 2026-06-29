@@ -62,4 +62,12 @@ async def run_goal(task: str, on_progress, promise: str = DEFAULT_PROMISE,
         last = await brain.ask_async_streaming(_wrap(task, promise, i, n), [], _relay, system=system)
         if _done(last, promise):
             return {"done": True, "iterations": i, "result": _strip(last, promise)}
+        # not done yet → post a SHORT recap of this iteration so the owner can watch progress
+        # and catch drift early (the loop is otherwise silent between iterations).
+        recap = " ".join(_strip(last, promise).split())[:300]
+        if recap:
+            try:
+                await on_progress(f"📝 iter {i}/{n}: {recap}")
+            except Exception:
+                pass
     return {"done": False, "iterations": n, "result": last}
