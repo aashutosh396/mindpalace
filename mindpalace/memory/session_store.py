@@ -6,6 +6,7 @@ context on each new message, so it "remembers" across restarts and sessions.
 DB lives in the USER-DATA home (memory/sessions.db), never in the core repo.
 """
 import sqlite3
+import threading
 import time
 from .. import config
 
@@ -16,7 +17,10 @@ def _db_path():
 
 
 def _connect():
-    conn = sqlite3.connect(_db_path())
+    # check_same_thread=False: the one connection is reused across the event loop AND
+    # asyncio.to_thread / forked-session worker threads (e.g. drafting a persona). Access is
+    # serialized by SessionStore._lock so concurrent use can't corrupt or "recursive-use" it.
+    conn = sqlite3.connect(_db_path(), check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     return conn
@@ -45,19 +49,22 @@ class SessionStore:
     def __init__(self):
         init_db()
         self._conn = _connect()
+        self._lock = threading.RLock()   # serialize cross-thread access (reentrant: save_turn→ensure_session)
 
     def ensure_session(self, session_id: str):
-        self._conn.execute(
-            "INSERT OR IGNORE INTO sessions(id, started_at) VALUES (?, ?)",
-            (session_id, int(time.time())))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO sessions(id, started_at) VALUES (?, ?)",
+                (session_id, int(time.time())))
+            self._conn.commit()
 
     def save_turn(self, session_id: str, role: str, content: str):
-        self.ensure_session(session_id)
-        self._conn.execute(
-            "INSERT INTO turns(session_id, ts, role, content) VALUES (?, ?, ?, ?)",
-            (session_id, int(time.time()), role, content))
-        self._conn.commit()
+        with self._lock:
+            self.ensure_session(session_id)
+            self._conn.execute(
+                "INSERT INTO turns(session_id, ts, role, content) VALUES (?, ?, ?, ?)",
+                (session_id, int(time.time()), role, content))
+            self._conn.commit()
 
     def search(self, query: str, limit: int = 3):
         """Return [(role, content, ts)] for the top matching past turns."""
@@ -65,14 +72,16 @@ class SessionStore:
         if len(q) < 3:   # trigram needs >=3 chars
             return []
         try:
-            cur = self._conn.execute(
-                """SELECT t.role, t.content, t.ts FROM turns_fts f
-                   JOIN turns t ON t.id = f.rowid
-                   WHERE turns_fts MATCH ? ORDER BY rank LIMIT ?""",
-                ('"' + q.replace('"', " ") + '"', limit))
-            return cur.fetchall()
+            with self._lock:
+                cur = self._conn.execute(
+                    """SELECT t.role, t.content, t.ts FROM turns_fts f
+                       JOIN turns t ON t.id = f.rowid
+                       WHERE turns_fts MATCH ? ORDER BY rank LIMIT ?""",
+                    ('"' + q.replace('"', " ") + '"', limit))
+                return cur.fetchall()
         except sqlite3.OperationalError:
             return []
 
     def close(self):
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
