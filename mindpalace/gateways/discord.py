@@ -225,6 +225,30 @@ async def _post_health_card(channel, title, body, accent="yellow"):
                       color=_ACCENT_COLOR.get(accent, YELLOW), header=title)
 
 
+_ANSI = ""   # Discord renders ANSI color inside a ```ansi code block (30-37 fg, 1=bold)
+
+
+def _ansi_bar(color_code: str, label: str) -> str:
+    """A full-width colored bar (top/bottom frame for a wide reply). color_code: 31 red, 32 green,
+    34 blue, 33 yellow, 36 cyan."""
+    line = f"━━ {label} " + "━" * max(4, 46 - len(label))
+    return f"```ansi\n{_ANSI}[1;{color_code}m{line}{_ANSI}[0m\n```"
+
+
+def _reply_tone(text: str) -> tuple[str, str]:
+    """Pick the frame color + a short status tag from the reply's gist. (color_code, tag).
+    Heuristic — red = needs the owner / something's wrong; green = shipped/done; blue = info."""
+    t = (text or "").lower()
+    if any(k in t for k in ("⚠️", "error", "failed", "blocked", "couldn't", "can't ", "your call",
+                            "decision", "deploy?", "paused at the gate", "before i make it live",
+                            "your go-ahead", "needs you", "i need from you")):
+        return "31", "NEEDS YOU"
+    if any(k in t for k in ("✅", " done", "shipped", "deployed", "pushed", "built and ready",
+                            "committed", "complete", "all set", "fixed")):
+        return "32", "DONE"
+    return "34", ""
+
+
 async def _send_reply(channel, name, reply, icon_url=None, stats=None, color=CORAL, header=None):
     """Send a card-style reply: a left-bar embed with a header at the TOP and an 'end' bar at the
     BOTTOM (doubles as a summary: model · duration, or a health tally). `color` sets the bar (coral
@@ -232,18 +256,21 @@ async def _send_reply(channel, name, reply, icon_url=None, stats=None, color=COR
     multiple cards; header on first, footer on last."""
     import discord
     head = header or f"🤖 {name}"
-    if _WIDE[0]:                                  # full-width: plain messages (embeds are width-capped)
-        parts = _embed_chunks(reply, 1800)       # fence-balanced, room for the header/footer lines
+    if _WIDE[0]:                                  # full-width: plain body framed by colored ANSI bars
+        col, tag = _reply_tone(reply)
+        top = _ansi_bar(col, f"{head}" + (f" · {tag}" if tag else ""))
+        bot = _ansi_bar(col, f"{name} · {stats}" if stats else name)
+        parts = _embed_chunks(reply, 1700)       # fence-balanced; leave room for the bars
         for k, c in enumerate(parts):
-            pre = f"**{head}**\n" if k == 0 else ""
-            suf = ""
+            body = c
+            if k == 0:
+                body = top + "\n" + body
             if k == len(parts) - 1:
-                label = f"{name} · {stats}" if stats else name
-                suf = f"\n`━━━ {label} ━━━`"
+                body = body + "\n" + bot
             try:
-                await channel.send(pre + c + suf)
+                await channel.send(body)
             except Exception:
-                for part in _chunks(pre + c):
+                for part in _chunks(c):
                     await channel.send(part)
         return
     chunks = _embed_chunks(reply)
