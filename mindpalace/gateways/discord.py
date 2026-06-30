@@ -1271,7 +1271,9 @@ def run():
             if is_main and raw[:10].lower() == "!architect":   # team-on-demand, works in ANY channel
                 await _architect(msg.channel, raw[10:].strip())
                 return
-            if is_main and in_home and raw.startswith("!"):
+            # `!` commands work in the home channel AND in any activated room (so you can run
+            # `!goals` / `!stop` / etc. right where a goal is grinding, not only from home).
+            if is_main and raw.startswith("!") and (in_home or msg.channel.id in _SCOPES):
                 await _handle_command(msg, raw)
                 return
 
