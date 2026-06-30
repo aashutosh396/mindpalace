@@ -37,6 +37,10 @@ _SCOPES: dict = {}
 _GOALS: dict = {}
 _GOAL_SEQ = [0]
 
+# Reply style: embeds are nice cards but Discord caps their WIDTH (~half the channel). _WIDE → send
+# replies as plain full-width messages instead. Set from config at startup, toggled by `!replies`.
+_WIDE = [False]
+
 
 def _load(name):
     try:
@@ -228,6 +232,20 @@ async def _send_reply(channel, name, reply, icon_url=None, stats=None, color=COR
     multiple cards; header on first, footer on last."""
     import discord
     head = header or f"🤖 {name}"
+    if _WIDE[0]:                                  # full-width: plain messages (embeds are width-capped)
+        parts = _embed_chunks(reply, 1800)       # fence-balanced, room for the header/footer lines
+        for k, c in enumerate(parts):
+            pre = f"**{head}**\n" if k == 0 else ""
+            suf = ""
+            if k == len(parts) - 1:
+                label = f"{name} · {stats}" if stats else name
+                suf = f"\n`━━━ {label} ━━━`"
+            try:
+                await channel.send(pre + c + suf)
+            except Exception:
+                for part in _chunks(pre + c):
+                    await channel.send(part)
+        return
     chunks = _embed_chunks(reply)
     last = len(chunks) - 1
     for i, c in enumerate(chunks):
@@ -464,6 +482,7 @@ async def _handle_command(msg, text) -> bool:
             "`!heartbeat scan-now` — health check now  ·  `!heartbeat 30` — interval  ·  `!heartbeat` — show\n"
             "`!curate now` — tidy skills  ·  `!curate pause`/`resume`  ·  `!curate` — status\n"
             "`!voice lean`/`full` — reply style  ·  `!voice` shows current\n"
+            "`!replies wide`/`card` — reply width (full-width plain vs coral embed)\n"
             "\n"
             "Everything else just goes straight to me — no command needed.")
         buf = ""                                   # Discord caps a message at 2000 chars → split by line
@@ -613,6 +632,19 @@ async def _handle_command(msg, text) -> bool:
         await msg.channel.send("🔄 on it — grabbing the latest and reloading myself, back in a few secs…")
         result = await asyncio.to_thread(updater.accept)
         await msg.channel.send(result)
+    elif cmd in ("replies", "width", "cards"):
+        sub = args[0].lower() if args else ""
+        if sub in ("wide", "full", "plain", "on"):
+            cfg = config.load_config(); cfg["wide_replies"] = True; config.save_config(cfg)
+            _WIDE[0] = True
+            await msg.channel.send("↔️ replies → **full-width** (plain messages). Live now.")
+        elif sub in ("card", "embed", "narrow", "off"):
+            cfg = config.load_config(); cfg["wide_replies"] = False; config.save_config(cfg)
+            _WIDE[0] = False
+            await msg.channel.send("🎴 replies → **card** (coral embed). Live now.")
+        else:
+            await msg.channel.send(f"replies: **{'full-width' if _WIDE[0] else 'card'}**  ·  "
+                                   "`!replies wide` (full width) / `!replies card` (coral embed)")
     elif cmd in ("goals", "goal-list", "goallist"):
         sub = args[0].lower() if args else "list"
         if sub in ("stop", "kill", "cancel"):
@@ -802,6 +834,7 @@ def run():
     if _SCOPES:
         print(f"[scopes] {len(_SCOPES)} activated channel(s): "
               + ", ".join(s["name"] for s in _SCOPES.values()))
+    _WIDE[0] = bool(cfg.get("wide_replies", True))   # full-width plain replies by default
 
     clients: dict[str, "discord.Client"] = {}   # name -> client
     scoped_ids: set[int] = set()                 # user-ids of non-main bots (for mention checks)
