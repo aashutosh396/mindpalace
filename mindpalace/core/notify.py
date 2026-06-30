@@ -52,9 +52,53 @@ def _align_tables(text: str) -> str:
     return "\n".join(out)
 
 
+_TABLE_WIDTH_BUDGET = 58   # aligned cols past this wrap + shatter in Discord → render vertically
+
+
+def _parse_rows(block: list[str]) -> list[list[str]]:
+    """Pipe-table lines → rows of cells (separator row dropped, ragged rows padded)."""
+    rows = []
+    for ln in block:
+        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        if cells and all(_SEP.match(c or "-") for c in cells):
+            continue
+        rows.append(cells)
+    if rows:
+        ncol = max(len(r) for r in rows)
+        rows = [r + [""] * (ncol - len(r)) for r in rows]
+    return rows
+
+
+def _aligned_block(rows: list[list[str]]) -> tuple[str, int]:
+    """Space-aligned monospace columns + the total rendered width (to decide if it fits)."""
+    ncol = len(rows[0])
+    w = [max(len(r[c]) for r in rows) for c in range(ncol)]
+    fmt = lambda r: "  ".join(r[c].ljust(w[c]) for c in range(ncol)).rstrip()
+    aligned = [fmt(rows[0]), "  ".join("-" * w[c] for c in range(ncol))] + [fmt(r) for r in rows[1:]]
+    return "\n".join(aligned), sum(w) + 2 * (ncol - 1)
+
+
+def _vertical_block(rows: list[list[str]]) -> str:
+    """Wide table → one readable record per row: a bold title (first column) then `field: value`
+    bullet lines. Wraps naturally on any screen instead of breaking column alignment."""
+    header = rows[0]
+    out = []
+    for r in rows[1:]:
+        title = (r[0] if r else "").strip()
+        out.append(f"**{title}**" if title else "•")
+        for c in range(1, len(header)):
+            val = (r[c] if c < len(r) else "").strip()
+            if val and val != "-":
+                lbl = header[c].strip()
+                out.append(f"   • {lbl}: {val}" if lbl else f"   • {val}")
+        out.append("")                                   # blank line between records
+    return "\n".join(out).rstrip()
+
+
 def prettify_tables(text: str) -> str:
-    """For free-text replies (NOT already in a code block): align any markdown tables AND wrap
-    each in a ``` fence so it renders monospace in Discord (markdown tables don't render at all)."""
+    """Make markdown tables readable in Discord (they don't render natively). Narrow tables →
+    aligned monospace in a ``` fence. WIDE tables → vertical records (bold title + field:value
+    lines), because fixed columns wrap and shatter once they exceed Discord's width."""
     lines = (text or "").split("\n")
     out, i = [], 0
     while i < len(lines):
@@ -63,7 +107,12 @@ def prettify_tables(text: str) -> str:
             while j < len(lines) and "|" in lines[j] and lines[j].strip():
                 block.append(lines[j]); j += 1
             if len(block) >= 2:
-                out.append("```\n" + _align_tables("\n".join(block)) + "\n```"); i = j; continue
+                rows = _parse_rows(block)
+                if len(rows) >= 2:
+                    aligned, width = _aligned_block(rows)
+                    out.append("```\n" + aligned + "\n```" if width <= _TABLE_WIDTH_BUDGET
+                               else _vertical_block(rows))
+                    i = j; continue
         out.append(lines[i]); i += 1
     return "\n".join(out)
 
