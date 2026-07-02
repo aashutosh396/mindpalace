@@ -85,7 +85,8 @@ def _embed_chunks(s, n=4000):
 
 
 from ..theme import (fmt_dur as _fmt_dur, cook_verb as _cook_verb, cook_emoji as _cook_emoji,
-                     cook_hint as _cook_hint, bar_fill as _bar, random_verb_offset as _verb_offset)
+                     cook_hint as _cook_hint, bar_fill as _bar, random_verb_offset as _verb_offset,
+                     fmt_tokens as _fmt_tokens)
 
 # Smart steering: classify a message that arrives WHILE the bot is mid-task.
 _CORRECTION_KW = ("wait", "no,", "no ", "actually", "instead", "stop", "scratch that", "hold on",
@@ -878,13 +879,16 @@ def run():
         # thinking…") that a background ticker bumps every few seconds — so a long quiet stretch
         # reads as ALIVE, not stuck. Prose lines commit the current block, then post on their own.
         st = {"chips": [], "msg": None, "active": True}
+        stats = {}                               # LIVE token count — brain fills 'out'/'in' as it streams
         voff = _verb_offset()                    # this turn starts on a random verb
 
         def _body():
             el = time.monotonic() - t0
             emoji, verb, timer, hint = (_cook_emoji(el, offset=voff), _cook_verb(el, offset=voff),
                                         _fmt_dur(el), _cook_hint(el))
-            head = f"{emoji} {verb} ({timer} · {hint})"   # the loader goes on its OWN line below
+            tok = stats.get("out", 0)                     # tokens generated so far this turn
+            tokstr = f" · ↓ {_fmt_tokens(tok)} tok" if tok else ""
+            head = f"{emoji} {verb} ({timer} · {hint}{tokstr})"   # the loader goes on its OWN line below
             bar = _bar(el)
             if st["chips"]:
                 return "\n".join([f"> {c}" for c in st["chips"]] + [f"> {head}", f"> {bar}"])
@@ -923,17 +927,19 @@ def run():
             async with channel.typing():               # instant + continuous typing
                 reply = await brain.ask_async_streaming(
                     text, history, on_progress, system=system, permissions=perms,
-                    allowed_tools=allowed, model=model)
+                    allowed_tools=allowed, model=model, stats=stats)
         finally:
             st["active"] = False
             ticker.cancel()
             done = _fmt_dur(time.monotonic() - t0)
+            _tok = stats.get("out", 0)                  # final generated-token total for this turn
+            _toks = f" · ↓ {_fmt_tokens(_tok)} tok" if _tok else ""
             try:                                        # finalize: swap timer → "✻ Baked for …"; KEEP it
                 if st["msg"] is not None:
                     if st["chips"]:
-                        body = "\n".join(f"> {c}" for c in st["chips"]) + f"\n> ✻ Baked for {done}"
+                        body = "\n".join(f"> {c}" for c in st["chips"]) + f"\n> ✻ Baked for {done}{_toks}"
                     else:
-                        body = f"✻ Baked for {done}"
+                        body = f"✻ Baked for {done}{_toks}"
                     await st["msg"].edit(content=body)
             except Exception:
                 pass

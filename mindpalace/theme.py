@@ -87,6 +87,16 @@ def fmt_dur(seconds) -> str:
     return f"{s // 60}m {s % 60}s" if s >= 60 else f"{s}s"
 
 
+def fmt_tokens(n) -> str:
+    """Compact token count for the live chip: 842 -> '842', 1240 -> '1.2K', 2_500_000 -> '2.5M'."""
+    n = int(n or 0)
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        return f"{n / 1000:.1f}K".replace(".0K", "K")
+    return f"{n / 1_000_000:.1f}M".replace(".0M", "M")
+
+
 def random_verb_offset() -> int:
     """Pick once per turn so each turn STARTS on a different verb (not always 'Simmering')."""
     import random

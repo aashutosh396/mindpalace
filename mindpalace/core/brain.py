@@ -1046,10 +1046,15 @@ def _session_lock(system: str | None):
 
 
 async def ask_async_streaming(text, history, on_progress, system=None,
-                              permissions="full", allowed_tools=None, max_steps=20, model=None) -> str:
+                              permissions="full", allowed_tools=None, max_steps=20, model=None,
+                              stats=None) -> str:
     """Run the brain with streamed events; relay live commentary via on_progress(str):
     the model's own prose lines + a Hermes-style '⚡ verb · target ✅' chip per tool step.
-    Returns the final reply. Falls back to non-streaming if the stream yields nothing."""
+    Returns the final reply. Falls back to non-streaming if the stream yields nothing.
+
+    stats: optional mutable dict a caller can watch for a LIVE running token count. Updated as
+    each assistant message arrives with keys 'in'/'out'/'cache_read' (cumulative for the turn), so
+    a gateway's status ticker can show '↓ 1.2K tok' in real time. Left untouched if None."""
     import json as _json
     auto = model is None
     if auto:
@@ -1118,6 +1123,11 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                     continue
                 t = ev.get("type")
                 if t == "assistant":
+                    if stats is not None:                 # LIVE running token count for the status ticker
+                        u = ev.get("message", {}).get("usage") or {}
+                        stats["out"] = stats.get("out", 0) + int(u.get("output_tokens", 0) or 0)
+                        stats["in"] = stats.get("in", 0) + int(u.get("input_tokens", 0) or 0)
+                        stats["cache_read"] = stats.get("cache_read", 0) + int(u.get("cache_read_input_tokens", 0) or 0)
                     # Prose = the model's OWN words, held one beat so the FINAL answer (which
                     # also returns via `result`) isn't double-posted. Each tool call becomes a
                     # Hermes-style chip, stored now and emitted when the step FINISHES so it can
@@ -1172,6 +1182,8 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                 elif t == "result":
                     final = ev.get("result", "") or final
                     usage = ev.get("usage", {}) or usage   # token + prompt-cache stats for telemetry
+                    if stats is not None and usage:        # reconcile the live count to the authoritative total
+                        stats["out"] = int(usage.get("output_tokens", 0) or 0) or stats.get("out", 0)
                     # `pending` (the last unfollowed text) is the final answer — never streamed.
 
         async def _guarded_read():
