@@ -886,8 +886,9 @@ def run():
             el = time.monotonic() - t0
             emoji, verb, timer, hint = (_cook_emoji(el, offset=voff), _cook_verb(el, offset=voff),
                                         _fmt_dur(el), _cook_hint(el))
-            tok = stats.get("out", 0)                     # tokens generated so far this turn
-            tokstr = f" · ↓ {_fmt_tokens(tok)} tok" if tok else ""
+            tok = stats.get("out", 0)                     # tokens generated so far (estimate until result)
+            approx = "" if stats.get("exact") else "~"    # '~' while it's a length-based estimate
+            tokstr = f" · ↓ {approx}{_fmt_tokens(tok)} tok" if tok else ""
             head = f"{emoji} {verb} ({timer} · {hint}{tokstr})"   # the loader goes on its OWN line below
             bar = _bar(el)
             if st["chips"]:

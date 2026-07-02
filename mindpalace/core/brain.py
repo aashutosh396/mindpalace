@@ -1123,11 +1123,25 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                     continue
                 t = ev.get("type")
                 if t == "assistant":
-                    if stats is not None:                 # LIVE running token count for the status ticker
-                        u = ev.get("message", {}).get("usage") or {}
-                        stats["out"] = stats.get("out", 0) + int(u.get("output_tokens", 0) or 0)
-                        stats["in"] = stats.get("in", 0) + int(u.get("input_tokens", 0) or 0)
-                        stats["cache_read"] = stats.get("cache_read", 0) + int(u.get("cache_read_input_tokens", 0) or 0)
+                    if stats is not None and not stats.get("exact"):
+                        # The streamed assistant event's usage.output_tokens is a START-OF-MESSAGE
+                        # placeholder (~1-6), NOT the real count — the true total only lands in the
+                        # `result` event at the end. So show a live ESTIMATE from generated content
+                        # length (~4 chars/token incl. thinking + tool args), then lock it to the
+                        # authoritative total on `result` below.
+                        est = 0
+                        for blk in ev.get("message", {}).get("content", []):
+                            if not isinstance(blk, dict):
+                                continue
+                            bt = blk.get("type")
+                            if bt == "text":
+                                est += len(blk.get("text") or "")
+                            elif bt == "thinking":
+                                est += len(blk.get("thinking") or "")
+                            elif bt == "tool_use":
+                                est += len(_json.dumps(blk.get("input") or {}))
+                        if est:
+                            stats["out"] = stats.get("out", 0) + est // 4
                     # Prose = the model's OWN words, held one beat so the FINAL answer (which
                     # also returns via `result`) isn't double-posted. Each tool call becomes a
                     # Hermes-style chip, stored now and emitted when the step FINISHES so it can
@@ -1182,8 +1196,11 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                 elif t == "result":
                     final = ev.get("result", "") or final
                     usage = ev.get("usage", {}) or usage   # token + prompt-cache stats for telemetry
-                    if stats is not None and usage:        # reconcile the live count to the authoritative total
+                    if stats is not None and usage:        # lock the live ESTIMATE to the authoritative total
                         stats["out"] = int(usage.get("output_tokens", 0) or 0) or stats.get("out", 0)
+                        stats["in"] = int(usage.get("input_tokens", 0) or 0)
+                        stats["cache_read"] = int(usage.get("cache_read_input_tokens", 0) or 0)
+                        stats["exact"] = True
                     # `pending` (the last unfollowed text) is the final answer — never streamed.
 
         async def _guarded_read():
