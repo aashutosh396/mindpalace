@@ -748,12 +748,22 @@ async def _handle_command(msg, text) -> bool:
                     "⚡ token budget **off** — rotating by turn count only.")
             else:
                 await msg.channel.send("usage: `!turns tokens 80k` (or a plain number · 0 = off)")
+        elif sub.endswith("k") and sub[:-1].isdigit():   # `!turns 200k` — a trailing k means TOKENS
+            n = int(sub[:-1]) * 1000
+            cfg = config.load_config(); cfg["session_rotate_tokens"] = n; config.save_config(cfg)
+            await msg.channel.send(
+                f"⚡ token budget → **{_fmt_k(n)} tok** — I roll to a fresh lean session the "
+                "moment the chat's measured context passes it. No restart needed.")
         elif sub.isdigit():
             n = int(sub)
             cfg = config.load_config(); cfg["session_rotate_turns"] = n; config.save_config(cfg)
             await msg.channel.send(
                 f"⚡ turn budget → **{n} turns** per session segment. No restart needed." if n else
                 "⚡ turn budget **off** — one session all day (token budget still applies).")
+        elif sub:                                        # unrecognized arg → say so, don't silently
+            await msg.channel.send(                      # show status (looked like the set failed)
+                f"didn't catch `{sub}` — use `!turns 15` (turn budget) · `!turns tokens 200k` or "
+                "`!turns 200k` (token budget) · `!turns fresh` (roll now) · `!turns` (status)")
         else:
             st = brain.session_status()
             t, k = config.session_rotate_turns(), config.session_rotate_tokens()

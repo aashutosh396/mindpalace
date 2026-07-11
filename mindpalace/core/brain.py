@@ -909,11 +909,19 @@ def turns_command(arg: str = "") -> str:
         return (f"token budget → {_k(n)} tok — rolls to a fresh lean session when the measured "
                 "context passes it (no restart needed)." if n else
                 "token budget off — rotating by turn count only.")
+    if sub.endswith("k") and sub[:-1].isdigit():       # `turns 200k` — a trailing k means TOKENS
+        n = int(sub[:-1]) * 1000
+        cfg = config.load_config(); cfg["session_rotate_tokens"] = n; config.save_config(cfg)
+        return (f"token budget → {_k(n)} tok — rolls to a fresh lean session when the measured "
+                "context passes it (no restart needed).")
     if sub.isdigit():
         n = int(sub)
         cfg = config.load_config(); cfg["session_rotate_turns"] = n; config.save_config(cfg)
         return (f"turn budget → {n} turns per session segment (no restart needed)." if n else
                 "turn budget off — token budget still applies.")
+    if sub:
+        return (f"didn't catch '{sub}' — use: turns 15 (turn budget) · turns tokens 200k or "
+                "turns 200k (token budget) · turns fresh (roll now) · turns (status)")
     st = session_status()
     t, k = config.session_rotate_turns(), config.session_rotate_tokens()
     ctx = f" · context ≈ {_k(st['ctx'])} tok" if st["ctx"] else ""
