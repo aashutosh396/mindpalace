@@ -230,16 +230,18 @@ async def _run_agent_one(path, report):
                  "when it's done.", chan)
     started = time.time()
     prompt = _AGENT_WRAP.format(task=task)
-    try:
-        sid = brain.current_session_id(system)            # fork the live session if one exists today
+    tmo = config.agent_job_timeout()                      # the worker's LONG budget — every branch
+    pm = config.power_model()                             # workers do the HEAVIEST work; pin the
+    try:                                                  # power model explicitly (no --model flag
+        sid = brain.current_session_id(system)            # = silent CLI-default downgrade)
         if sid:
-            reply = await brain.ask_resumed(prompt, sid, timeout=config.agent_job_timeout())
+            reply = await brain.ask_resumed(prompt, sid, timeout=tmo, model=pm)
             if reply.startswith("(empty;") and "No conversation found" in reply:
                 # fork raced the session's own creation (the create turn was still streaming
                 # when we tried to fork it) → run fresh instead of dying with '(empty…)'
-                reply = await brain.ask_async(prompt, [], system=system)
+                reply = await brain.ask_async(prompt, [], system=system, timeout=tmo, model=pm)
         else:                                             # no live session → fresh, self-contained turn
-            reply = await brain.ask_async(prompt, [], system=system)
+            reply = await brain.ask_async(prompt, [], system=system, timeout=tmo, model=pm)
     except Exception as e:
         reply = f"(background task error: {e})"
     dur = int(time.time() - started)

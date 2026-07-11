@@ -388,10 +388,12 @@ def session_rotate_turns() -> int:
 
 
 def session_summary_model() -> str:
-    """Model for the Hermes-style compaction digest written when a session segment rotates —
-    it must capture task state, decisions, and exact names, so it defaults to sonnet (haiku is
-    faster but drops specifics; opus is overkill for a 400-word digest)."""
-    return str(load_config().get("session_summary_model", "sonnet"))
+    """Model for the Hermes-style compaction digest written when a session segment rotates.
+    Defaults to OPUS: the digest is the room's memory backbone — every roll, day-start, and
+    morning brief depends on it, and a weak digest MULTIPLIES work (the bot re-derives, asks
+    again, goes to the wrong project), which costs far more tokens than the one digest call
+    saved. Set "session_summary_model": "sonnet" to cheap out anyway."""
+    return str(load_config().get("session_summary_model", "opus"))
 
 
 def session_rotate_tokens() -> int:

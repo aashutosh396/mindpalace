@@ -669,7 +669,18 @@ def _advance_session(system: str | None) -> tuple[str, bool]:
     return _session_uuid(system, seg), is_new, rotated
 
 
-def _carryover_block(history: list[dict], limit: int = 8) -> str:
+def _head_tail(s: str, n: int) -> str:
+    """Trim the MIDDLE of a long message, never the ends: a long assistant reply opens with
+    the result and CLOSES with the question to the owner — plain head-truncation once ate a
+    trailing 'want me to add this…?' so the freshly rolled segment answered the owner's
+    'yes' with 'yes to what, exactly?'."""
+    if len(s) <= n:
+        return s
+    head = n * 3 // 5
+    return s[:head] + " …[trimmed]… " + s[-(n - head):]
+
+
+def _carryover_block(history: list[dict], limit: int = 12) -> str:
     """Rotation sheds the raw transcript — without this, 'that thing we were just doing' dies
     with it and the fresh segment feels amnesiac. Hermes never drops the working context when it
     compacts (it summarizes the middle and PROTECTS the last N turns); this is our equivalent:
@@ -680,9 +691,7 @@ def _carryover_block(history: list[dict], limit: int = 8) -> str:
     lines = []
     for h in history[-limit:]:
         role = str(h.get("role", "?"))
-        content = " ".join(str(h.get("content", "")).split())
-        if len(content) > 700:
-            content = content[:700] + " …"
+        content = _head_tail(" ".join(str(h.get("content", "")).split()), 1200)
         lines.append(f"{role}: {content}")
     return ("CARRYOVER — this is a fresh session, but the conversation continues. The last "
             "exchanges before the roll (context only — already handled, don't re-answer them):\n"
@@ -739,7 +748,11 @@ async def wrap_day(system: str | None = None, history: list[dict] | None = None)
         st = {}
     if st.get("summary") and st.get("sum_src") == src:
         return str(st["summary"])                 # nothing new since the last digest — reuse
-    digest = await _rotation_summary(system, history or [], path=p)
+    # fork the wrapped day's CURRENT segment for a full-context digest (the state file is
+    # date-keyed, so build the sid from its stem — a post-midnight wrap targets yesterday's)
+    fsid = str(uuid.uuid5(uuid.NAMESPACE_DNS,
+                          f"mindpalace-session-{p.stem}-s{int(st.get('seg', 0))}"))
+    digest = await _rotation_summary(system, history or [], path=p, fork_sid=fsid)
     if digest:
         try:
             st = json.loads(p.read_text())
@@ -750,63 +763,97 @@ async def wrap_day(system: str | None = None, history: list[dict] | None = None)
     return digest
 
 
-async def _rotation_summary(system: str | None, history: list[dict], path=None) -> str:
-    """The full Hermes compaction step: before a rotated segment goes live, an LLM compacts what
-    is being shed — the PREVIOUS digest (rolled forward, so the chain covers the whole day) plus
-    the recent gateway history — into a dense handoff digest. Combined with the verbatim last-8
-    carryover this makes a roll near-lossless: digest = the day so far, carryover = the exact
-    words of the last exchanges. Stored in the session state (today's by default; `path` lets a
-    wrap target the last active day's) for the next roll's chain.
-    Best-effort: any failure/timeout returns '' and the roll proceeds on carryover alone."""
+def _transcript_exists(sid: str) -> bool:
+    """Does the claude CLI actually have a transcript for this session id?"""
+    try:
+        from pathlib import Path
+        return next((Path.home() / ".claude" / "projects").glob(f"*/{sid}.jsonl"), None) is not None
+    except OSError:
+        return False
+
+
+_DIGEST_SPEC = (
+    "Max 700 words, no preamble, no tool use — reply with the digest text only. Capture with "
+    "exact names (files, branches, servers, projects, prices, IDs): the active project(s) and "
+    "precise task state, decisions made and why, open questions and next steps, and anything "
+    "the owner asked that is not done yet. Be DENSE, not brief — every specific you drop is "
+    "work the next session redoes. If sources disagree, the most recent conversation wins. "
+    "End with exactly two labeled lines (they feed the morning brief, read on a phone — "
+    "keep them TIGHT):\n"
+    "NOW: <where the work stands, ONE plain sentence, max ~15 words>\n"
+    "PENDING: <decisions waiting on the OWNER as short questions, max ~8 words each, "
+    "semicolon-separated, at most 3 — or 'none'. Only real decisions, not minor curiosities>")
+
+
+async def _rotation_summary(system: str | None, history: list[dict], path=None,
+                            fork_sid: str | None = None) -> str:
+    """The full Hermes compaction step: before a rotated segment goes live, an LLM compacts
+    what is being shed into a dense handoff digest (chained across rolls via the PREVIOUS
+    digest). Stored in the session state (today's by default; `path` lets a wrap target the
+    last active day's).
+
+    When `fork_sid` names a real session transcript, the compactor runs as a FORK of that
+    session — it sees the FULL conversation (tool results, files touched, decisions), not
+    just the thin gateway history. This matters a lot under lean voice: final replies are
+    4 lines now, so history-based digests carried a skeleton and post-roll rooms felt
+    amnesiac ('channels went dummy'). Falls back to the history-based digest on any failure.
+    Best-effort: returns '' if both paths fail and the roll proceeds on carryover alone."""
     p = path or _session_state_path(system)
     try:
         st = json.loads(p.read_text())
     except (OSError, json.JSONDecodeError, ValueError):
         st = {}
     prev = str(st.get("summary") or "")
-    if not history and not prev:
+    if not history and not prev and not fork_sid:
         return ""
-    convo = "\n".join(
-        f"{h.get('role', '?')}: {' '.join(str(h.get('content', '')).split())[:1500]}"
-        for h in history[-24:])
-    prompt = (
-        "You are compacting an assistant's working session into a handoff digest for the fresh "
-        "session that replaces it. Max 400 words, no preamble. Capture with exact names (files, "
-        "branches, servers, projects, prices, IDs): the active project(s) and precise task state, "
-        "decisions made and why, open questions and next steps, and anything the owner asked "
-        "that is not done yet. If the previous digest and the conversation disagree, the "
-        "conversation wins. End with exactly two labeled lines (they feed the morning brief, "
-        "read on a phone — keep them TIGHT):\n"
-        "NOW: <where the work stands, ONE plain sentence, max ~15 words>\n"
-        "PENDING: <decisions waiting on the OWNER as short questions, max ~8 words each, "
-        "semicolon-separated, at most 3 — or 'none'. Only real decisions, not minor curiosities>\n\n"
-        + (f"PREVIOUS DIGEST (roll it forward, drop what's stale):\n{prev}\n\n" if prev else "")
-        + f"RECENT CONVERSATION:\n{convo}\n\nDIGEST:")
-    proc = None
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            claude_bin(), "-p", prompt, "--model", config.session_summary_model(),
-            cwd=str(config.home()), env=_env(),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
-        digest = (out or b"").decode("utf-8", "replace").strip()[:6000]
-        if digest:
-            try:
-                st = json.loads(p.read_text())    # re-read: _advance_session may have written since
-            except (OSError, json.JSONDecodeError, ValueError):
-                st = {}
-            st["summary"] = digest
-            st.setdefault("ts", time.time())
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(st))
-        return digest
-    except Exception:
-        if proc is not None and proc.returncode is None:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-        return ""
+    prev_block = (f"\n\nPREVIOUS DIGEST (roll it forward, drop what's stale):\n{prev}" if prev else "")
+
+    async def _call(args, timeout=180):
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args, cwd=str(config.home()), env=_env(),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            return (out or b"").decode("utf-8", "replace").strip()[:12000]
+        except Exception:
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            return ""
+
+    digest = ""
+    if fork_sid and _transcript_exists(fork_sid):
+        digest = await _call([
+            claude_bin(), "-p",
+            "Compact THIS session — the whole conversation above — into a handoff digest "
+            "for the fresh session that replaces it. " + _DIGEST_SPEC + prev_block + "\n\nDIGEST:",
+            "--resume", fork_sid, "--fork-session",
+            "--model", config.session_summary_model()])
+        if digest.startswith("(") or "No conversation found" in digest[:200]:
+            digest = ""
+    if not digest:
+        convo = "\n".join(
+            f"{h.get('role', '?')}: {_head_tail(' '.join(str(h.get('content', '')).split()), 1500)}"
+            for h in history[-24:])
+        digest = await _call([
+            claude_bin(), "-p",
+            "You are compacting an assistant's working session into a handoff digest for the "
+            "fresh session that replaces it. " + _DIGEST_SPEC + prev_block
+            + f"\n\nRECENT CONVERSATION:\n{convo}\n\nDIGEST:",
+            "--model", config.session_summary_model()], timeout=120)
+    if digest:
+        try:
+            st = json.loads(p.read_text())    # re-read: _advance_session may have written since
+        except (OSError, json.JSONDecodeError, ValueError):
+            st = {}
+        st["summary"] = digest
+        st.setdefault("ts", time.time())
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(st))
+    return digest
 
 
 def _note_session_ctx(system: str | None, usage: dict, steps: int) -> None:
@@ -916,7 +963,12 @@ async def _session_args(text: str, permissions: str, allowed_tools: str | None,
         turn = _turn_input(text)
         blocks = []
         if rotated:
-            digest = await _rotation_summary(system, history or [])
+            # compact the SEGMENT BEING SHED by forking it (full-context digest);
+            # _advance_session already bumped seg, so the shed one is seg-1
+            old_seg = int(_load_session_state(system).get("seg", 0)) - 1
+            digest = await _rotation_summary(
+                system, history or [],
+                fork_sid=_session_uuid(system, old_seg) if old_seg >= 0 else None)
             if digest:
                 blocks.append("SESSION DIGEST — today's earlier session, compacted (trust the "
                               "conversation over this if they disagree):\n" + digest)
@@ -963,6 +1015,23 @@ async def _session_args(text: str, permissions: str, allowed_tools: str | None,
     return args, ("create" if is_new else "resume")
 
 
+def _mark_segment_broken(system: str | None) -> None:
+    """A continuity turn produced ZERO stream events — the CLI almost certainly failed to
+    open/resume the session (ghost segment: the create turn died after the state was already
+    written, so state says it exists but no transcript does). Roll the state to a fresh
+    segment so the NEXT turn CREATEs instead of ghost-resuming forever — sio once hammered a
+    dead segment 25 turns straight (every turn a silent legacy fallback: no chips, no
+    stamping, full prompt rebuild) before this heal existed."""
+    try:
+        st = _load_session_state(system)
+        st["seg"] = int(st.get("seg", 0)) + 1
+        st["turns"] = 0
+        st["ctx"] = 0
+        _session_state_path(system).write_text(json.dumps(st))
+    except Exception:
+        pass
+
+
 def reset_sessions() -> int:
     """Drop today's session-segment state so the NEXT turn CREATES a fresh claude session. The
     persona/voice is baked into the session at creation, so this is how a voice switch (or any
@@ -980,12 +1049,14 @@ def reset_sessions() -> int:
 
 
 def current_session_id(system: str | None = None) -> str | None:
-    """Today's claude session id for this identity IF continuity is on and the session has been
-    created — so a background agent can FORK it to see the real conversation. Returns None when
-    there's no live session to fork (the caller then uses its legacy, contextless path)."""
-    if not config.session_continuity():
+    """Today's claude session id for this identity IF continuity is on and the session has
+    ACTUALLY been created — verified against the CLI's own transcript, not just our state
+    file (a freshly rolled or ghost segment has state but no transcript; forking it fails
+    with 'No conversation found'). Returns None when there's nothing real to fork."""
+    if not config.session_continuity() or not _session_state_path(system).exists():
         return None
-    return _session_uuid(system) if _session_state_path(system).exists() else None
+    sid = _session_uuid(system)
+    return sid if _transcript_exists(sid) else None   # state says yes, transcript says no → don't fork
 
 
 def ask_sync(text: str, history: list[dict], system: str | None = None,
@@ -1329,7 +1400,9 @@ def _job_path(blk) -> str | None:
             return None
         import re as _re
         m = _re.search(r"(/[^\s'\"<>]*?/jobs/(?:queue|agent_queue)/[^\s'\"<>]+)", c)
-        return m.group(1) if m else ""
+        # strip shell punctuation glued to the path ('…/x.task;' → '…/x.task') — a trailing
+        # ';' once produced a junk 'done.meta;.meta' sidecar
+        return m.group(1).rstrip(";,)&|") if m else ""
     return None
 
 
@@ -1611,6 +1684,8 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                 if mode in ("create", "resume"):
                     _note_session_ctx(system, usage, steps)
                 return final
+            if mode in ("create", "resume") and steps == 0:
+                _mark_segment_broken(system)      # ghost segment — heal so next turn creates
             telemetry.log_turn(mode, model, usage, steps, fallback=True)
             return await ask_async(text, history, system, permissions, allowed_tools)
         await proc.wait()
@@ -1630,14 +1705,20 @@ async def ask_async_streaming(text, history, on_progress, system=None,
             _note_session_ctx(system, usage, steps)
         return final
     # stream gave nothing (format mismatch / error) → fall back to plain capture
+    if mode in ("create", "resume") and steps == 0:
+        _mark_segment_broken(system)              # ghost segment — heal so next turn creates
     telemetry.log_turn(mode, model, usage, steps, fallback=True)
     return await ask_async(text, history, system, permissions, allowed_tools)
 
 
 async def ask_async(text: str, history: list[dict], system: str | None = None,
                     permissions: str = "full", allowed_tools: str | None = None,
-                    model: str | None = None) -> str:
+                    model: str | None = None, timeout: int | None = None) -> str:
+    """timeout: wall-clock cap. Defaults to TIMEOUT (600s, chat-turn scale) — background
+    WORKERS must pass their own long budget (agent_job_timeout), else a big build dies at
+    10 minutes with 'timed out — break it into smaller steps'."""
     prompt = build_prompt(text, history, system)
+    tmo = timeout or TIMEOUT
     if model is None:                            # explicit model (e.g. analyst) wins; else route
         model = _pick_model(text)
     async with _semaphore():                     # cap concurrent claude procs
@@ -1645,12 +1726,12 @@ async def ask_async(text: str, history: list[dict], system: str | None = None,
             proc = await asyncio.create_subprocess_exec(
                 *_args(prompt, permissions, allowed_tools, model), cwd=str(config.home()), env=_env(),
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            out, err = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT)
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=tmo)
             return (out.decode(errors="replace").strip()
                     or f"(empty; {err.decode(errors='replace')[:200]})")
         except asyncio.TimeoutError:
             proc.kill()
-            return f"(timed out after {TIMEOUT}s — break it into smaller steps)"
+            return f"(timed out after {tmo}s — break it into smaller steps)"
         except Exception as e:
             return f"(error: {str(e)[:160]})"
 
