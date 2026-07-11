@@ -41,13 +41,80 @@ def submit(name: str, script: str) -> str:
     return fn
 
 
+def _meta_for(path) -> dict:
+    """Origin sidecar (`<file>.meta`) written when a turn queues a job: which channel asked
+    (the report routes back there) and, for agent tasks, which persona/session to fork.
+    Read at pickup — NOT consumed; it travels with the job into running/ so a crash/restart
+    can restore both. {} for jobs with no origin (cron, hand-written)."""
+    try:
+        return json.loads(path.with_name(path.name + ".meta").read_text())
+    except Exception:
+        return {}
+
+
+def _move_meta(src, dst) -> None:
+    """Move a job's sidecar along with it (queue → running)."""
+    m = src.with_name(src.name + ".meta")
+    try:
+        if m.exists():
+            m.rename(dst.with_name(dst.name + ".meta"))
+    except OSError:
+        pass
+
+
+def _drop_meta(path) -> None:
+    try:
+        path.with_name(path.name + ".meta").unlink()
+    except OSError:
+        pass
+
+
+def _recover(run_dir, q_dir) -> int:
+    """Daemon restarted mid-job: anything still in running/ was ORPHANED by the crash — it
+    would otherwise sit there dead forever ('I'll ping you when done' that never comes).
+    Move each job (and its origin sidecar) back to the queue so it runs again. Called once
+    per watcher start; returns how many were requeued."""
+    n = 0
+    try:
+        for p in sorted(run_dir.glob("*")):
+            if p.name.endswith(".meta"):
+                continue                          # moved together with its job below
+            try:
+                m = p.with_name(p.name + ".meta")
+                p.rename(q_dir / p.name)
+                if m.exists():
+                    m.rename(q_dir / m.name)
+                n += 1
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return n
+
+
+def _too_fresh(path, grace: float = 20.0) -> bool:
+    """A queued file with no meta yet, younger than `grace` seconds — the gateway may still be
+    stamping its origin (it stamps on the next stream event after the brain writes the file).
+    Skip this cycle; the next pass picks it up."""
+    if path.with_name(path.name + ".meta").exists():
+        return False
+    try:
+        return time.time() - path.stat().st_mtime < grace
+    except OSError:
+        return False
+
+
 async def _run_one(path, report):
+    if _too_fresh(path):
+        return
     name = path.stem
+    meta = _meta_for(path)
     run_path = running_dir() / path.name
     try:
         path.rename(run_path)
     except OSError:
         return
+    _move_meta(path, run_path)
     started = time.time()
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -65,17 +132,23 @@ async def _run_one(path, report):
         run_path.unlink()
     except OSError:
         pass
+    _drop_meta(run_path)
     # [SILENT]: a job that finished cleanly with nothing worth saying suppresses its report
     # (kills scheduled-job notification spam). Errors always report.
     if rc == 0 and "[SILENT]" in text:
         return
     tail = "\n".join(text.strip().splitlines()[-8:])[:600]
     mark = "✅" if rc == 0 else "❌"
-    await report(f"{mark} job **{name}** finished (exit {rc}, {dur}s)\n```\n{tail}\n```")
+    await report(f"{mark} job **{name}** finished (exit {rc}, {dur}s)\n```\n{tail}\n```",
+                 meta.get("channel"))
 
 
 async def watch_loop(report, interval: int = 5):
-    """Run queued jobs one at a time; `report(msg)` posts each result to the home channel."""
+    """Run queued jobs one at a time; `report(msg, channel_id)` posts each result back to the
+    job's ORIGIN channel (home when it has none). Requeues jobs orphaned by a restart first."""
+    n = _recover(running_dir(), queue_dir())
+    if n:
+        print(f"[jobs] requeued {n} job(s) orphaned by a restart")
     print("job watcher started")
     while True:
         try:
@@ -135,7 +208,13 @@ def _load_agent_task(path) -> tuple[str, str | None]:
 
 async def _run_agent_one(path, report):
     from . import brain
+    if _too_fresh(path):
+        return
     task, system = _load_agent_task(path)
+    meta = _meta_for(path)
+    chan = meta.get("channel")
+    if meta.get("system"):                       # origin persona: fork the ROOM's session, not main's
+        system = meta["system"]
     name = path.stem
     if not task:
         try: path.unlink()
@@ -146,13 +225,19 @@ async def _run_agent_one(path, report):
         path.rename(run_path)
     except OSError:
         return
-    await report(f"🛠️ started background task **{name}** — working on it, I'll report back when it's done.")
+    _move_meta(path, run_path)
+    await report(f"🛠️ started background task **{name}** — working on it, I'll report back "
+                 "when it's done.", chan)
     started = time.time()
     prompt = _AGENT_WRAP.format(task=task)
     try:
         sid = brain.current_session_id(system)            # fork the live session if one exists today
         if sid:
             reply = await brain.ask_resumed(prompt, sid, timeout=config.agent_job_timeout())
+            if reply.startswith("(empty;") and "No conversation found" in reply:
+                # fork raced the session's own creation (the create turn was still streaming
+                # when we tried to fork it) → run fresh instead of dying with '(empty…)'
+                reply = await brain.ask_async(prompt, [], system=system)
         else:                                             # no live session → fresh, self-contained turn
             reply = await brain.ask_async(prompt, [], system=system)
     except Exception as e:
@@ -161,15 +246,25 @@ async def _run_agent_one(path, report):
     (agent_done_dir() / f"{name}.log").write_text(f"dur={dur}s\n\nTASK:\n{task}\n\nRESULT:\n{reply}")
     try: run_path.unlink()
     except OSError: pass
+    _drop_meta(run_path)
     mins = f"{dur // 60}m{dur % 60}s" if dur >= 60 else f"{dur}s"
     bad = reply.startswith("(") and reply.endswith(")")   # our error/timeout markers
     mark = "⚠️" if bad else "✅"
-    await report(f"{mark} background task **{name}** done ({mins})\n\n{reply[:1500]}")
+    await report(f"{mark} background task **{name}** done ({mins})\n\n{reply[:1500]}", chan)
 
 
 async def agent_watch_loop(report, interval: int = 5):
-    """Run queued background AGENT tasks one at a time; report start + result to the home channel.
-    Runs on forked sessions, so it executes ALONGSIDE live chat without taking the session lock."""
+    """Run queued background AGENT tasks one at a time; start + result report back to the
+    task's ORIGIN channel (home when it has none). Runs on forked sessions, so it executes
+    ALONGSIDE live chat without taking the session lock."""
+    n = _recover(agent_running_dir(), agent_queue_dir())
+    if n:
+        print(f"[jobs] requeued {n} agent task(s) orphaned by a restart")
+        try:
+            await report(f"🔁 requeued **{n}** background task(s) that were orphaned by a "
+                         "restart — running them now.")
+        except Exception:
+            pass
     print("agent-job watcher started")
     while True:
         try:

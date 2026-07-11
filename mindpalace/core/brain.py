@@ -721,15 +721,33 @@ def _handoff_digest(system: str | None):
     return "", None
 
 
-async def wrap_day(system: str | None = None, history: list[dict] | None = None) -> bool:
+async def wrap_day(system: str | None = None, history: list[dict] | None = None) -> str:
     """End-of-day wrap (`!wrap` / idle auto-wrap): write this identity's handoff digest NOW,
     into its most recent session state — so tomorrow's first message (or a return after a long
     break) seeds from it instantly instead of paying a digest call inline. Chained like a
-    rotation digest. Returns True if a digest was stored; False if there was nothing to wrap."""
+    rotation digest. A fingerprint of the history is stored with the digest: when nothing
+    changed since the last wrap (idle room, daemon restart), the stored digest is returned
+    WITHOUT an LLM call — so repeated auto-wraps only pay for rooms that actually worked.
+    Returns the digest ('' if there was nothing to wrap)."""
     p = _latest_state_path(system)
     if p is None:                                 # this identity never chatted — nothing to wrap
-        return False
-    return bool(await _rotation_summary(system, history or [], path=p))
+        return ""
+    src = hashlib.sha1(json.dumps(history or [], sort_keys=True).encode()).hexdigest()[:12]
+    try:
+        st = json.loads(p.read_text())
+    except (OSError, json.JSONDecodeError, ValueError):
+        st = {}
+    if st.get("summary") and st.get("sum_src") == src:
+        return str(st["summary"])                 # nothing new since the last digest — reuse
+    digest = await _rotation_summary(system, history or [], path=p)
+    if digest:
+        try:
+            st = json.loads(p.read_text())
+            st["sum_src"] = src
+            p.write_text(json.dumps(st))
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
+    return digest
 
 
 async def _rotation_summary(system: str | None, history: list[dict], path=None) -> str:
@@ -757,7 +775,11 @@ async def _rotation_summary(system: str | None, history: list[dict], path=None) 
         "branches, servers, projects, prices, IDs): the active project(s) and precise task state, "
         "decisions made and why, open questions and next steps, and anything the owner asked "
         "that is not done yet. If the previous digest and the conversation disagree, the "
-        "conversation wins.\n\n"
+        "conversation wins. End with exactly two labeled lines (they feed the morning brief, "
+        "read on a phone — keep them TIGHT):\n"
+        "NOW: <where the work stands, ONE plain sentence, max ~15 words>\n"
+        "PENDING: <decisions waiting on the OWNER as short questions, max ~8 words each, "
+        "semicolon-separated, at most 3 — or 'none'. Only real decisions, not minor curiosities>\n\n"
         + (f"PREVIOUS DIGEST (roll it forward, drop what's stale):\n{prev}\n\n" if prev else "")
         + f"RECENT CONVERSATION:\n{convo}\n\nDIGEST:")
     proc = None
@@ -1292,6 +1314,59 @@ def _chip(blk: dict) -> str:
     return f"{lead} {verb} · {_mid(target)}" if target else f"{lead} {verb}"
 
 
+def _job_path(blk) -> str | None:
+    """Absolute path of the job file this tool step writes into jobs/queue|agent_queue —
+    '' when it's clearly a job write but the exact path can't be parsed out of the command,
+    None when it isn't a job write at all."""
+    name = blk.get("name", "")
+    inp = blk.get("input", {}) or {}
+    if name in ("Write", "Edit"):
+        fp = inp.get("file_path", "") or ""
+        return fp if ("/jobs/queue/" in fp or "/jobs/agent_queue/" in fp) else None
+    if name == "Bash":
+        c = inp.get("command", "") or ""
+        if "/jobs/queue/" not in c and "/jobs/agent_queue/" not in c:
+            return None
+        import re as _re
+        m = _re.search(r"(/[^\s'\"<>]*?/jobs/(?:queue|agent_queue)/[^\s'\"<>]+)", c)
+        return m.group(1) if m else ""
+    return None
+
+
+def _write_job_meta(job_path: str, origin: dict) -> None:
+    """Drop the origin sidecar (`<file>.meta`: channel + persona) next to a queued job file.
+    Written from THIS turn's own tool call — a concurrent turn in another room can never
+    claim the file (the old directory-diff stamping raced exactly that way). May land
+    BEFORE the job file itself exists; the watcher only needs it there at pickup."""
+    try:
+        base = os.path.basename(job_path.rstrip("/"))
+        if not base or base.endswith(".meta"):
+            return
+        sub = "agent_queue" if "/jobs/agent_queue/" in job_path else "queue"
+        d = config.home() / "jobs" / sub
+        d.mkdir(parents=True, exist_ok=True)
+        (d / (base + ".meta")).write_text(json.dumps(origin))
+    except Exception:
+        pass
+
+
+def _stamp_unstamped_jobs(origin: dict) -> None:
+    """Fallback when a Bash job-write's exact filename couldn't be parsed: stamp every queue
+    file with no sidecar yet. Runs ONLY in a turn that itself wrote a job, at that tool's
+    result — files exactly-stamped by other turns already carry their meta by then."""
+    try:
+        for sub in ("queue", "agent_queue"):
+            d = config.home() / "jobs" / sub
+            if not d.is_dir():
+                continue
+            for p in d.glob("*"):
+                if p.name.endswith(".meta") or p.with_name(p.name + ".meta").exists():
+                    continue
+                p.with_name(p.name + ".meta").write_text(json.dumps(origin))
+    except Exception:
+        pass
+
+
 _sem = None     # caps simultaneous `claude` procs (parallel agents); set via config.concurrency()
 
 
@@ -1334,6 +1409,7 @@ async def ask_async_streaming(text, history, on_progress, system=None,
     final, steps, usage, mode = "", 0, {}, "legacy"
     pending = None                               # last text block, held back (may be the final answer)
     chips: dict = {}                             # tool_use id -> chip text, emitted when the step finishes
+    pending_job: set = set()                     # tool ids of job writes awaiting a fallback stamp
     last_chip = None                             # dedup identical back-to-back chips
     last_activity = 0.0                          # loop-clock of the last stream event (idle watchdog)
     proc = None
@@ -1446,6 +1522,15 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                                     pass
                                 pending = None
                             chips[blk.get("id", "")] = _chip(blk)
+                            # job write from THIS turn → stamp its origin (channel + persona)
+                            # so the watcher reports back to the right room + forks its session
+                            origin = stats.get("origin") if isinstance(stats, dict) else None
+                            if origin:
+                                jp = _job_path(blk)
+                                if jp:
+                                    _write_job_meta(jp, origin)
+                                elif jp == "":                 # job write, path unparsed → stamp at result
+                                    pending_job.add(blk.get("id", ""))
                             if _classify(blk) == "skill_use":   # telemetry for the curator
                                 try:
                                     skills.bump_use(_skill_name(
@@ -1457,6 +1542,11 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                     for blk in ev.get("message", {}).get("content", []):
                         if not isinstance(blk, dict) or blk.get("type") != "tool_result":
                             continue
+                        if blk.get("tool_use_id", "") in pending_job:   # job file exists now
+                            pending_job.discard(blk.get("tool_use_id", ""))
+                            origin = stats.get("origin") if isinstance(stats, dict) else None
+                            if origin:
+                                _stamp_unstamped_jobs(origin)
                         chip = chips.pop(blk.get("tool_use_id", ""), None)
                         if not chip or steps >= max_steps:
                             continue

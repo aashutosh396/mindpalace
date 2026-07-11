@@ -47,37 +47,113 @@ _HEAVY_ALERT = [0.0]
 # Idle auto-wrap: last human message (any channel) + when the day was last wrapped.
 _LAST_MSG = [time.time()]
 _WRAPPED_AT = [0.0]
+_LAST_DAY = [time.strftime("%Y-%m-%d")]   # for the once-a-day auto-brief on the first message
 
 
-async def _wrap_all() -> int:
-    """Write a handoff digest for every identity that has a session — main + each activated
-    room, in parallel. Used by `!wrap` and the idle auto-wrap. Returns how many wrapped."""
+def _identities():
+    """(history-name, system) for every identity — main + each activated room, deduped."""
     idents, seen = [("main", None)], {"main"}
     for s in _SCOPES.values():
         nm = "scope-" + s["name"]
         if nm not in seen:
             seen.add(nm)
             idents.append((nm, s.get("system")))
+    return idents
 
+
+def _journal_write(name: str, digest: str):
+    """File a handoff digest into the vault day journal — one file per day, one section per
+    room, section REPLACED on re-wrap (digests are cumulative, latest wins). Six months on,
+    'when did we change X and why' is a grep through vault/notes/journal/."""
+    try:
+        import re as _re2
+        d = config.vault_dir() / "notes" / "journal"
+        d.mkdir(parents=True, exist_ok=True)
+        day = time.strftime("%Y-%m-%d")
+        p = d / f"{day}.md"
+        label = name.replace("scope-", "", 1)
+        txt = p.read_text() if p.exists() else f"# {day} — day journal (auto: handoff digests)\n"
+        sec = f"\n## {label}\n\n{digest.strip()}\n"
+        pat = _re2.compile(rf"\n## {_re2.escape(label)}\n.*?(?=\n## |\Z)", _re2.S)
+        p.write_text(pat.sub(sec, txt) if pat.search(txt) else txt + sec)
+    except Exception:
+        pass
+
+
+async def _wrap_all() -> int:
+    """Write a handoff digest for every identity that has a session — main + each activated
+    room, in parallel — and file each into the day journal. Used by `!wrap` and the idle
+    auto-wrap. Returns how many wrapped."""
     async def one(name, system):
         try:
-            return 1 if await brain.wrap_day(system, _load(name)) else 0
+            digest = await brain.wrap_day(system, _load(name))
         except Exception:
             return 0
+        if digest:
+            _journal_write(name, digest)
+            return 1
+        return 0
 
-    return sum(await asyncio.gather(*(one(n, s) for n, s in idents)))
+    return sum(await asyncio.gather(*(one(n, s) for n, s in _identities())))
 
 
-async def _auto_wrap():
+def _digest_tag(digest: str, tag: str) -> str:
+    """Last 'TAG: …' line out of a digest ('' if absent) — the structured tail lines the
+    digest prompt asks for (NOW / PENDING), used to render the brief mechanically."""
+    import re as _re2
+    hits = _re2.findall(rf"(?mi)^\**{tag}\**[:：]\**\s*(.+?)\**\s*$", digest or "")
+    return hits[-1].strip() if hits else ""
+
+
+def _clip(s: str, n: int) -> str:
+    s = " ".join((s or "").split())
+    return s if len(s) <= n else s[:n - 1].rstrip(" ,;") + "…"
+
+
+def _brief_text() -> str:
+    """The morning brief — rendered from each room's latest handoff digest (NOW + PENDING
+    tail lines). Pure extraction: zero model calls. '' when there's nothing recent.
+    Readability rules: blank line between rooms, ONE pending item per ⏳ line (max 3 shown),
+    everything clipped to phone-width sentences — a glance, not a report."""
+    import re as _re2
+    blocks = []
+    for name, system in _identities():
+        try:
+            digest, age = brain._handoff_digest(system)
+        except Exception:
+            continue
+        if not digest or (age is not None and age > 36 * 3600):
+            continue                                  # stale room — leave it out of the brief
+        label = _re2.sub(r"^\W+", "", name.replace("scope-", "", 1)) or name
+        now = _clip(_digest_tag(digest, "NOW"), 140)
+        pend = _digest_tag(digest, "PENDING")
+        room = [f"**{label}** — {now}" if now else f"**{label}**"]
+        if pend and not pend.strip(" .").lower().startswith("none"):
+            items = [i.strip(" .") for i in pend.split(";") if i.strip(" .")]
+            for i in items[:3]:
+                room.append(f"> ⏳ {_clip(i, 90)}")
+            if len(items) > 3:
+                room.append(f"> ⏳ …+{len(items) - 3} more")
+        blocks.append("\n".join(room))
+    if not blocks:
+        return ""
+    return f"☀️ **brief** — {time.strftime('%a %b %d')}\n\n" + "\n\n".join(blocks)
+
+
+async def _auto_wrap(busy=None):
     """Idle watcher: after `wrap_after_hours` of owner silence, wrap the day ONCE (handoff
     digests for every identity) so a return-from-idle or tomorrow's first message picks up
-    seamlessly. Re-arms on new activity. Silent — logs to the daemon only."""
+    seamlessly. Re-arms on new activity. `busy()` defers the wrap while turns or goal loops
+    are still grinding — idle means the SYSTEM is quiet, not just the owner (else the digest
+    snapshots 'build in progress' and misses the results). Silent — daemon log only."""
     while True:
         await asyncio.sleep(900)
         try:
             h = config.wrap_after_hours()
             idle = time.time() - _LAST_MSG[0]
             if h and idle >= h * 3600 and _LAST_MSG[0] > _WRAPPED_AT[0]:
+                if busy and busy():
+                    continue                     # work still running — check again in 15 min
                 _WRAPPED_AT[0] = time.time()
                 n = await _wrap_all()
                 print(f"[wrap] auto-wrapped after {idle / 3600:.1f}h idle · {n} digest(s)")
@@ -602,6 +678,7 @@ async def _handle_command(msg, text) -> bool:
             "    ↳ `!turns 15` (roll after N turns) · `!turns tokens 80k` (roll past N tok) · `!turns fresh` (roll now)\n"
             "`!usage` — token dashboard: today vs 7 days, model mix, heaviest turn\n"
             "`!wrap` — wrap up the day now (handoff digests; auto after 3h idle)\n"
+            "`!brief` — morning brief: each room's state + decisions waiting on you\n"
             "\n"
             "Everything else just goes straight to me — no command needed.")
         buf = ""                                   # Discord caps a message at 2000 chars → split by line
@@ -691,6 +768,10 @@ async def _handle_command(msg, text) -> bool:
     elif cmd in ("usage", "stats"):
         from ..core import telemetry
         await msg.channel.send(telemetry.usage_summary())
+    elif cmd in ("brief", "standup", "morning"):
+        b = _brief_text()
+        await msg.channel.send(b or "☀️ nothing recent to brief — wrap a day first (`!wrap`) "
+                                    "or just get some work going.")
     elif cmd in ("wrap", "wrapup", "eod"):
         await msg.channel.send("🌙 wrapping up the day — writing handoff digests…")
         n = await _wrap_all()
@@ -1018,7 +1099,9 @@ def run():
         # thinking…") that a background ticker bumps every few seconds — so a long quiet stretch
         # reads as ALIVE, not stuck. Prose lines commit the current block, then post on their own.
         st = {"chips": [], "msg": None, "active": True}
-        stats = {}                               # LIVE token count — brain fills 'out'/'in' as it streams
+        # stats: brain fills 'out'/'in' live as it streams; 'origin' rides IN so the brain can
+        # stamp any job THIS turn queues with the room that asked (report routing + session fork)
+        stats = {"origin": {"channel": channel.id, "system": system}}
         voff = _verb_offset()                    # this turn starts on a random verb
         # rotation forecast for the ticker: last measured session context vs the roll budget,
         # read ONCE per turn (it only changes at turn end anyway)
@@ -1461,7 +1544,10 @@ def run():
             if not is_main:
                 scoped_ids.add(client.user.id)
             elif first:
-                asyncio.create_task(_auto_wrap())   # idle watcher: wrap the day after quiet hours
+                # idle watcher: wrap the day after quiet hours — deferred while any turn is
+                # live or a goal loop is grinding (their results should land in the digest)
+                asyncio.create_task(_auto_wrap(
+                    busy=lambda: any(l.locked() for l in turn_locks.values()) or bool(_GOALS)))
                 if home_channel:
                     ch = client.get_channel(home_channel)
                     if ch:
@@ -1473,6 +1559,17 @@ def run():
             if msg.author.bot:
                 return
             _LAST_MSG[0] = time.time()           # any human message re-arms the idle auto-wrap
+            # first human message of a NEW day (daemon running since yesterday) → morning brief,
+            # once, to the home channel. Digests are already fresh thanks to the idle auto-wrap.
+            if is_main and home_channel and time.strftime("%Y-%m-%d") != _LAST_DAY[0]:
+                _LAST_DAY[0] = time.strftime("%Y-%m-%d")
+                try:
+                    b = _brief_text()
+                    hc = client.get_channel(home_channel)
+                    if b and hc:
+                        await hc.send(b)
+                except Exception:
+                    pass
             in_home = msg.channel.id == home_channel
             # bootstrap: first human to talk in the home channel becomes the first admin
             if is_main and in_home and not config.admins():
@@ -1576,11 +1673,19 @@ def run():
 
         return client
 
-    async def report(message: str):
-        """Post a background-job result to the home channel (main client, webhook fallback)."""
+    async def report(message: str, channel_id=None):
+        """Post a background-job result — to its ORIGIN channel when the job carries one
+        (stamped by the turn that queued it), else the home channel (webhook fallback)."""
         main = clients.get("main")
-        if main and main.is_ready() and home_channel:
-            ch = main.get_channel(home_channel)
+        if main and main.is_ready():
+            ch = None
+            if channel_id:
+                try:
+                    ch = main.get_channel(int(channel_id))
+                except (TypeError, ValueError):
+                    ch = None
+            if ch is None and home_channel:
+                ch = main.get_channel(home_channel)
             if ch:
                 await ch.send(message); return
         from ..core import notify
