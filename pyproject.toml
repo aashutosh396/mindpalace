@@ -37,4 +37,16 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-mindpalace = ["skills/global/*.md"]
+# ship the WHOLE reference-skill library: flat .md skills AND folder skills
+# (SKILL.md + data/ + scripts/, e.g. ui-ux-pro-max's searchable design DB).
+# setuptools globs don't recurse, so patterns are enumerated per depth (max 8).
+mindpalace = [
+  "skills/global/*.md",
+  "skills/global/*/*",
+  "skills/global/*/*/*",
+  "skills/global/*/*/*/*",
+  "skills/global/*/*/*/*/*",
+  "skills/global/*/*/*/*/*/*",
+  "skills/global/*/*/*/*/*/*/*",
+  "skills/global/*/*/*/*/*/*/*/*",
+]
