@@ -41,6 +41,49 @@ _GOAL_SEQ = [0]
 # replies as plain full-width messages instead. Set from config at startup, toggled by `!replies`.
 _WIDE = [False]
 
+# Heavy-turn watchdog: timestamp of the last ⚠️ context alert (one/hour across all channels).
+_HEAVY_ALERT = [0.0]
+
+# Idle auto-wrap: last human message (any channel) + when the day was last wrapped.
+_LAST_MSG = [time.time()]
+_WRAPPED_AT = [0.0]
+
+
+async def _wrap_all() -> int:
+    """Write a handoff digest for every identity that has a session — main + each activated
+    room, in parallel. Used by `!wrap` and the idle auto-wrap. Returns how many wrapped."""
+    idents, seen = [("main", None)], {"main"}
+    for s in _SCOPES.values():
+        nm = "scope-" + s["name"]
+        if nm not in seen:
+            seen.add(nm)
+            idents.append((nm, s.get("system")))
+
+    async def one(name, system):
+        try:
+            return 1 if await brain.wrap_day(system, _load(name)) else 0
+        except Exception:
+            return 0
+
+    return sum(await asyncio.gather(*(one(n, s) for n, s in idents)))
+
+
+async def _auto_wrap():
+    """Idle watcher: after `wrap_after_hours` of owner silence, wrap the day ONCE (handoff
+    digests for every identity) so a return-from-idle or tomorrow's first message picks up
+    seamlessly. Re-arms on new activity. Silent — logs to the daemon only."""
+    while True:
+        await asyncio.sleep(900)
+        try:
+            h = config.wrap_after_hours()
+            idle = time.time() - _LAST_MSG[0]
+            if h and idle >= h * 3600 and _LAST_MSG[0] > _WRAPPED_AT[0]:
+                _WRAPPED_AT[0] = time.time()
+                n = await _wrap_all()
+                print(f"[wrap] auto-wrapped after {idle / 3600:.1f}h idle · {n} digest(s)")
+        except Exception:
+            pass
+
 
 def _load(name):
     try:
@@ -56,6 +99,50 @@ def _save(name, h):
 
 def _chunks(s, n=1900):
     return [s[i:i + n] for i in range(0, len(s), n)] or ["(empty)"]
+
+
+def _chip_parts(c):
+    """Split a rendered chip '⚡ verb · target ✅' → (head='⚡ verb', target, tick)."""
+    tick, body = "", c
+    for t in ("✅", "⚠️"):
+        if body.rstrip().endswith(t):
+            tick, body = t, body.rstrip()[:-len(t)].rstrip()
+            break
+    if " · " in body:
+        head, target = body.split(" · ", 1)
+    else:
+        head, target = body, ""
+    return head, target, tick
+
+
+def _collapse_chips(chips, max_lines=12):
+    """Render-time compaction of the chip stack: consecutive same-verb chips fold into ONE line
+    ('⚡ searching ×4 · node_modules, new-entry.vue, …'), and when the stack still exceeds
+    max_lines the oldest lines roll up into '⚡ … +N earlier steps'. Keeps a monster turn's
+    status message scannable AND under Discord's 2000-char edit cap. Raw list stays untouched."""
+    groups: list = []
+    for c in chips:
+        h, t, k = _chip_parts(c)
+        if groups and groups[-1][0] == h:
+            groups[-1][1].append(t); groups[-1][2].append(k)
+        else:
+            groups.append([h, [t], [k]])
+    lines = []
+    for h, ts, ks in groups:
+        tick = "⚠️" if "⚠️" in ks else ("✅" if "✅" in ks else "")
+        ts = [t for t in dict.fromkeys(t for t in ts if t)]    # dedupe, keep order
+        if len(ks) == 1:
+            body = f"{h} · {ts[0]}" if ts else h
+        else:
+            tgt = ", ".join(ts)
+            if len(tgt) > 58:
+                tgt = tgt[:57].rstrip(" ,") + "…"
+            body = f"{h} ×{len(ks)}" + (f" · {tgt}" if tgt else "")
+        lines.append(f"{body} {tick}".rstrip())
+    if len(lines) > max_lines:
+        hidden = len(lines) - (max_lines - 1)
+        lines = [f"⚡ … +{hidden} earlier steps"] + lines[-(max_lines - 1):]
+    return lines
 
 
 CORAL = 0xFF6B5C        # primary accent — the bot's embed bar, so its replies stand out from yours
@@ -511,6 +598,10 @@ async def _handle_command(msg, text) -> bool:
             "`!curate now` — tidy skills  ·  `!curate pause`/`resume`  ·  `!curate` — status\n"
             "`!voice lean`/`full` — reply style  ·  `!voice` shows current\n"
             "`!replies wide`/`card` — reply width (full-width plain vs coral embed)\n"
+            "`!turns` — session speed: show budgets + today's context size\n"
+            "    ↳ `!turns 15` (roll after N turns) · `!turns tokens 80k` (roll past N tok) · `!turns fresh` (roll now)\n"
+            "`!usage` — token dashboard: today vs 7 days, model mix, heaviest turn\n"
+            "`!wrap` — wrap up the day now (handoff digests; auto after 3h idle)\n"
             "\n"
             "Everything else just goes straight to me — no command needed.")
         buf = ""                                   # Discord caps a message at 2000 chars → split by line
@@ -560,6 +651,54 @@ async def _handle_command(msg, text) -> bool:
             await msg.channel.send(
                 f"voice: **{'lean' if config.lean_voice() else 'full'}** · "
                 "`!voice lean` (brief) / `!voice full` (chatty) — applies on your next message.")
+    elif cmd in ("turns", "speed", "rotate"):
+        def _fmt_k(n):
+            return f"{n/1000:g}k" if n >= 1000 else str(n)
+        sub = args[0].lower() if args else ""
+        if sub in ("fresh", "reset", "now"):
+            brain.reset_sessions()
+            await msg.channel.send("🧼 fresh session from your next message — raw chat shed, "
+                                   "distilled memory (CORE) + skills kept.")
+        elif sub in ("tokens", "tok", "token"):
+            raw = (args[1].lower() if len(args) > 1 else "")
+            num = raw[:-1] if raw.endswith("k") else raw
+            if num.isdigit():
+                n = int(num) * (1000 if raw.endswith("k") else 1)
+                cfg = config.load_config(); cfg["session_rotate_tokens"] = n; config.save_config(cfg)
+                await msg.channel.send(
+                    f"⚡ token budget → **{_fmt_k(n)} tok** — I roll to a fresh lean session the "
+                    "moment the chat's measured context passes it. No restart needed." if n else
+                    "⚡ token budget **off** — rotating by turn count only.")
+            else:
+                await msg.channel.send("usage: `!turns tokens 80k` (or a plain number · 0 = off)")
+        elif sub.isdigit():
+            n = int(sub)
+            cfg = config.load_config(); cfg["session_rotate_turns"] = n; config.save_config(cfg)
+            await msg.channel.send(
+                f"⚡ turn budget → **{n} turns** per session segment. No restart needed." if n else
+                "⚡ turn budget **off** — one session all day (token budget still applies).")
+        else:
+            st = brain.session_status()
+            t, k = config.session_rotate_turns(), config.session_rotate_tokens()
+            await msg.channel.send(
+                "⚡ **session speed** — smaller session = faster replies + less credit "
+                "(every step of every turn re-pays the context).\n"
+                f"today: segment **#{st['seg']}** · turn **{st['turns']}**"
+                + (f" · context ≈ **{_fmt_k(st['ctx'])} tok**" if st["ctx"] else "") + "\n"
+                f"rotate after: **{t if t else 'off'} turns** or **{_fmt_k(k) if k else 'off'} tok** — "
+                "whichever hits first (memory + skills carry over, raw chat is shed).\n"
+                "`!turns 15` · `!turns tokens 80k` · `!turns fresh` — fresh session right now")
+    elif cmd in ("usage", "stats"):
+        from ..core import telemetry
+        await msg.channel.send(telemetry.usage_summary())
+    elif cmd in ("wrap", "wrapup", "eod"):
+        await msg.channel.send("🌙 wrapping up the day — writing handoff digests…")
+        n = await _wrap_all()
+        _WRAPPED_AT[0] = time.time()
+        await msg.channel.send(
+            f"🌙 day wrapped — **{n}** handoff digest(s) saved. Tomorrow's first message (or a "
+            "return after a long break) picks up right where we left off." if n else
+            "🌙 nothing to wrap — no sessions yet.")
     elif cmd == "mcp":
         from .. import mcp as reg
         sub = args[0].lower() if args else "list"
@@ -881,6 +1020,14 @@ def run():
         st = {"chips": [], "msg": None, "active": True}
         stats = {}                               # LIVE token count — brain fills 'out'/'in' as it streams
         voff = _verb_offset()                    # this turn starts on a random verb
+        # rotation forecast for the ticker: last measured session context vs the roll budget,
+        # read ONCE per turn (it only changes at turn end anyway)
+        _sess0 = brain.session_status(system) if config.session_continuity() else {}
+        _budget = config.session_rotate_tokens()
+        ctxstr = ""
+        if _sess0.get("ctx"):
+            ctxstr = (f" · ctx {_fmt_tokens(_sess0['ctx'])}/{_fmt_tokens(_budget)}" if _budget
+                      else f" · ctx {_fmt_tokens(_sess0['ctx'])}")
 
         def _body():
             el = time.monotonic() - t0
@@ -889,10 +1036,11 @@ def run():
             tok = stats.get("out", 0)                     # tokens generated so far (estimate until result)
             approx = "" if stats.get("exact") else "~"    # '~' while it's a length-based estimate
             tokstr = f" · ↓ {approx}{_fmt_tokens(tok)} tok" if tok else ""
-            head = f"{emoji} {verb} ({timer} · {hint}{tokstr})"   # the loader goes on its OWN line below
+            head = f"{emoji} {verb} ({timer} · {hint}{tokstr}{ctxstr})"   # loader goes on its OWN line
             bar = _bar(el)
             if st["chips"]:
-                return "\n".join([f"> {c}" for c in st["chips"]] + [f"> {head}", f"> {bar}"])
+                return "\n".join([f"> {c}" for c in _collapse_chips(st["chips"])]
+                                 + [f"> {head}", f"> {bar}"])
             return f"{head}\n{bar}"
 
         async def _paint():
@@ -915,11 +1063,10 @@ def run():
                 if line[:1] in ("⚡", "📚"):       # step chip (⚡) or skill chip (📚) → stack
                     st["chips"].append(line)
                     await _paint()
-                else:                                   # prose / 🤖 notice → freeze block, post on its own
-                    if st["msg"] is not None and st["chips"]:
-                        await st["msg"].edit(content="\n".join(f"> {c}" for c in st["chips"]))
-                    st["chips"], st["msg"] = [], None
+                elif line[:1] in ("🤖", "▶"):     # system notice (model switch / queue pickup)
                     await channel.send(f"_{line}_")
+                # Model prose is NOT relayed — the chips carry live progress and the reply is the
+                # summary. Whatever it wrote is still in the CLI session transcript for forensics.
             except Exception:
                 pass
 
@@ -935,12 +1082,15 @@ def run():
             done = _fmt_dur(time.monotonic() - t0)
             _tok = stats.get("out", 0)                  # final generated-token total for this turn
             _toks = f" · ↓ {_fmt_tokens(_tok)} tok" if _tok else ""
+            _errs = sum(1 for c in st["chips"] if c.rstrip().endswith("⚠️"))
+            _errstr = f" · ⚠️ {_errs} step{'s' if _errs > 1 else ''} errored (recovered)" if _errs else ""
             try:                                        # finalize: swap timer → "✻ Baked for …"; KEEP it
                 if st["msg"] is not None:
                     if st["chips"]:
-                        body = "\n".join(f"> {c}" for c in st["chips"]) + f"\n> ✻ Baked for {done}{_toks}"
+                        body = ("\n".join(f"> {c}" for c in _collapse_chips(st["chips"]))
+                                + f"\n> ✻ Baked for {done}{_toks}{_errstr}")
                     else:
-                        body = f"✻ Baked for {done}{_toks}"
+                        body = f"✻ Baked for {done}{_toks}{_errstr}"
                     await st["msg"].edit(content=body)
             except Exception:
                 pass
@@ -953,8 +1103,31 @@ def run():
         cl = clients.get(name)                       # bot's live display name + avatar for the card header
         disp = cl.user.display_name if cl and cl.user else name.replace("scope-", "", 1)
         icon = cl.user.display_avatar.url if cl and cl.user else None
-        stats = f"{(model.capitalize() if model else brain.model_label_for(text))} · {_fmt_dur(dur)}"  # end-bar run summary
-        await _send_reply(channel, disp, reply, icon, stats=stats)
+        # end-bar run summary: model · time · output · steps · session context · segment —
+        # the turn's full accounting in one line, all from data already in hand (zero tokens)
+        _parts = [(model.capitalize() if model else brain.model_label_for(text)), _fmt_dur(dur)]
+        if _tok:
+            _parts.append(f"↓ {_fmt_tokens(_tok)} tok")
+        if st["chips"]:
+            _parts.append(f"{len(st['chips'])} steps")
+        _sess = brain.session_status(system) if config.session_continuity() else {}
+        if _sess.get("ctx"):
+            _parts.append(f"ctx {_fmt_tokens(_sess['ctx'])}")
+        if _sess.get("seg"):
+            _parts.append(f"seg#{_sess['seg']}")
+        await _send_reply(channel, disp, reply, icon, stats=" · ".join(_parts))
+        # heavy-turn watchdog: one quiet line when a single turn reads an outsized context
+        # (the quota eater) — rate-limited so it nudges, never nags
+        _cr = int(stats.get("cache_read", 0) or 0)
+        _heavy = config.heavy_turn_tokens()
+        if _heavy and _cr >= _heavy and time.time() - _HEAVY_ALERT[0] > 3600:
+            _HEAVY_ALERT[0] = time.time()
+            try:
+                await channel.send(f"_⚠️ heavy turn: read {_fmt_tokens(_cr)} tok of context. "
+                                   "The session is getting fat — `!turns fresh` rolls it clean "
+                                   "(memory + skills survive)._")
+            except Exception:
+                pass
         for _fp in _files:                       # attach rendered tables/images/CSVs for big data
             try:
                 await channel.send(file=discord.File(_fp))
@@ -1279,19 +1452,27 @@ def run():
 
         @client.event
         async def on_ready():
-            print(f"[{name}] connected as {client.user}")
+            # on_ready fires on EVERY gateway reconnect (wifi blip, Discord drop, Mac nap),
+            # not just process start — announce once per process or the channel fills with
+            # false '🟢 online' lines while the daemon never actually restarted.
+            first = not getattr(client, "_mp_announced", False)
+            client._mp_announced = True
+            print(f"[{name}] {'connected' if first else 'reconnected'} as {client.user}")
             if not is_main:
                 scoped_ids.add(client.user.id)
-            elif home_channel:
-                ch = client.get_channel(home_channel)
-                if ch:
-                    await ch.send(f"🟢 mindpalace online — main bot @ home channel "
-                                  f"({len(registry)} bot(s)).")
+            elif first:
+                asyncio.create_task(_auto_wrap())   # idle watcher: wrap the day after quiet hours
+                if home_channel:
+                    ch = client.get_channel(home_channel)
+                    if ch:
+                        await ch.send(f"🟢 mindpalace online — main bot @ home channel "
+                                      f"({len(registry)} bot(s)).")
 
         @client.event
         async def on_message(msg):
             if msg.author.bot:
                 return
+            _LAST_MSG[0] = time.time()           # any human message re-arms the idle auto-wrap
             in_home = msg.channel.id == home_channel
             # bootstrap: first human to talk in the home channel becomes the first admin
             if is_main and in_home and not config.admins():

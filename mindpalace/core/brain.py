@@ -78,9 +78,11 @@ def _async_ops() -> str:
             "started on it. A background worker (your forked session, full context) does it and "
             "reports back when done — you stay free. First sketch the steps, then proceed.\n"
             "- Proactive update any time:  python3 -m mindpalace.notify 'message'\n"
-            "- You MAY drop ONE short casual opener before your first action ('checking your "
-            "Downloads…'). Do NOT narrate after that — the ⚡ step chips show progress. Keep the "
-            "FINAL reply to the result + next step; never replay the play-by-play."
+            "- Do NOT narrate progress in text — no openers, no play-by-play, no mid-task "
+            "commentary. The ⚡ step chips already show the owner what you're doing live; any "
+            "prose you write mid-turn is wasted tokens that also bloats the session it gets "
+            "re-read from. Work silently. Your FINAL reply is the only prose: a tight summary "
+            "(result + next step)."
         )
     return (
         "STAYING RESPONSIVE (async):\n"
@@ -351,7 +353,7 @@ def build_prompt(text: str, history: list[dict], system: str | None = None) -> s
         skills.match(text),          # auto-surface skills matching THIS task (recall > recall-luck)
         mcpreg.match(text),          # auto-surface MCP servers relevant to THIS task
     ) if b]
-    head = system if system else system_prompt()
+    head = _head(system)
     return (
         head
         + ("\n\n" + "\n\n".join(ctx) if ctx else "")
@@ -489,9 +491,12 @@ def model_label_for(text: str) -> str:
     return _model_label(_pick_model(text))
 
 
+_LAST_MODEL: dict = {}   # per-identity: last announced model label — announce only on CHANGE
+
+
 def _model_notice(text: str, model: str | None) -> str:
-    """Short, human-friendly "which model is active" line, surfaced EVERY turn so the
-    owner always knows what's doing the work — no explanation, it repeats too often."""
+    """Short, human-friendly "which model is active" line — posted only when the model
+    CHANGES for this identity (the reply's end-bar already names the model every turn)."""
     label = _model_label(model) if model else "default model"
     return f"🤖 using {label}"
 
@@ -607,32 +612,43 @@ def pop_fresh_session_note(system: str | None = None) -> str:
         _FRESH_DAY.pop(key, None)
         _ROTATED.pop(key, None)
         return ""
-    if _FRESH_DAY.pop(key, None):
+    fd = _FRESH_DAY.pop(key, None)
+    if fd:
         _ROTATED.pop(key, None)                  # day-start wins if both somehow set
+        if fd == "seeded":
+            return ("🧼 **Fresh session** for the day — picking up from last time's handoff "
+                    "(digest + our recent messages carry over; skills + vault knowledge intact).")
         return ("🧼 This message started a **fresh session** — clean plate for the day. I'm not "
                 "carrying over yesterday's chat (my skills + vault knowledge stay).")
     seg = _ROTATED.pop(key, None)
     if seg is not None:
-        return (f"🔄 Rolled to a **fresh session segment** (#{seg}) — this chat got long, so I'm "
-                "starting a leaner one. I kept my distilled memory (CORE) + skills; only the raw "
-                "back-and-forth is shed to stay fast.")
+        return (f"🔄 Rolled to a **fresh session segment** (#{seg}) — this chat got long, so I "
+                "compacted it Hermes-style: a digest of today's work + our recent messages "
+                "verbatim + my distilled memory (CORE) + skills all carry over; only the raw "
+                "transcript bulk is shed to stay fast.")
     return ""
 
 
 def _advance_session(system: str | None) -> tuple[str, bool]:
-    """Called once per streamed turn. Advances the turn counter for today's session SEGMENT and,
-    when the per-session turn budget (config.session_rotate_turns) is exceeded, ROTATES to a fresh
-    leaner segment — a new session seeded with the persona + current CORE.md working memory (so
-    distilled knowledge carries over while raw transcript bloat is shed). Returns
-    (session_uuid, is_new): is_new True ⇒ CREATE (--session-id), else RESUME (--resume)."""
+    """Called once per streamed turn. Advances the turn counter for today's session SEGMENT and
+    ROTATES to a fresh leaner segment when EITHER budget is hit: the turn budget
+    (config.session_rotate_turns) or the token budget (config.session_rotate_tokens, checked
+    against the context size MEASURED at the end of the previous turn — Hermes-style trigger).
+    The new segment is seeded with the persona + current CORE.md working memory (so distilled
+    knowledge carries over while raw transcript bloat is shed). Returns
+    (session_uuid, is_new, rotated): is_new True ⇒ CREATE (--session-id), else RESUME
+    (--resume); rotated True ⇒ this create is a mid-day roll (the caller seeds it with a
+    carryover of the recent chat so the working context survives)."""
     p = _session_state_path(system)
     fresh_day = not p.exists()                    # no state file for today's key yet → first msg of the day
     st = _load_session_state(system)
     seg, turns = int(st.get("seg", 0)), int(st.get("turns", 0))
+    ctx = int(st.get("ctx", 0) or 0)              # context tokens measured at last turn's end
     limit = config.session_rotate_turns()
-    rotated = bool(limit and turns >= limit)      # budget hit → roll to a fresh, leaner segment
+    tok_budget = config.session_rotate_tokens()
+    rotated = bool((limit and turns >= limit) or (tok_budget and ctx >= tok_budget))
     if rotated:
-        seg, turns = seg + 1, 0
+        seg, turns, ctx = seg + 1, 0, 0
     turns += 1
     is_new = (turns == 1)                        # first turn of this segment → create the session
     key = _session_key(system)
@@ -642,16 +658,215 @@ def _advance_session(system: str | None) -> tuple[str, bool]:
         _ROTATED[key] = seg                       # → gateway prepends a 'rolled to segment N' line
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"seg": seg, "turns": turns, "ts": time.time()}))
+        # NB: "summary" (the day's digest chain, written by _rotation_summary) MUST survive this
+        # rewrite — dropping it here silently broke the Hermes chain, each roll only saw last-24.
+        out = {"seg": seg, "turns": turns, "ts": time.time(), "ctx": ctx}
+        if st.get("summary"):
+            out["summary"] = st["summary"]
+        p.write_text(json.dumps(out))
     except OSError:
         pass
-    return _session_uuid(system, seg), is_new
+    return _session_uuid(system, seg), is_new, rotated
+
+
+def _carryover_block(history: list[dict], limit: int = 8) -> str:
+    """Rotation sheds the raw transcript — without this, 'that thing we were just doing' dies
+    with it and the fresh segment feels amnesiac. Hermes never drops the working context when it
+    compacts (it summarizes the middle and PROTECTS the last N turns); this is our equivalent:
+    seed the rotated segment with the tail of the gateway history. Costs a few hundred tokens
+    once per rotation instead of dragging the whole transcript every step."""
+    if not history:
+        return ""
+    lines = []
+    for h in history[-limit:]:
+        role = str(h.get("role", "?"))
+        content = " ".join(str(h.get("content", "")).split())
+        if len(content) > 700:
+            content = content[:700] + " …"
+        lines.append(f"{role}: {content}")
+    return ("CARRYOVER — this is a fresh session, but the conversation continues. The last "
+            "exchanges before the roll (context only — already handled, don't re-answer them):\n"
+            + "\n".join(lines))
+
+
+def _latest_state_path(system: str | None):
+    """Today's session state file if it exists, else the NEWEST earlier one for this identity.
+    State files are named YYYY-MM-DD-<ident>.json, so a filename sort is a date sort."""
+    p = _session_state_path(system)
+    if p.exists():
+        return p
+    ident = hashlib.sha1((system or "main").encode()).hexdigest()[:8]
+    try:
+        c = sorted((config.state_dir() / "sessions").glob(f"*-{ident}.json"))
+    except OSError:
+        return None
+    return c[-1] if c else None
+
+
+def _handoff_digest(system: str | None):
+    """The most recent STORED handoff digest for this identity — today's state first (a
+    post-midnight wrap lands there), then earlier days. Returns (digest, age_seconds|None)."""
+    try:
+        cands = sorted((config.state_dir() / "sessions").glob(
+            f"*-{hashlib.sha1((system or 'main').encode()).hexdigest()[:8]}.json"), reverse=True)
+    except OSError:
+        return "", None
+    for f in cands:
+        try:
+            st = json.loads(f.read_text())
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        if st.get("summary"):
+            return str(st["summary"]), max(0.0, time.time() - float(st.get("ts", 0) or 0))
+    return "", None
+
+
+async def wrap_day(system: str | None = None, history: list[dict] | None = None) -> bool:
+    """End-of-day wrap (`!wrap` / idle auto-wrap): write this identity's handoff digest NOW,
+    into its most recent session state — so tomorrow's first message (or a return after a long
+    break) seeds from it instantly instead of paying a digest call inline. Chained like a
+    rotation digest. Returns True if a digest was stored; False if there was nothing to wrap."""
+    p = _latest_state_path(system)
+    if p is None:                                 # this identity never chatted — nothing to wrap
+        return False
+    return bool(await _rotation_summary(system, history or [], path=p))
+
+
+async def _rotation_summary(system: str | None, history: list[dict], path=None) -> str:
+    """The full Hermes compaction step: before a rotated segment goes live, an LLM compacts what
+    is being shed — the PREVIOUS digest (rolled forward, so the chain covers the whole day) plus
+    the recent gateway history — into a dense handoff digest. Combined with the verbatim last-8
+    carryover this makes a roll near-lossless: digest = the day so far, carryover = the exact
+    words of the last exchanges. Stored in the session state (today's by default; `path` lets a
+    wrap target the last active day's) for the next roll's chain.
+    Best-effort: any failure/timeout returns '' and the roll proceeds on carryover alone."""
+    p = path or _session_state_path(system)
+    try:
+        st = json.loads(p.read_text())
+    except (OSError, json.JSONDecodeError, ValueError):
+        st = {}
+    prev = str(st.get("summary") or "")
+    if not history and not prev:
+        return ""
+    convo = "\n".join(
+        f"{h.get('role', '?')}: {' '.join(str(h.get('content', '')).split())[:1500]}"
+        for h in history[-24:])
+    prompt = (
+        "You are compacting an assistant's working session into a handoff digest for the fresh "
+        "session that replaces it. Max 400 words, no preamble. Capture with exact names (files, "
+        "branches, servers, projects, prices, IDs): the active project(s) and precise task state, "
+        "decisions made and why, open questions and next steps, and anything the owner asked "
+        "that is not done yet. If the previous digest and the conversation disagree, the "
+        "conversation wins.\n\n"
+        + (f"PREVIOUS DIGEST (roll it forward, drop what's stale):\n{prev}\n\n" if prev else "")
+        + f"RECENT CONVERSATION:\n{convo}\n\nDIGEST:")
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            claude_bin(), "-p", prompt, "--model", config.session_summary_model(),
+            cwd=str(config.home()), env=_env(),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+        digest = (out or b"").decode("utf-8", "replace").strip()[:6000]
+        if digest:
+            try:
+                st = json.loads(p.read_text())    # re-read: _advance_session may have written since
+            except (OSError, json.JSONDecodeError, ValueError):
+                st = {}
+            st["summary"] = digest
+            st.setdefault("ts", time.time())
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(st))
+        return digest
+    except Exception:
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        return ""
+
+
+def _note_session_ctx(system: str | None, usage: dict, steps: int) -> None:
+    """Turn-end hook: write the turn's MEASURED context size into today's session state so the
+    NEXT _advance_session can rotate on the token budget. The result event's usage is cumulative
+    across the turn's steps, so context ≈ (cache_read + cache_create + input) / steps."""
+    if not usage:
+        return
+    try:
+        total = (int(usage.get("cache_read_input_tokens", 0) or 0)
+                 + int(usage.get("cache_creation_input_tokens", 0) or 0)
+                 + int(usage.get("input_tokens", 0) or 0))
+        ctx = total // max(int(steps) or 1, 1)
+    except (TypeError, ValueError):
+        return
+    p = _session_state_path(system)
+    if not ctx or not p.exists():                # no live segment (e.g. legacy fallback) → nothing to note
+        return
+    st = _load_session_state(system)
+    st["ctx"] = ctx
+    try:
+        p.write_text(json.dumps(st))
+    except OSError:
+        pass
+
+
+def session_status(system: str | None = None) -> dict:
+    """Today's segment state for status displays: {'seg', 'turns', 'ctx'} (ctx = measured context
+    tokens at the last turn's end; 0 until a turn completes)."""
+    st = _load_session_state(system)
+    return {"seg": int(st.get("seg", 0)), "turns": int(st.get("turns", 0)),
+            "ctx": int(st.get("ctx", 0) or 0)}
+
+
+def turns_command(arg: str = "") -> str:
+    """Plain-text handler for the session-speed knobs, shared by the terminal /turns command and
+    `mindpalace turns`. arg: '' → status · '<n>' → set turn budget · 'tokens <n|Nk>' → set token
+    budget · 'fresh' → reset today's sessions. Returns the line to print."""
+    def _k(n):
+        return f"{n/1000:g}k" if n >= 1000 else str(n)
+    parts = (arg or "").split()
+    sub = parts[0].lower() if parts else ""
+    if sub in ("fresh", "reset", "now"):
+        reset_sessions()
+        return "fresh session from the next message — raw chat shed, memory (CORE) + skills kept."
+    if sub in ("tokens", "tok", "token"):
+        raw = parts[1].lower() if len(parts) > 1 else ""
+        num = raw[:-1] if raw.endswith("k") else raw
+        if not num.isdigit():
+            return "usage: turns tokens <n|Nk>  (0 = off)"
+        n = int(num) * (1000 if raw.endswith("k") else 1)
+        cfg = config.load_config(); cfg["session_rotate_tokens"] = n; config.save_config(cfg)
+        return (f"token budget → {_k(n)} tok — rolls to a fresh lean session when the measured "
+                "context passes it (no restart needed)." if n else
+                "token budget off — rotating by turn count only.")
+    if sub.isdigit():
+        n = int(sub)
+        cfg = config.load_config(); cfg["session_rotate_turns"] = n; config.save_config(cfg)
+        return (f"turn budget → {n} turns per session segment (no restart needed)." if n else
+                "turn budget off — token budget still applies.")
+    st = session_status()
+    t, k = config.session_rotate_turns(), config.session_rotate_tokens()
+    ctx = f" · context ≈ {_k(st['ctx'])} tok" if st["ctx"] else ""
+    return (f"session speed — today: segment #{st['seg']} · turn {st['turns']}{ctx}\n"
+            f"rotate after {t if t else 'off'} turns or {_k(k) if k else 'off'} tok, whichever "
+            "hits first (smaller session = faster + cheaper).\n"
+            "set: turns 15 · turns tokens 80k · turns fresh")
+
+
+def _head(system: str | None) -> str:
+    """A scoped bot's system.md defines its JOB, not its operating discipline — used alone it
+    loses the voice (lean replies, no narration) and tight-scope coding rules, which is exactly
+    where the verbose-essay/whole-repo-read behavior came from. Compose, don't replace."""
+    if not system:
+        return system_prompt()
+    return "\n\n".join([system, _voice(), _async_ops(), _coding()])
 
 
 def _session_system(system: str | None) -> str:
     """System prompt set ONCE at session creation: the stable persona + working memory + skills
     index. Identical across the day's turns, so claude's prompt cache hits."""
-    head = system if system else system_prompt()
+    head = _head(system)
     blocks = [b for b in (mem.identity_block(), mem.memory_block(), skills.index_block()) if b]
     return head + (("\n\n" + "\n\n".join(blocks)) if blocks else "")
 
@@ -664,14 +879,53 @@ def _turn_input(text: str) -> str:
     return (("\n\n".join(ctx) + "\n\n") if ctx else "") + f"Owner: {text}\nAssistant:"
 
 
-def _session_args(text: str, permissions: str, allowed_tools: str | None,
-                  model: str | None, system: str | None) -> tuple[list[str], str]:
+async def _session_args(text: str, permissions: str, allowed_tools: str | None,
+                        model: str | None, system: str | None,
+                        history: list[dict] | None = None) -> tuple[list[str], str]:
     """claude args for a continuity turn: CREATE (--session-id + system) or RESUME (--resume).
-    _advance_session decides which (and rotates to a fresh segment when the turn budget is hit).
-    Returns (args, mode) where mode is 'create' or 'resume' — for telemetry."""
-    sid, is_new = _advance_session(system)
+    _advance_session decides which (and rotates to a fresh segment when a budget is hit). A
+    mid-day ROTATION create is seeded the Hermes way — a compaction DIGEST of the shed session
+    (LLM-written, chained across rolls) plus a verbatim CARRYOVER of the last exchanges. A short
+    reply like 'go with the starter matrix' only means something WITH the previous turn, and
+    without these the fresh segment falls back to bare FTS recall, which can match the same
+    words in the wrong project. Returns (args, mode); mode is 'create'/'resume' for telemetry."""
+    sid, is_new, rotated = _advance_session(system)
     if is_new:
-        args = [claude_bin(), "-p", _turn_input(text), "--session-id", sid,
+        turn = _turn_input(text)
+        blocks = []
+        if rotated:
+            digest = await _rotation_summary(system, history or [])
+            if digest:
+                blocks.append("SESSION DIGEST — today's earlier session, compacted (trust the "
+                              "conversation over this if they disagree):\n" + digest)
+            carry = _carryover_block(history or [])
+            if carry:
+                blocks.append(carry)
+        else:
+            # DAY START behaves like a rotation. Seed the last handoff digest (stored by !wrap,
+            # the idle auto-wrap, or the last mid-day roll — else written NOW from the gateway
+            # history, one cheap background-model call) plus the recent exchanges verbatim.
+            # Without this, next morning's 'is it live?' has no antecedent and the bot has to
+            # ask 'which one?'. Carryover is skipped when the last activity is >48h old —
+            # a week-old verbatim tail misleads more than it helps (the digest still seeds).
+            digest, age = _handoff_digest(system)
+            if not digest and history:
+                digest = await _rotation_summary(system, history)
+                age = 0.0
+            if digest:
+                blocks.append("HANDOFF — where we left off last time (trust the conversation "
+                              "over this if they disagree):\n" + digest)
+            if history and (age is None or age <= 48 * 3600):
+                carry = _carryover_block(history)
+                if carry:
+                    blocks.append(carry)
+            if blocks:
+                key = _session_key(system)
+                if _FRESH_DAY.get(key):
+                    _FRESH_DAY[key] = "seeded"   # the 🧼 note says we PICKED UP, not wiped
+        if blocks:
+            turn = "\n\n".join(blocks) + "\n\n" + turn
+        args = [claude_bin(), "-p", turn, "--session-id", sid,
                 "--append-system-prompt", _session_system(system)]
     else:
         args = [claude_bin(), "-p", _turn_input(text), "--resume", sid]
@@ -769,6 +1023,16 @@ def _trim(s: str, n: int = 1800) -> str:
     never cut mid-thought. Chips pass a short n explicitly for the '· target' label."""
     s = " ".join((s or "").split()).lstrip("-*• ").strip()
     return s if len(s) <= n else s[:n - 1].rstrip() + "…"
+
+
+def _mid(s: str, n: int = 34) -> str:
+    """Middle-ellipsis for chip targets — long machine names (screenshot files, hashed dumps)
+    keep their start AND extension: '15253577…10.11.45_AM.png' instead of a cut-off head."""
+    s = " ".join((s or "").split())
+    if len(s) <= n:
+        return s
+    head = (n - 1) * 2 // 3
+    return s[:head] + "…" + s[-(n - 1 - head):]
 
 
 def _classify(blk: dict) -> str:
@@ -974,7 +1238,15 @@ def _skill_in(text: str) -> str | None:
         cand = segs[segs.index("scripts") - 1]
         return cand if clean(cand) else None
     dirs = [s for s in segs if clean(s)]              # drop filenames + glob wildcards
-    return dirs[-1] if dirs else None
+    if dirs:
+        return dirs[-1]
+    # flat skill FILES (skills/<name>.md — how the global skills are stored) have no dir
+    # segment; use the filename stem so the chip names the skill instead of a bare verb.
+    stem = segs[-1].rsplit(".", 1)[0] if segs else ""
+    if stem and "*" not in stem and stem.upper() not in ("SKILL", "README") \
+            and any(ch.isalnum() for ch in stem):
+        return stem
+    return None
 
 
 def _chip(blk: dict) -> str:
@@ -1017,7 +1289,7 @@ def _chip(blk: dict) -> str:
         if cat in ("bash", "misc"):              # unknown command → no guessed target
             return f"{lead} {verb}"
         target = _TARGET.get(cat, "")
-    return f"{lead} {verb} · {_trim(target, 60)}" if target else f"{lead} {verb}"
+    return f"{lead} {verb} · {_mid(target)}" if target else f"{lead} {verb}"
 
 
 _sem = None     # caps simultaneous `claude` procs (parallel agents); set via config.concurrency()
@@ -1081,13 +1353,17 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                     await on_progress("▶️ now on: " + _trim(text, 140))
                 except Exception:
                     pass
-        if auto:                                     # which model is active (after the queue note)
-            try:
-                await on_progress(_model_notice(text, model))
-            except Exception:
-                pass
+        if auto:                                     # announce the model only when it CHANGES
+            _mkey = system or "main"
+            _mlabel = _model_label(model)
+            if _LAST_MODEL.get(_mkey) != _mlabel:
+                _LAST_MODEL[_mkey] = _mlabel
+                try:
+                    await on_progress(_model_notice(text, model))
+                except Exception:
+                    pass
         if config.session_continuity():           # reuse the day's claude session (cached)
-            args, mode = _session_args(text, permissions, allowed_tools, model, system)
+            args, mode = await _session_args(text, permissions, allowed_tools, model, system, history)
         else:                                     # legacy: rebuild the full prompt every turn
             args = _args(build_prompt(text, history, system), permissions, allowed_tools, model)
             mode = "legacy"
@@ -1242,6 +1518,8 @@ async def ask_async_streaming(text, history, on_progress, system=None,
                 proc.kill()
             if final:
                 telemetry.log_turn(mode, model, usage, steps, fallback=False)
+                if mode in ("create", "resume"):
+                    _note_session_ctx(system, usage, steps)
                 return final
             telemetry.log_turn(mode, model, usage, steps, fallback=True)
             return await ask_async(text, history, system, permissions, allowed_tools)
@@ -1258,6 +1536,8 @@ async def ask_async_streaming(text, history, on_progress, system=None,
             lock.release()                       # ALWAYS free the session — next queued turn runs
     if final:
         telemetry.log_turn(mode, model, usage, steps, fallback=False)
+        if mode in ("create", "resume"):
+            _note_session_ctx(system, usage, steps)
         return final
     # stream gave nothing (format mismatch / error) → fall back to plain capture
     telemetry.log_turn(mode, model, usage, steps, fallback=True)

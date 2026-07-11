@@ -18,6 +18,8 @@
   mindpalace status / version
   mindpalace usage [N]  per-turn session-continuity + token stats for the last N turns (soak view)
   mindpalace voice lean|full   switch reply style (brief vs chatty); applies on the next message
+  mindpalace turns [N | tokens Nk | fresh]   session speed: rotate to a fresh lean session after
+                                        N turns / past N tokens of context; `fresh` = rotate now
 """
 import sys
 
@@ -211,6 +213,10 @@ def main(argv=None):
             print(f"voice: {'lean' if config.lean_voice() else 'full'}  ·  "
                   "switch with `mindpalace voice lean|full` (takes effect on the next message)")
         return
+
+    if cmd == "turns":                          # session speed: rotation budgets (turns + tokens)
+        from .core import brain
+        print(brain.turns_command(" ".join(argv[1:]))); return
 
     if cmd == "usage":                          # soak dashboard — session continuity + token stats
         from .core import telemetry

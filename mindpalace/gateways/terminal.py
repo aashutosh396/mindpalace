@@ -217,7 +217,8 @@ def run():
             console.print("[muted]bye.[/]")
             break
         if text == "/help":
-            console.print("[muted]/status  /model <name>  /exit  · everything else goes to the agent[/]")
+            console.print("[muted]/status  /model <name>  /turns [n | tokens 80k | fresh]  /exit  "
+                          "· everything else goes to the agent[/]")
             continue
         if text == "/status":
             cfg = config.load_config()
@@ -232,6 +233,10 @@ def run():
             else:
                 console.print(f"[muted]model: [/][accent]{config.main_model() or '(CLI default)'}[/]"
                               f"[muted] · power: [/][accent2]{config.power_model()}[/]")
+            continue
+        if text.startswith("/turns"):
+            arg = text.split(maxsplit=1)[1] if " " in text.strip() else ""
+            console.print(f"[muted]{brain.turns_command(arg)}[/]")
             continue
         # pending update + owner says "yes" → pull + reload (never goes to the brain)
         if updater.read_pending() and updater.is_affirmative(text):

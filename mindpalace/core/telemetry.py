@@ -63,6 +63,50 @@ def _rows(n: int):
     return out
 
 
+def usage_summary() -> str:
+    """The Discord `!usage` dashboard: today vs the last 7 days — turns, output tokens,
+    context reads (the quota eater), model mix, and the single heaviest turn. Reads only
+    turn_stats.jsonl; costs zero model tokens."""
+    from ..theme import fmt_tokens as _k
+    now = time.time()
+    week = [r for r in _rows(MAX_LINES) if r.get("ts", 0) >= now - 7 * 86400]
+    if not week:
+        return "no turns recorded yet — chat with me a bit, then try `!usage` again."
+    lt = time.localtime(now)
+    day_start = now - (lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec)
+    today = [r for r in week if r["ts"] >= day_start]
+
+    def _tot(rs, key):
+        return sum(int(r.get(key, 0) or 0) for r in rs)
+
+    def _line(label, rs):
+        n = len(rs)
+        ctx = _tot(rs, "cache_read") + _tot(rs, "cache_create") + _tot(rs, "input")
+        avg = ctx // n if n else 0
+        return (f"{label}: {n} turns · ↓ {_k(_tot(rs, 'output'))} out · "
+                f"{_k(ctx)} ctx read · avg {_k(avg)}/turn")
+
+    models: dict = {}
+    for r in week:
+        m = str(r.get("model", "?"))
+        models[m] = models.get(m, 0) + 1
+    mix = " · ".join(f"{m} {c}" for m, c in sorted(models.items(), key=lambda x: -x[1]))
+    big = max(week, key=lambda r: int(r.get("cache_read", 0) or 0))
+    big_when = time.strftime("%m-%d %H:%M", time.localtime(big["ts"]))
+    lines = [
+        "📊 **usage**",
+        _line("today  ", today) if today else "today  : no turns yet",
+        _line("last 7d", week),
+        f"models : {mix}",
+        f"heaviest turn: {big_when} · {_k(big.get('cache_read', 0))} ctx · "
+        f"↓ {_k(big.get('output', 0))} out · {big.get('steps', 0)} steps",
+    ]
+    fb = sum(1 for r in week if r.get("fallback"))
+    if fb:
+        lines.append(f"⚠️ {fb} turn(s) fell back to the legacy path")
+    return "\n".join(lines)
+
+
 def summarize(n: int = 50) -> str:
     """Human-readable rollup of the last n turns — the soak dashboard for session continuity."""
     rows = _rows(n)

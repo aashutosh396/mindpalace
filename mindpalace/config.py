@@ -356,15 +356,55 @@ def lean_voice() -> bool:
     return bool(load_config().get("lean_voice", True))
 
 
+def wrap_after_hours() -> float:
+    """Auto-wrap the day after this many hours of owner silence: every identity's handoff
+    digest is written in the background, so a return-from-idle or tomorrow's first message
+    picks up where things left off. 0 = off. Manual anytime: !wrap."""
+    try:
+        return float(load_config().get("wrap_after_hours", 3))
+    except (TypeError, ValueError):
+        return 3.0
+
+
+def heavy_turn_tokens() -> int:
+    """Post a one-line ⚠️ to the channel when a single turn reads more context than this
+    (prompt-cache reads — the quota eater). 0 = off. Alerts are rate-limited to one/hour."""
+    try:
+        return int(load_config().get("heavy_turn_tokens", 15_000_000))
+    except (TypeError, ValueError):
+        return 15_000_000
+
+
 def session_rotate_turns() -> int:
     """With session continuity on, start a FRESH (leaner) claude session segment after this many
     turns, so a chatty day doesn't grow one giant session. The new segment is seeded with the
     persona + current CORE.md working memory, so distilled knowledge carries over. 0 = never
-    rotate (one session per day). Default 60."""
+    rotate (one session per day). Default 20 — real days rarely pass 45 turns, so the old 60
+    meant rotation never fired and afternoon turns dragged a 30-90MB transcript."""
     try:
-        return int(load_config().get("session_rotate_turns", 60))
+        return int(load_config().get("session_rotate_turns", 20))
     except (TypeError, ValueError):
-        return 60
+        return 20
+
+
+def session_summary_model() -> str:
+    """Model for the Hermes-style compaction digest written when a session segment rotates —
+    it must capture task state, decisions, and exact names, so it defaults to sonnet (haiku is
+    faster but drops specifics; opus is overkill for a 400-word digest)."""
+    return str(load_config().get("session_summary_model", "sonnet"))
+
+
+def session_rotate_tokens() -> int:
+    """Hermes-style compaction trigger, adapted to CLI sessions: rotate to a fresh segment as
+    soon as the MEASURED context (from the turn's real usage stats) passes this many tokens —
+    turn count is a bad proxy, one 20-step coding turn bloats more than thirty chats. Rotation
+    is our compression: the new segment reloads persona + CORE.md + skills index and sheds the
+    raw transcript. Every step of every turn re-pays the context, so a lean session is both
+    speed AND credit. 0 = off (turn budget only). Default 80k (~40% of the window)."""
+    try:
+        return int(load_config().get("session_rotate_tokens", 80_000))
+    except (TypeError, ValueError):
+        return 80_000
 
 
 def curator_idle_minutes() -> int:
