@@ -89,6 +89,10 @@ def stop() -> bool:
         pf.unlink(missing_ok=True)
         return False
     pid = int(pf.read_text().strip())
+    # Kill the daemon's WHOLE tree, descendants first. Killing only the daemon leaves its
+    # claude workers alive as orphans — they keep editing files/deploying with nobody to
+    # report to, and the next daemon requeues their task → the SAME task runs twice.
+    kill_descendants(pid)
     try:
         os.kill(pid, 15)
     except ProcessLookupError:

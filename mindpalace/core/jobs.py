@@ -190,8 +190,11 @@ _AGENT_WRAP = (
     "and DON'T ask questions; make sensible decisions and proceed. Do this end to end:\n\n"
     "{task}\n\n"
     "First break it into clear ordered steps, then carry them out one by one. When finished, reply "
-    "with a SHORT summary: what you created/changed (files + key decisions) and anything the owner "
-    "should review or run."
+    "in 3-4 short lines MAX: 'Done:' + one ✓ line per thing done (a few words each), then ONE "
+    "proposal for what's next ('I propose <X>. reason: <few words>. Start?'). Use simple everyday "
+    "English. Do NOT attach files — no notes, no write-ups, no summary .md; save detail to the "
+    "vault instead. Attach a file (`📎ATTACH: /abs/path` on its own line) ONLY if the task itself "
+    "was to produce a file for the owner (a CSV, a chart, a report they asked for)."
 )
 
 
@@ -255,10 +258,40 @@ async def _run_agent_one(path, report):
     await report(f"{mark} background task **{name}** done ({mins})\n\n{reply[:1500]}", chan)
 
 
+def _kill_orphan_workers() -> int:
+    """Workers left over from a DEAD daemon (crash, or a restart before the tree-kill fix):
+    their claude process survives with nobody to report to, and _recover() requeues the same
+    task → two workers fight over one folder. Called once at watcher start — the new daemon
+    has spawned NO workers yet, so every process matching the worker-prompt fingerprint is an
+    orphan. Returns how many were killed (their tasks re-run cleanly via the requeue)."""
+    import os
+    import signal
+    import subprocess
+    try:
+        pids = subprocess.run(["pgrep", "-f", "You are running as a BACKGROUND worker"],
+                              capture_output=True, text=True, timeout=5).stdout.split()
+    except Exception:
+        return 0
+    n = 0
+    for p in pids:
+        try:
+            pi = int(p)
+            if pi == os.getpid():
+                continue
+            os.kill(pi, signal.SIGKILL)
+            n += 1
+        except (ValueError, ProcessLookupError, PermissionError):
+            pass
+    return n
+
+
 async def agent_watch_loop(report, interval: int = 5):
     """Run queued background AGENT tasks one at a time; start + result report back to the
     task's ORIGIN channel (home when it has none). Runs on forked sessions, so it executes
     ALONGSIDE live chat without taking the session lock."""
+    k = _kill_orphan_workers()
+    if k:
+        print(f"[jobs] killed {k} orphan worker(s) from a previous daemon")
     n = _recover(agent_running_dir(), agent_queue_dir())
     if n:
         print(f"[jobs] requeued {n} agent task(s) orphaned by a restart")

@@ -1164,12 +1164,27 @@ def run():
                 pass
 
         ticker = asyncio.create_task(_ticker())
+        # Typing is COSMETIC — it must never kill the turn. Discord's typing route can get
+        # Cloudflare-challenged (HTTP 500 + CF challenge page) while send/edit still work; when
+        # that happened, `async with channel.typing():` raised after ~27s of discord.py retries
+        # and silently ate every chat turn (2026-07-17 outage: only "✻ Baked for 27s", no reply,
+        # no error anywhere). Best-effort enter/exit; the brain always runs.
+        _typing = None
         try:
-            async with channel.typing():               # instant + continuous typing
-                reply = await brain.ask_async_streaming(
-                    text, history, on_progress, system=system, permissions=perms,
-                    allowed_tools=allowed, model=model, stats=stats)
+            _typing = channel.typing()
+            await _typing.__aenter__()
+        except Exception:
+            _typing = None                             # typing blocked — run without the indicator
+        try:
+            reply = await brain.ask_async_streaming(
+                text, history, on_progress, system=system, permissions=perms,
+                allowed_tools=allowed, model=model, stats=stats)
         finally:
+            if _typing is not None:
+                try:
+                    await _typing.__aexit__(None, None, None)
+                except Exception:
+                    pass
             st["active"] = False
             ticker.cancel()
             done = _fmt_dur(time.monotonic() - t0)
@@ -1666,7 +1681,10 @@ def run():
             # pending git update + owner says "yes" → pull + self-restart (deterministic,
             # never goes to the brain). Only in the home channel's main bot.
             if is_main and in_home and updater.read_pending() and updater.is_affirmative(text):
-                async with msg.channel.typing():
+                try:
+                    async with msg.channel.typing():
+                        result = await asyncio.to_thread(updater.accept)
+                except discord.HTTPException:      # typing route CF-blocked — run without it
                     result = await asyncio.to_thread(updater.accept)
                 await msg.channel.send(result)
                 return
@@ -1685,7 +1703,8 @@ def run():
 
     async def report(message: str, channel_id=None):
         """Post a background-job result — to its ORIGIN channel when the job carries one
-        (stamped by the turn that queued it), else the home channel (webhook fallback)."""
+        (stamped by the turn that queued it), else the home channel (webhook fallback).
+        Honors `📎ATTACH: /path` lines so workers can send files too."""
         main = clients.get("main")
         if main and main.is_ready():
             ch = None
@@ -1697,7 +1716,10 @@ def run():
             if ch is None and home_channel:
                 ch = main.get_channel(home_channel)
             if ch:
-                await ch.send(message); return
+                message, files = _extract_attachments(message)
+                await ch.send(message or "📎",
+                              files=[discord.File(f) for f in files[:10]] if files else None)
+                return
         from ..core import notify
         notify.notify(message, "home")
 
