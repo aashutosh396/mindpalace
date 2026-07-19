@@ -146,21 +146,21 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 
 .side-label {
-  font-size: 13px;
-  color: var(--text-dim); padding: 14px 14px 4px;
+  font-size: 12px;
+  color: var(--text-dim); padding: 12px 14px 4px;
 }
-.rooms { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; }
+.rooms { display: flex; flex-direction: column; gap: 0; flex: 1; min-height: 0; overflow-y: auto; }
 .proj-item {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 9px;
   width: 100%; text-align: left;
-  background: none; border: none; border-radius: 10px;
-  padding: 9px 12px; cursor: pointer;
-  font-size: 15px; color: var(--text-dim);
+  background: none; border: none; border-radius: 8px;
+  padding: 4px 12px; cursor: pointer;
+  font-size: 13.5px; color: var(--text-dim);
   transition: background .15s, color .15s;
 }
 .proj-item:hover { background: var(--room-raised); color: var(--text); }
 .proj-item.active { color: var(--text); background: var(--room-raised); }
-.room-lead { font-size: 9px; color: var(--edge); flex: none; width: 14px; text-align: center; }
+.room-lead { font-size: 7px; color: var(--edge); flex: none; width: 10px; text-align: center; }
 .room-lead.on { color: var(--text-dim); }
 .proj-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .proj-item .count {
