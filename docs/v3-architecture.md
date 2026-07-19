@@ -40,20 +40,36 @@ execute anything. So:
 The web gateway sits **beside** the Discord and WhatsApp gateways — third gateway,
 same brain. A project in the GUI is the same concept as an activated channel today.
 
-## Distribution — "how do I give this to everyone?"
+## Distribution — DECIDED: native desktop app (Mac + Windows)
 
-**Hard requirement: install stays `./install.sh` and done.** No Node, no npm, no
-build step on the user's machine — ever.
+**Hard requirement: install = download, double-click, done.** No Python, no pip,
+no terminal for end users.
 
-- The Nuxt app is pre-built (`npm run generate`) by developers/CI and the static
-  output is committed into the repo (e.g. `mindpalace/web/dist/`) and declared as
-  package data in `pyproject.toml`. pip ships the UI inside the package like any
-  other file.
-- **v3.0 user flow**: `./install.sh` (unchanged) → `mindpalace` → daemon starts the
-  web gateway and auto-opens `http://localhost:7777`. The browser is the GUI —
-  nothing extra to install.
-- Updating = `git pull && ./install.sh`, same as today.
-- Only new runtime deps: FastAPI + uvicorn, pulled in silently by pip.
+The app is a **Tauri** shell (chosen over Flutter desktop: it reuses the Nuxt UI
+verbatim, ~5 MB shell, real HTML rendering) bundling three layers:
+
+1. **Tauri shell** — native window, tray icon, starts/stops the backend with the app.
+2. **Nuxt UI** — pre-built static bundle rendered in the native webview.
+3. **Daemon sidecar** — the Python engine compiled to a standalone binary with
+   PyInstaller, so users need **no Python installed**. Tauri spawns it on launch
+   (localhost port), kills it on quit. The webview talks to it over the same
+   REST + WS API as any other client.
+
+The one thing we cannot bundle: **Claude CLI + Max login**. First-run wizard
+detects it and walks the user through installing/logging in.
+
+- **Targets**: macOS `.dmg` + Windows `.exe`/`.msi` first; Ubuntu `.deb`/AppImage
+  is nearly free with Tauri, ship it too.
+- **Signing**: start unsigned (Gatekeeper right-click-open on Mac, SmartScreen
+  warning on Windows); buy Apple Developer ($99/yr) + a Windows cert when there
+  are real outside users.
+- **Updates**: Tauri's built-in updater, fed by GitHub Releases.
+- **Dev mode stays alive**: `./install.sh` + `mindpalace serve` + browser keeps
+  working for us and for Linux/server users — the app is a wrapper around the
+  exact same gateway, never a fork of it.
+- **API-first invariant**: every surface (webview, browser, future Flutter mobile
+  remote) is a client of the same REST + WS API. Nothing talks to the brain
+  directly.
 - **Later (optional)**: wrap the same UI in Tauri for a desktop-app feel. Zero rework —
   Tauri just embeds the localhost page.
 - **Not this**: a hosted web app. Then the agent would act on the server's files, not
@@ -94,16 +110,22 @@ stays with the original project. The agent's sandbox allowlist per task =
 
 ## Build order
 
+Develop in browser mode (fast loop: `mindpalace serve` + `nuxt dev`); package as
+the desktop app at P6. Same code either way.
+
 1. **P1 — web gateway skeleton**: FastAPI in the daemon, serves static dir, REST
    for projects CRUD, WS event bus. `mindpalace serve` command.
 2. **P2 — Nuxt app**: project list + create, project screen shell (chat / kanban /
-   assets tabs). Static build wired into packaging.
+   assets tabs).
 3. **P3 — chat→ticket loop**: chat input → task row → brain queue → status
    transitions streamed to the board. `close_task` tool.
 4. **P4 — repos**: attach repos, linked repos, per-task path allowlist.
 5. **P5 — assets**: upload endpoint + browser, agent can read assets in-session.
-6. **P6 — polish**: auth token for the local port, multi-repo status chips,
-   Tauri wrapper (optional).
+6. **P6 — desktop packaging**: PyInstaller sidecar build, Tauri shell + tray +
+   first-run wizard (Claude CLI detect/install), GitHub-Releases updater, CI
+   matrix for .dmg / .exe / .deb.
+7. **P7 — polish**: auth token on the local port, multi-repo status chips,
+   Flutter mobile remote (thin client on the same API).
 
 ## What carries over from v2 untouched
 
