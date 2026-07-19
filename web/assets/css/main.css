@@ -115,11 +115,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .wordmark em { font-style: normal; }
 
 .menu-item {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 9px;
   width: 100%; text-align: left;
-  background: none; border: none; border-radius: 12px;
-  padding: 10px 12px; cursor: pointer;
-  font-size: 15px; color: var(--text);
+  background: none; border: none; border-radius: 9px;
+  padding: 5px 12px; cursor: pointer;
+  font-size: 13.5px; color: var(--text);
   transition: background .15s;
 }
 .menu-item:hover { background: var(--room-raised); }
@@ -129,20 +129,20 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .menu-item.primary:hover { background: var(--bubble); }
 .menu-item.here { background: var(--room-raised); }
-.mi-icon.plain { background: none; color: inherit; font-size: 17px; }
-.menu-item.dim { color: var(--text-dim); font-size: 14.5px; }
+.mi-icon.plain { background: none; color: inherit; font-size: 14px; }
+.menu-item.dim { color: var(--text-dim); font-size: 13px; }
 .menu-item.dim:hover { color: var(--text); }
 .menu-item:disabled { opacity: .5; cursor: default; }
 .mi-icon {
-  width: 26px; height: 26px; border-radius: 99px;
+  width: 19px; height: 19px; border-radius: 99px;
   background: var(--text); color: var(--bg);
   display: grid; place-items: center;
-  font-size: 16px; line-height: 1;
+  font-size: 13px; line-height: 1;
   flex: none;
 }
 .menu-item.dim .mi-icon {
-  background: none; color: inherit; font-size: 15px;
-  width: 22px; height: 22px;
+  background: none; color: inherit; font-size: 13px;
+  width: 19px; height: 19px;
 }
 
 .side-label {
