@@ -2,7 +2,7 @@
 import { nextTick, onMounted, ref } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
 
-const { state, open, createProject, deleteProject, getUpdate } = useWorkspace()
+const { state, open, goHome, createProject, deleteProject, getUpdate } = useWorkspace()
 
 function confirmDelete(p: any) {
   if (window.confirm(`Delete "${p.name}"? Its cards and chat go with it (asset files stay on disk).`)) {
@@ -48,6 +48,9 @@ async function create() {
   <aside class="sidebar">
     <div class="wordmark">mind<em>palace</em></div>
 
+    <button class="menu-item" :class="{ here: !state.current }" @click="goHome">
+      <span class="mi-icon plain">🏛</span> Home
+    </button>
     <button class="menu-item primary" @click="startCreate">
       <span class="mi-icon">+</span> New project
     </button>

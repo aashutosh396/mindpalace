@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from .. import config
-from ..projects import store, triage, worker
+from ..projects import home, store, triage, worker
 
 DEFAULT_PORT = 7777
 
@@ -201,6 +201,21 @@ def create_app():
             return _404("task")
         await bus.broadcast("task.updated", t)
         return t
+
+    # ---- home (the hall): one chat that routes to every room ----
+    @app.get("/api/home/chat")
+    def home_chat_list():
+        return store.list_home_chat()
+
+    @app.post("/api/home/chat")
+    async def home_chat_post(body: dict):
+        text = (body.get("text") or "").strip()
+        if not text:
+            return JSONResponse({"error": "text required"}, status_code=422)
+        msg = store.add_home_chat("user", text)
+        await bus.broadcast("home.message", msg)
+        asyncio.get_running_loop().create_task(home.handle(text, bus.broadcast))
+        return {"message": msg}
 
     # ---- chat: an instruction typed here becomes a ticket on the board ----
     @app.get("/api/projects/{pid}/chat")

@@ -127,6 +127,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   font-weight: 500;
 }
 .menu-item.primary:hover { background: var(--bubble); }
+.menu-item.here { background: var(--room-raised); }
+.mi-icon.plain { background: none; color: inherit; font-size: 17px; }
 .menu-item.dim { color: var(--text-dim); font-size: 14.5px; }
 .menu-item.dim:hover { color: var(--text); }
 .menu-item:disabled { opacity: .5; cursor: default; }
@@ -277,6 +279,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .msg .ticket {
   font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); margin-top: 4px;
 }
+.room-link { color: var(--text); }
+.room-link:hover { color: var(--brass); }
 .msg.user .ticket { text-align: right; }
 .bubble.writing { animation: pulse 1.4s ease-in-out infinite; color: var(--text-dim); }
 @keyframes pulse { 50% { opacity: .5; } }

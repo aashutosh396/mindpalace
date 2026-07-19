@@ -14,9 +14,10 @@ export interface ChatMsg { id: number; project_id: number; role: string; text: s
 
 const state = reactive({
   projects: [] as Project[],
-  current: null as Project | null,
+  current: null as Project | null,   // null = the Home hall
   tasks: [] as Task[],
   chat: [] as ChatMsg[],
+  homeChat: [] as any[],
   repos: { own: [] as any[], linked: [] as any[] },
   allRepos: [] as any[],           // every repo in the palace, for the link picker
   assets: [] as any[],
@@ -109,6 +110,9 @@ function connect() {
     } else if (event === 'chat.message' && data.project_id === state.current?.id) {
       if (!state.chat.find(m => m.id === data.id)) state.chat.push(data)
       if (data.role === 'agent') state.awaitingReply = false
+    } else if (event === 'home.message') {
+      if (!state.homeChat.find((m: any) => m.id === data.id)) state.homeChat.push(data)
+      if (data.role === 'agent' && !state.current) state.awaitingReply = false
     }
   }
 }
@@ -118,7 +122,19 @@ const actions = {
     connect()
     actions.checkHealth()
     state.projects = await api('/projects')
-    if (state.projects.length && !state.current) await actions.open(state.projects[0])
+    state.homeChat = await api('/home/chat')   // land in the hall
+  },
+  async goHome() {
+    state.current = null
+    state.awaitingReply = false
+    state.homeChat = await api('/home/chat')
+  },
+  async sendHomeChat(text: string) {
+    try {
+      const r = await api('/home/chat', { method: 'POST', body: JSON.stringify({ text }) })
+      if (!state.homeChat.find((m: any) => m.id === r.message.id)) state.homeChat.push(r.message)
+      state.awaitingReply = true
+    } catch (e: any) { toast(e.message, true) }
   },
   async checkHealth() {
     try { state.health = await api('/health') } catch { /* banner just stays hidden */ }

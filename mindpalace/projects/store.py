@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS chat_message (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES project(id),
   role TEXT NOT NULL, text TEXT NOT NULL, task_id INTEGER REFERENCES task(id),
   created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS home_chat (   -- the hall: routing conversation, no project
+  id INTEGER PRIMARY KEY, role TEXT NOT NULL, text TEXT NOT NULL,
+  ref_project_id INTEGER, task_id INTEGER, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS asset (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES project(id),
   filename TEXT NOT NULL, path TEXT NOT NULL, size INTEGER DEFAULT 0,
@@ -274,6 +277,42 @@ def list_chat(pid: int, limit: int = 200) -> list[dict]:
             "SELECT * FROM (SELECT * FROM chat_message WHERE project_id=? "
             "ORDER BY created_at DESC LIMIT ?) ORDER BY created_at", (pid, limit)).fetchall()
     return _rows(rows)
+
+
+# ---- home chat (the hall) ----
+def add_home_chat(role: str, text: str, ref_project_id: int | None = None,
+                  task_id: int | None = None) -> dict:
+    with _lock:
+        db = _db()
+        cur = db.execute(
+            "INSERT INTO home_chat (role, text, ref_project_id, task_id, created_at) VALUES (?,?,?,?,?)",
+            (role, text, ref_project_id, task_id, time.time()))
+        db.commit()
+        r = db.execute("SELECT * FROM home_chat WHERE id=?", (cur.lastrowid,)).fetchone()
+    return dict(r)
+
+
+def list_home_chat(limit: int = 200) -> list[dict]:
+    with _lock:
+        rows = _db().execute(
+            "SELECT * FROM (SELECT * FROM home_chat ORDER BY created_at DESC LIMIT ?) "
+            "ORDER BY created_at", (limit,)).fetchall()
+    return _rows(rows)
+
+
+def rooms_index() -> list[dict]:
+    """What the concierge sees: every room with status counts + open card titles."""
+    out = []
+    for p in list_projects():
+        tasks = list_tasks(p["id"])
+        open_cards = [t for t in tasks if t["status"] != "done"]
+        out.append({
+            "slug": p["slug"], "name": p["name"], "id": p["id"],
+            "counts": {s: sum(1 for t in tasks if t["status"] == s) for s in STATUSES},
+            "open_titles": [t["title"] for t in open_cards[:3]],
+            "repos": repo_paths_for(p["id"]),
+        })
+    return out
 
 
 # ---- assets ----

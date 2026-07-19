@@ -41,11 +41,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         </div>
       </template>
 
-      <div v-else class="empty" style="margin-top: 18vh">
-        <span class="glyph">🏛️</span>
-        <p>Every project is a room in your palace.</p>
-        <p>Create one in the sidebar to begin.</p>
-      </div>
+      <template v-else>
+        <div class="main-head">
+          <h1 class="room-name">Home</h1>
+          <span class="room-slug">the hall — speak, I'll route it</span>
+        </div>
+        <ChatRail class="center" />
+      </template>
     </main>
 
     <BoardRail v-if="state.current" />
