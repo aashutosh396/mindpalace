@@ -5,3 +5,4 @@ sidecar/*.spec
 src-tauri/target
 src-tauri/gen
 src-tauri/binaries
+sidecar/build_commit.txt
