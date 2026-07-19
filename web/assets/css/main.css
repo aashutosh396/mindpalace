@@ -103,7 +103,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   display: flex; flex-direction: column;
   padding: 14px 10px 10px;
   gap: 1px;
-  overflow-y: auto;
+  overflow: hidden;         /* only the rooms list scrolls; header + footer stay put */
+  min-height: 0;
 }
 .wordmark {
   font-family: var(--serif);
@@ -148,7 +149,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   font-size: 13px;
   color: var(--text-dim); padding: 14px 14px 4px;
 }
-.rooms { display: flex; flex-direction: column; gap: 2px; }
+.rooms { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; }
 .proj-item {
   display: flex; align-items: center; gap: 12px;
   width: 100%; text-align: left;

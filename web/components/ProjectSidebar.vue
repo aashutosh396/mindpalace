@@ -80,8 +80,6 @@ async function create() {
       <p v-if="!state.projects.length" class="side-empty">No rooms yet.</p>
     </nav>
 
-    <div style="flex: 1"></div>
-
     <button class="menu-item dim" :disabled="state.updating" @click="getUpdate">
       <span class="mi-icon">⟳</span>
       {{ state.updating ? 'Checking…' : state.update?.behind ? 'Get update' : 'Check for updates' }}
