@@ -42,6 +42,12 @@ async function api(path: string, opts: RequestInit = {}) {
   return data
 }
 
+function syncCount() {
+  // keep the sidebar badge honest for the open room
+  const row = state.projects.find(p => p.id === state.current?.id)
+  if (row) row.open_tasks = state.tasks.filter(t => t.status !== 'done').length
+}
+
 function toast(msg: string, error = false) {
   state.toast = msg
   state.toastError = error
@@ -55,7 +61,19 @@ function connect() {
   // dev: the nitro proxy doesn't upgrade websockets — talk to the daemon directly
   const host = import.meta.dev ? '127.0.0.1:7777' : location.host
   ws = new WebSocket(`${proto}://${host}/ws`)
-  ws.onopen = () => { state.connected = true }
+  ws.onopen = async () => {
+    state.connected = true
+    // resync — anything broadcast while the socket was down is gone forever
+    // (backend restarts in dev drop the connection constantly)
+    try {
+      state.projects = await api('/projects')
+      if (state.current) {
+        const p = state.projects.find(x => x.id === state.current!.id)
+        if (p) await actions.open(p)
+        else { state.current = null; state.tasks = []; state.chat = [] }
+      }
+    } catch { /* backend still coming up — next reconnect will sync */ }
+  }
   ws.onclose = () => { state.connected = false; setTimeout(connect, 2000) }
   ws.onmessage = (e) => {
     const { event, data } = JSON.parse(e.data)
@@ -64,16 +82,24 @@ function connect() {
     } else if (event === 'project.deleted') {
       state.projects = state.projects.filter(p => p.id !== data.id)
       if (state.current?.id === data.id) state.current = null
-    } else if (event === 'task.created' && data.project_id === state.current?.id) {
-      if (!state.tasks.find(t => t.id === data.id)) {
-        state.tasks.push(data)
-        state.arrived.add(data.id)
-        setTimeout(() => state.arrived.delete(data.id), 600)
+    } else if (event === 'task.created') {
+      if (data.project_id === state.current?.id) {
+        if (!state.tasks.find(t => t.id === data.id)) {
+          state.tasks.push(data)
+          state.arrived.add(data.id)
+          setTimeout(() => state.arrived.delete(data.id), 600)
+        }
+        syncCount()
+      } else {
+        const row = state.projects.find(p => p.id === data.project_id)
+        if (row) row.open_tasks = (row.open_tasks || 0) + 1
       }
     } else if (event === 'task.updated') {
       const i = state.tasks.findIndex(t => t.id === data.id)
       if (i >= 0) state.tasks[i] = data
       if (data.status !== 'in_progress') delete state.progress[data.id]
+      if (data.project_id === state.current?.id) syncCount()
+      else api('/projects').then(ps => { state.projects = ps }).catch(() => {})
     } else if (event === 'task.progress') {
       state.progress[data.task_id] = data.text
     } else if (event === 'repos.changed' && data.project_id === state.current?.id) {
