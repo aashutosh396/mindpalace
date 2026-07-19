@@ -33,7 +33,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
           <span class="room-slug">{{ state.current.slug }}</span>
           <nav class="tabs">
             <button class="tab" :class="{ active: tab === 'chat' }" @click="tab = 'chat'">Chat</button>
-            <button class="tab" :class="{ active: tab === 'repos' }" @click="tab = 'repos'">Repos</button>
+            <button class="tab" :class="{ active: tab === 'repos' }" @click="tab = 'repos'">Files</button>
             <button class="tab" :class="{ active: tab === 'assets' }" @click="tab = 'assets'">Assets</button>
           </nav>
         </div>

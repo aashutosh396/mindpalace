@@ -8,6 +8,9 @@ const pick = ref<number | ''>('')
 
 onMounted(loadAllRepos)
 
+const folders = computed(() => state.repos.own.filter((r: any) => !r.is_git))
+const gitRepos = computed(() => state.repos.own.filter((r: any) => r.is_git))
+
 // repos from OTHER rooms not already attached or linked here
 const linkable = computed(() => {
   const here = new Set([...state.repos.own, ...state.repos.linked].map((r: any) => r.id))
@@ -18,7 +21,7 @@ const linkable = computed(() => {
 async function add() {
   const p = path.value.trim()
   if (!p) return
-  await addRepo(p, !state.repos.own.length)   // first repo becomes primary
+  await addRepo(p, !state.repos.own.length)   // first folder becomes primary
   path.value = ''
   await loadAllRepos()
 }
@@ -33,8 +36,8 @@ async function link() {
 <template>
   <div class="panel">
     <form @submit.prevent="add">
-      <input v-model="path" placeholder="/absolute/path/to/repo" aria-label="Repo path" />
-      <button class="btn" :disabled="!path.trim()">Attach repo</button>
+      <input v-model="path" placeholder="/absolute/path/to/the project folder" aria-label="Folder path" />
+      <button class="btn" :disabled="!path.trim()">Track folder</button>
     </form>
 
     <form v-if="linkable.length" @submit.prevent="link">
@@ -47,22 +50,40 @@ async function link() {
       <button class="btn ghost" :disabled="pick === ''">Link</button>
     </form>
 
-    <div v-for="r in state.repos.own" :key="r.id" class="panel-row">
-      <span class="path">{{ r.path }}</span>
-      <span v-if="r.is_primary" class="tag">primary</span>
-      <button class="row-x" title="Remove repo" @click="removeRepo(r.id)">✕</button>
-    </div>
-    <div v-for="r in state.repos.linked" :key="'l' + r.id" class="panel-row">
-      <span class="path">{{ r.path }}</span>
-      <span class="tag">linked · {{ r.owner_slug }}</span>
-      <button class="row-x" title="Unlink repo" @click="removeRepo(r.id)">✕</button>
-    </div>
+    <template v-if="folders.length">
+      <div class="tm-section">Folders</div>
+      <div v-for="r in folders" :key="r.id" class="panel-row">
+        <span class="path">{{ r.path }}</span>
+        <span v-if="r.is_primary" class="tag">primary</span>
+        <button class="row-x" title="Untrack" @click="removeRepo(r.id)">✕</button>
+      </div>
+    </template>
+
+    <template v-if="gitRepos.length">
+      <div class="tm-section">Git repos detected in project folder</div>
+      <div v-for="r in gitRepos" :key="r.id" class="panel-row">
+        <span class="path">{{ r.path }}</span>
+        <span class="tag git">git</span>
+        <span v-if="r.is_primary" class="tag">primary</span>
+        <button class="row-x" title="Untrack" @click="removeRepo(r.id)">✕</button>
+      </div>
+    </template>
+
+    <template v-if="state.repos.linked.length">
+      <div class="tm-section">Linked from other rooms</div>
+      <div v-for="r in state.repos.linked" :key="'l' + r.id" class="panel-row">
+        <span class="path">{{ r.path }}</span>
+        <span v-if="r.is_git" class="tag git">git</span>
+        <span class="tag">linked · {{ r.owner_slug }}</span>
+        <button class="row-x" title="Unlink" @click="removeRepo(r.id)">✕</button>
+      </div>
+    </template>
 
     <div v-if="!state.repos.own.length && !state.repos.linked.length" class="empty">
       <span class="glyph">⌂</span>
-      <p>No repos attached. The agent works inside the repos you attach here —
-      plus any repos linked from other rooms. The first repo becomes the
-      agent's working directory.</p>
+      <p>Nothing tracked yet. Point me at the project's main folder — I'll track it
+      and every git repo inside it. The first folder becomes the agent's working
+      directory.</p>
     </div>
   </div>
 </template>

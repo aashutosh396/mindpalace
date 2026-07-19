@@ -495,7 +495,10 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .panel-row .tag {
   font-size: 11.5px; border-radius: 99px; padding: 1px 10px;
   background: var(--room-raised); color: var(--text-dim);
+  flex: none;
 }
+.panel-row .tag.git { color: var(--sage); border: 1px solid var(--sage); background: none; }
+.panel .tm-section { margin-top: 6px; }
 .panel-row .dim { color: var(--text-dim); font-size: 12.5px; margin-left: auto; }
 .panel-row a.path { color: var(--text); text-decoration: none; }
 .panel-row a.path:hover { text-decoration: underline; }

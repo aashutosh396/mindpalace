@@ -157,7 +157,11 @@ def create_app():
 
     @app.get("/api/projects/{pid}/repos")
     def repos_list(pid: int):
-        return store.repos_for(pid)
+        r = store.repos_for(pid)
+        for row in r["own"] + r["linked"]:        # folders vs git repos, for the Files tab
+            g = Path(row["path"]) / ".git"
+            row["is_git"] = g.is_dir() or g.is_file()
+        return r
 
     @app.delete("/api/projects/{pid}/repos/{rid}")
     async def repos_remove(pid: int, rid: int):
