@@ -22,6 +22,7 @@ const state = reactive({
   assets: [] as any[],
   arrived: new Set<number>(),      // task ids that just appeared (for the arrive animation)
   progress: {} as Record<number, string>,   // live step line per working card
+  awaitingReply: false,            // chat-lane message sent, agent still writing
   toast: '' as string,
   toastError: false,
   connected: false,
@@ -76,6 +77,7 @@ function connect() {
       api(`/projects/${data.project_id}/assets`).then(a => { state.assets = a })
     } else if (event === 'chat.message' && data.project_id === state.current?.id) {
       if (!state.chat.find(m => m.id === data.id)) state.chat.push(data)
+      if (data.role === 'agent') state.awaitingReply = false
     }
   }
 }
@@ -105,14 +107,15 @@ const actions = {
       await actions.open(p)
     } catch (e: any) { toast(e.message, true) }
   },
-  async sendChat(text: string) {
+  async sendChat(text: string, lane: 'auto' | 'chat' | 'task' = 'auto') {
     if (!state.current) return
     try {
       const r = await api(`/projects/${state.current.id}/chat`, {
-        method: 'POST', body: JSON.stringify({ text })
+        method: 'POST', body: JSON.stringify({ text, lane })
       })
       if (!state.chat.find(m => m.id === r.message.id)) state.chat.push(r.message)
-      toast(`Card #${r.task.id} added to the board`)
+      if (r.task) toast(`Card #${r.task.id} added to the board`)
+      else if (r.lane === 'chat') state.awaitingReply = true
     } catch (e: any) { toast(e.message, true) }
   },
   async moveTask(id: number, status: Status) {

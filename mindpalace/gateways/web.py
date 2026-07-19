@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from .. import config
-from ..projects import store, worker
+from ..projects import store, triage, worker
 
 DEFAULT_PORT = 7777
 
@@ -214,12 +214,25 @@ def create_app():
             await bus.broadcast("chat.message", amsg)
             return {"message": umsg, "task": None}
 
+        # triage: work → card; conversation → answer in the corridor, no card.
+        # The UI can force a lane; default is auto (heuristics, then haiku).
+        lane = body.get("lane") or "auto"
+        if lane == "auto":
+            lane = await triage.classify(text)
+
+        if lane == "chat":
+            msg = store.add_chat(pid, "user", text)
+            await bus.broadcast("chat.message", msg)
+            asyncio.get_running_loop().create_task(
+                worker.run_chat(pid, text, bus.broadcast))
+            return {"message": msg, "task": None, "lane": "chat"}
+
         task = store.create_task(pid, text.splitlines()[0][:120], text)
         msg = store.add_chat(pid, "user", text, task_id=task["id"])
         await bus.broadcast("chat.message", msg)
         await bus.broadcast("task.created", task)
         # the ticket worker (projects/worker.py) claims it from 'todo' within ~2s
-        return {"message": msg, "task": task}
+        return {"message": msg, "task": task, "lane": "task"}
 
     # ---- assets ----
     @app.get("/api/projects/{pid}/assets")

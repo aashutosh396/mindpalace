@@ -27,6 +27,7 @@ class TaskContext:
     asset_dir: str = ""
     system: str | None = None
     model: str | None = None
+    readonly: bool = False        # chat-lane turns may read the project, never modify it
 
 
 OnEvent = Callable[[ProviderEvent], Awaitable[None]]

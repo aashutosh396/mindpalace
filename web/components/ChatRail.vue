@@ -5,19 +5,25 @@ import { useWorkspace } from '../composables/useWorkspace'
 const { state, sendChat } = useWorkspace()
 const text = ref('')
 const log = ref<HTMLElement>()
+const LANES = [
+  { key: 'auto', label: 'Auto', hint: 'I decide: work becomes a card, talk gets an answer' },
+  { key: 'chat', label: '💬', hint: 'Just talk — never makes a card' },
+  { key: 'task', label: '🎫', hint: 'Always make a card' }
+] as const
+const lane = ref<'auto' | 'chat' | 'task'>('auto')
 
 async function send() {
   const t = text.value.trim()
   if (!t || !state.current) return
   text.value = ''
-  await sendChat(t)
+  await sendChat(t, lane.value)
 }
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
 }
 
-watch(() => state.chat.length, async () => {
+watch(() => [state.chat.length, state.awaitingReply], async () => {
   await nextTick()
   log.value?.scrollTo({ top: log.value.scrollHeight })
 })
@@ -41,8 +47,19 @@ watch(() => state.chat.length, async () => {
         <div class="bubble">{{ m.text }}</div>
         <div v-if="m.task_id" class="ticket">→ card #{{ m.task_id }}</div>
       </div>
+      <div v-if="state.awaitingReply" class="msg">
+        <div class="who">Agent</div>
+        <div class="bubble writing">…</div>
+      </div>
     </div>
 
+    <div class="lane-row" role="radiogroup" aria-label="Message lane">
+      <button
+        v-for="l in LANES" :key="l.key"
+        class="lane" :class="{ active: lane === l.key }"
+        :title="l.hint" :aria-checked="lane === l.key" role="radio"
+        @click="lane = l.key">{{ l.label }}</button>
+    </div>
     <form class="chat-input" @submit.prevent="send">
       <textarea
         v-model="text"

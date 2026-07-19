@@ -68,6 +68,33 @@ async def run_one(task: dict, broadcast) -> None:
         await broadcast("task.updated", t)
 
 
+_CHAT_WRAP = (
+    "The owner is TALKING to you in the project room — this is conversation, not a "
+    "ticket. Answer briefly (a few lines, simple everyday English), grounded in the "
+    "project's actual state (read files if it helps — you may READ, never modify). "
+    "If the message actually needs real work done, say so and suggest they send it "
+    "as a ticket.\n\nRecent conversation:\n{hist}\n\nOwner: {text}"
+)
+
+
+async def run_chat(pid: int, text: str, broadcast) -> None:
+    """Chat-lane turn: answer in the corridor, read-only, no card."""
+    task_like = {"project_id": pid, "id": 0}
+    ctx = _ctx_for(task_like)
+    if ctx is None:
+        return
+    ctx.readonly = True
+    hist = store.list_chat(pid, 20)[:-1]              # everything before this message
+    hist_txt = "\n".join(f"{m['role']}: {m['text'][:300]}" for m in hist) or "(none)"
+    try:
+        reply = await get_provider().run_task(
+            _CHAT_WRAP.format(hist=hist_txt, text=text), ctx, None)
+    except Exception as e:
+        reply = f"(error: {str(e)[:160]})"
+    msg = store.add_chat(pid, "agent", reply)
+    await broadcast("chat.message", msg)
+
+
 def recover() -> int:
     """Requeue cards orphaned in 'in_progress' by a crash/restart."""
     n = 0

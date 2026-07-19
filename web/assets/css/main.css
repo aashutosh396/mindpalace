@@ -233,7 +233,18 @@ button, input, textarea { font: inherit; color: inherit; }
 .msg .ticket {
   font-family: var(--mono); font-size: 11px; color: var(--brass); margin-top: 3px;
 }
-.chat-input { padding: 12px; border-top: 1px solid var(--edge); display: flex; gap: 8px; }
+.lane-row {
+  display: flex; gap: 4px; padding: 8px 12px 0;
+  border-top: 1px solid var(--edge);
+}
+.lane {
+  background: none; border: 1px solid var(--edge); border-radius: 99px;
+  color: var(--parchment-dim); font-size: 12px; padding: 2px 12px; cursor: pointer;
+}
+.lane.active { color: var(--brass); border-color: var(--brass); background: var(--brass-soft); }
+.bubble.writing { animation: pulse 1.4s ease-in-out infinite; }
+
+.chat-input { padding: 12px; display: flex; gap: 8px; }
 .chat-input textarea {
   flex: 1; resize: none; min-height: 40px; max-height: 140px;
   background: var(--room); border: 1px solid var(--edge); border-radius: var(--r);

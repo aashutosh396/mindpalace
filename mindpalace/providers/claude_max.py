@@ -40,13 +40,16 @@ class ClaudeMaxProvider(Provider):
         # no repos yet → the room's world is just its assets folder; run via the
         # brain's standard turn (vault cwd, full skills/MCP context)
         from ..core import brain
+        perms = "readonly" if ctx.readonly else "full"
         try:
             if on_event:
                 async def _progress(line: str):
                     await on_event(ProviderEvent(kind="step", text=line))
                 return await brain.ask_async_streaming(
-                    instruction, [], _progress, system=ctx.system, model=ctx.model)
-            return await brain.ask_async(instruction, [], system=ctx.system, model=ctx.model)
+                    instruction, [], _progress, system=ctx.system, model=ctx.model,
+                    permissions=perms)
+            return await brain.ask_async(instruction, [], system=ctx.system,
+                                         model=ctx.model, permissions=perms)
         except Exception as e:
             return f"(error: {str(e)[:200]})"
 
@@ -56,8 +59,11 @@ class ClaudeMaxProvider(Provider):
         from ..core import brain
 
         args = [brain.claude_bin(), "-p", instruction,
-                "--output-format", "stream-json", "--verbose",
-                "--dangerously-skip-permissions"]
+                "--output-format", "stream-json", "--verbose"]
+        if ctx.readonly:                              # chat lane: look, don't touch
+            args += ["--allowedTools", brain.READONLY_TOOLS]
+        else:
+            args += ["--dangerously-skip-permissions"]
         model = ctx.model or config.power_model()     # tickets are real work — power model,
         if model:                                     # like v2's background workers
             args += ["--model", model]
