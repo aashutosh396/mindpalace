@@ -439,6 +439,48 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .card-actions button:hover { color: var(--text); border-color: var(--text-dim); }
 
+/* ---- card detail modal ---- */
+.task-modal {
+  width: min(680px, 92vw); max-height: 82vh;
+  background: var(--bg); border: 1px solid var(--edge); border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+  padding: 18px 22px;
+  display: flex; flex-direction: column; min-height: 0;
+}
+.tm-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.status-pill {
+  font-size: 12px; border-radius: 99px; padding: 1px 10px;
+  color: var(--c); border: 1px solid var(--c);
+}
+.tm-id { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+.tm-head .row-x { margin-left: auto; }
+.tm-title { font-family: var(--serif); font-size: 20px; font-weight: 500; }
+.tm-body {
+  margin-top: 6px; font-size: 14px; color: var(--text-dim);
+  white-space: pre-wrap; max-height: 110px; overflow-y: auto;
+}
+.tm-section {
+  font-size: 12.5px; color: var(--text-dim); margin: 14px 0 6px;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.tm-trail {
+  flex: 1; min-height: 80px; max-height: 40vh; overflow-y: auto;
+  background: var(--bg-deep); border: 1px solid var(--edge); border-radius: 12px;
+  padding: 10px 12px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.7;
+}
+.tm-step { color: var(--text); }
+.tm-step.dim { color: var(--text-dim); }
+.tm-step.working { color: var(--brass); animation: pulse 1.4s ease-in-out infinite; }
+.tm-time { color: var(--text-dim); margin-right: 10px; font-size: 11px; }
+.tm-result {
+  background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+  padding: 10px 14px; font-size: 14px; white-space: pre-wrap;
+  max-height: 24vh; overflow-y: auto;
+}
+.tm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.rail-card, .card { cursor: pointer; }
+
 /* ---- panels (assets / repos) ---- */
 .panel { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
 .panel-row {

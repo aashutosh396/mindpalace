@@ -74,6 +74,7 @@ async def run_one(task: dict, broadcast) -> None:
         return
 
     async def on_event(ev):
+        store.add_task_log(task["id"], ev.text)     # durable trail for the card modal
         await broadcast("task.progress", {"task_id": task["id"], "text": ev.text})
 
     instruction = _WRAP.format(tid=task["id"], task=task["body"] or task["title"])

@@ -6,7 +6,10 @@ const { state, init, checkHealth } = useWorkspace()
 const tab = ref<'chat' | 'repos' | 'assets'>('chat')
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') state.boardOpen = false
+  if (e.key === 'Escape') {
+    if (state.modal) state.modal = null
+    else state.boardOpen = false
+  }
 }
 
 onMounted(() => { init(); window.addEventListener('keydown', onKey) })
@@ -55,6 +58,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     <div v-if="state.toast" class="toast" :class="{ error: state.toastError }" role="status">
       {{ state.toast }}
     </div>
+
+    <TaskModal v-if="state.modal" />
 
     <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">
       <div class="sheet" role="dialog" aria-label="Project board">

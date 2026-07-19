@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useWorkspace, STATUSES, type Status } from '../composables/useWorkspace'
 
-const { state, moveTask } = useWorkspace()
+const { state, moveTask, openTask } = useWorkspace()
 
 const COLS: { key: Status; label: string; color: string }[] = [
   { key: 'todo', label: 'To do', color: 'var(--slate)' },
@@ -49,6 +49,7 @@ function nextOf(s: Status): Status | null {
           class="card" :class="{ arriving: state.arrived.has(t.id) }"
           :style="{ '--status': col.color }"
           draggable="true"
+          @click="openTask(t.id)"
           @dragstart="$event.dataTransfer?.setData('text/task-id', String(t.id))">
           <span v-if="!state.current && t.room_name" class="room-tag">{{ t.room_name }}</span>
           <div class="card-title">{{ t.title }}</div>
@@ -61,10 +62,10 @@ function nextOf(s: Status): Status | null {
           </div>
           <div v-if="t.result" class="card-result">{{ t.result }}</div>
           <div class="card-actions">
-            <button v-if="nextOf(t.status)" @click="moveTask(t.id, nextOf(t.status)!)">
+            <button v-if="nextOf(t.status)" @click.stop="moveTask(t.id, nextOf(t.status)!)">
               → {{ COLS.find(c => c.key === nextOf(t.status))?.label }}
             </button>
-            <button v-if="t.status !== 'done'" @click="moveTask(t.id, 'done')">Close</button>
+            <button v-if="t.status !== 'done'" @click.stop="moveTask(t.id, 'done')">Close</button>
           </div>
         </article>
         <div v-if="!byStatus[col.key].length" class="empty" style="padding: 18px 8px; font-size: 12.5px">

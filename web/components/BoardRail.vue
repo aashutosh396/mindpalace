@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useWorkspace, STATUSES, type Status } from '../composables/useWorkspace'
 
-const { state, moveTask } = useWorkspace()
+const { state, moveTask, openTask } = useWorkspace()
 
 const COLS: { key: Status; label: string; color: string }[] = [
   { key: 'todo', label: 'To do', color: 'var(--slate)' },
@@ -39,7 +39,10 @@ function nextOf(s: Status): Status | null {
         <article
           v-for="t in byStatus[col.key]" :key="t.id"
           class="rail-card" :class="{ arriving: state.arrived.has(t.id) }"
-          :style="{ '--status': col.color }">
+          :style="{ '--status': col.color }"
+          role="button" tabindex="0"
+          @click="openTask(t.id)"
+          @keydown.enter="openTask(t.id)">
           <span v-if="!state.current && t.room_name" class="room-tag">{{ t.room_name }}</span>
           <div class="rail-card-title">{{ t.title }}</div>
           <div v-if="t.status === 'in_progress' && state.progress[t.id]" class="card-progress">
@@ -47,8 +50,8 @@ function nextOf(s: Status): Status | null {
           </div>
           <div class="rail-card-foot">
             <span class="id">#{{ t.id }}</span>
-            <button v-if="nextOf(t.status)" @click="moveTask(t.id, nextOf(t.status)!)">→</button>
-            <button v-if="t.status !== 'done'" title="Close" @click="moveTask(t.id, 'done')">✓</button>
+            <button v-if="nextOf(t.status)" @click.stop="moveTask(t.id, nextOf(t.status)!)">→</button>
+            <button v-if="t.status !== 'done'" title="Close" @click.stop="moveTask(t.id, 'done')">✓</button>
           </div>
         </article>
       </section>

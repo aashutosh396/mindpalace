@@ -65,11 +65,20 @@ def create_app():
     _require_fastapi()
     bus = Bus()
 
+    async def _recover_hall():
+        """A restart mid-decision kills the concierge task — the owner's last
+        message would sit unanswered forever. Re-handle it on startup."""
+        last = store.list_home_chat(1)
+        if last and last[-1]["role"] == "user":
+            await home.handle(last[-1]["text"], bus.broadcast)
+
     @asynccontextmanager
     async def lifespan(app):
         wtask = asyncio.create_task(worker.watch_loop(bus.broadcast))
+        rtask = asyncio.create_task(_recover_hall())
         yield
         wtask.cancel()
+        rtask.cancel()
 
     app = FastAPI(title="mindpalace", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.bus = bus
@@ -209,6 +218,15 @@ def create_app():
         t = store.create_task(pid, title, body.get("body", ""))
         await bus.broadcast("task.created", t)
         return t
+
+    @app.get("/api/tasks/{tid}/log")
+    def task_log(tid: int):
+        t = store.get_task(tid)
+        if not t:
+            return _404("task")
+        p = store.get_project(t["project_id"])
+        return {"task": t, "room": {"name": p["name"], "slug": p["slug"]} if p else None,
+                "log": store.list_task_log(tid)}
 
     @app.patch("/api/tasks/{tid}")
     async def task_update(tid: int, body: dict):

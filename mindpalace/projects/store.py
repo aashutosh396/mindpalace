@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS chat_message (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES project(id),
   role TEXT NOT NULL, text TEXT NOT NULL, task_id INTEGER REFERENCES task(id),
   created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS task_log (    -- the work trail: one row per agent step
+  id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES task(id),
+  text TEXT NOT NULL, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS home_chat (   -- the hall: routing conversation, no project
   id INTEGER PRIMARY KEY, role TEXT NOT NULL, text TEXT NOT NULL,
   ref_project_id INTEGER, task_id INTEGER, created_at REAL NOT NULL);
@@ -293,6 +296,22 @@ def claim_next_todo(pid: int | None = None) -> dict | None:
         db.execute("UPDATE task SET status='in_progress' WHERE id=?", (r["id"],))
         db.commit()
         return dict(r) | {"status": "in_progress"}
+
+
+def add_task_log(tid: int, text: str) -> None:
+    with _lock:
+        db = _db()
+        db.execute("INSERT INTO task_log (task_id, text, created_at) VALUES (?,?,?)",
+                   (tid, text[:500], time.time()))
+        db.commit()
+
+
+def list_task_log(tid: int, limit: int = 300) -> list[dict]:
+    with _lock:
+        rows = _db().execute(
+            "SELECT * FROM (SELECT * FROM task_log WHERE task_id=? "
+            "ORDER BY created_at DESC LIMIT ?) ORDER BY created_at", (tid, limit)).fetchall()
+    return _rows(rows)
 
 
 # ---- chat ----

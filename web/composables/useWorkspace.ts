@@ -29,6 +29,7 @@ const state = reactive({
   toastError: false,
   connected: false,
   boardOpen: false,                // the board sheet (⛶) is expanded
+  modal: null as null | { task: any; room: any; log: any[] },   // open card detail
   health: null as null | { version: string; commit: string; provider: string; provider_ok: boolean; provider_status: string },
   update: null as null | { behind: boolean; local: string; remote: string; installer: string | null },
   updating: false
@@ -69,10 +70,16 @@ function connect() {
     // (backend restarts in dev drop the connection constantly)
     try {
       state.projects = await api('/projects')
+      state.homeChat = await api('/home/chat')
+      state.allTasks = await api('/tasks')
       if (state.current) {
         const p = state.projects.find(x => x.id === state.current!.id)
         if (p) await actions.open(p)
         else { state.current = null; state.tasks = []; state.chat = [] }
+      } else {
+        // hall view: a trailing user message means the concierge is still working
+        const last = state.homeChat[state.homeChat.length - 1]
+        state.awaitingReply = !!last && last.role === 'user'
       }
     } catch { /* backend still coming up — next reconnect will sync */ }
   }
@@ -105,11 +112,15 @@ function connect() {
       if (i >= 0) state.tasks[i] = data
       const j = state.allTasks.findIndex((t: any) => t.id === data.id)
       if (j >= 0) state.allTasks[j] = { ...state.allTasks[j], ...data }
+      if (state.modal?.task.id === data.id) state.modal.task = { ...state.modal.task, ...data }
       if (data.status !== 'in_progress') delete state.progress[data.id]
       if (data.project_id === state.current?.id) syncCount()
       else api('/projects').then(ps => { state.projects = ps }).catch(() => {})
     } else if (event === 'task.progress') {
       state.progress[data.task_id] = data.text
+      if (state.modal?.task.id === data.task_id) {
+        state.modal.log.push({ id: Date.now(), text: data.text, created_at: Date.now() / 1000 })
+      }
     } else if (event === 'repos.changed' && data.project_id === state.current?.id) {
       api(`/projects/${data.project_id}/repos`).then(r => { state.repos = r })
     } else if (event === 'assets.changed' && data.project_id === state.current?.id) {
@@ -131,6 +142,8 @@ const actions = {
     state.projects = await api('/projects')
     state.homeChat = await api('/home/chat')   // land in the hall
     state.allTasks = await api('/tasks')
+    const last = state.homeChat[state.homeChat.length - 1]
+    state.awaitingReply = !!last && (last as any).role === 'user'
   },
   async goHome() {
     state.current = null
@@ -200,6 +213,10 @@ const actions = {
       if (r.task) toast(`Card #${r.task.id} added to the board`)
       else if (r.lane === 'chat') state.awaitingReply = true
     } catch (e: any) { toast(e.message, true) }
+  },
+  async openTask(id: number) {
+    try { state.modal = await api(`/tasks/${id}/log`) }
+    catch (e: any) { toast(e.message, true) }
   },
   async moveTask(id: number, status: Status) {
     const t = state.tasks.find(t => t.id === id) || state.allTasks.find((t: any) => t.id === id)
