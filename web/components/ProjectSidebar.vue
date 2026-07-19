@@ -42,7 +42,7 @@ async function create() {
   <aside class="sidebar">
     <div class="wordmark">mind<em>palace</em></div>
 
-    <button class="menu-item" @click="startCreate">
+    <button class="menu-item primary" @click="startCreate">
       <span class="mi-icon">+</span> New project
     </button>
     <form v-if="creating" class="new-proj" @submit.prevent="create">
@@ -59,6 +59,7 @@ async function create() {
         v-for="p in state.projects" :key="p.id"
         class="proj-item" :class="{ active: state.current?.id === p.id }"
         @click="open(p)">
+        <span class="room-lead" :class="{ on: state.current?.id === p.id }">●</span>
         <span class="proj-name">{{ p.name }}</span>
         <span v-if="p.open_tasks" class="count">{{ p.open_tasks }}</span>
       </button>

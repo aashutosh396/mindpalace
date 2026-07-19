@@ -112,41 +112,51 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .wordmark em { font-style: normal; color: var(--brass); }
 
 .menu-item {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 12px;
   width: 100%; text-align: left;
-  background: none; border: none; border-radius: 10px;
-  padding: 7px 12px; cursor: pointer;
+  background: none; border: none; border-radius: 12px;
+  padding: 10px 12px; cursor: pointer;
   font-size: 15px; color: var(--text);
   transition: background .15s;
 }
 .menu-item:hover { background: var(--room-raised); }
-.menu-item.dim { color: var(--text-dim); font-size: 14px; }
+.menu-item.primary {
+  background: var(--room-raised);
+  font-weight: 500;
+}
+.menu-item.primary:hover { background: var(--bubble); }
+.menu-item.dim { color: var(--text-dim); font-size: 14.5px; }
 .menu-item.dim:hover { color: var(--text); }
 .menu-item:disabled { opacity: .5; cursor: default; }
 .mi-icon {
-  width: 24px; height: 24px; border-radius: 99px;
-  background: var(--room-raised);
+  width: 26px; height: 26px; border-radius: 99px;
+  background: var(--text); color: var(--bg);
   display: grid; place-items: center;
-  font-size: 15px; line-height: 1; color: var(--text);
+  font-size: 16px; line-height: 1;
   flex: none;
 }
-.menu-item.dim .mi-icon { background: none; color: inherit; font-size: 14px; }
+.menu-item.dim .mi-icon {
+  background: none; color: inherit; font-size: 15px;
+  width: 22px; height: 22px;
+}
 
 .side-label {
   font-size: 13px;
   color: var(--text-dim); padding: 14px 14px 4px;
 }
-.rooms { display: flex; flex-direction: column; gap: 1px; }
+.rooms { display: flex; flex-direction: column; gap: 2px; }
 .proj-item {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 12px;
   width: 100%; text-align: left;
-  background: none; border: none; border-radius: 9px;
-  padding: 6px 14px; cursor: pointer;
-  font-size: 14px; color: var(--text);
-  transition: background .15s;
+  background: none; border: none; border-radius: 10px;
+  padding: 9px 12px; cursor: pointer;
+  font-size: 15px; color: var(--text-dim);
+  transition: background .15s, color .15s;
 }
-.proj-item:hover { background: var(--room-raised); }
-.proj-item.active { background: var(--room-raised); }
+.proj-item:hover { background: var(--room-raised); color: var(--text); }
+.proj-item.active { color: var(--text); }
+.room-lead { font-size: 9px; color: var(--edge); flex: none; width: 14px; text-align: center; }
+.room-lead.on { color: var(--brass); }
 .proj-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .proj-item .count {
   margin-left: auto; flex: none; font-family: var(--mono); font-size: 11px;
