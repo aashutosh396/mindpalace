@@ -2,13 +2,19 @@
 import { onMounted, ref } from 'vue'
 import { useWorkspace } from './composables/useWorkspace'
 
-const { state, init } = useWorkspace()
+const { state, init, checkHealth } = useWorkspace()
 const tab = ref<'board' | 'assets' | 'repos'>('board')
 
 onMounted(init)
 </script>
 
 <template>
+  <div v-if="state.health && !state.health.provider_ok" class="setup-banner" role="alert">
+    <strong>One step left:</strong> {{ state.health.provider_status }}.
+    Install Claude Code, sign in to your Claude plan, then
+    <button class="btn ghost" @click="checkHealth">Check again</button>
+    <code>curl -fsSL https://claude.ai/install.sh | bash</code>
+  </div>
   <div class="shell">
     <ProjectSidebar />
 

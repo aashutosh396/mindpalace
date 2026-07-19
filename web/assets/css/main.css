@@ -29,6 +29,7 @@
 * { box-sizing: border-box; margin: 0; }
 
 html, body, #__nuxt { height: 100%; }
+#__nuxt { display: flex; flex-direction: column; }
 
 body {
   background: var(--night);
@@ -49,11 +50,23 @@ button, input, textarea { font: inherit; color: inherit; }
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
 
+/* ---- first-run banner ---- */
+.setup-banner {
+  background: var(--brass-soft); border-bottom: 1px solid var(--brass);
+  padding: 10px 16px; font-size: 13px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.setup-banner code {
+  font-family: var(--mono); font-size: 12px; background: var(--night-deep);
+  border-radius: 6px; padding: 3px 8px; user-select: all;
+}
+
 /* ---- shell layout: sidebar | main | corridor ---- */
 .shell {
   display: grid;
   grid-template-columns: 232px 1fr 340px;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 @media (max-width: 1000px) { .shell { grid-template-columns: 200px 1fr; } .corridor { display: none; } }
 

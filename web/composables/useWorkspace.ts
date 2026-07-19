@@ -24,7 +24,8 @@ const state = reactive({
   progress: {} as Record<number, string>,   // live step line per working card
   toast: '' as string,
   toastError: false,
-  connected: false
+  connected: false,
+  health: null as null | { version: string; provider: string; provider_ok: boolean; provider_status: string }
 })
 
 async function api(path: string, opts: RequestInit = {}) {
@@ -82,8 +83,12 @@ function connect() {
 const actions = {
   async init() {
     connect()
+    actions.checkHealth()
     state.projects = await api('/projects')
     if (state.projects.length && !state.current) await actions.open(state.projects[0])
+  },
+  async checkHealth() {
+    try { state.health = await api('/health') } catch { /* banner just stays hidden */ }
   },
   async open(p: Project) {
     state.current = p

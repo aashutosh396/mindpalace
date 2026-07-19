@@ -1,0 +1,16 @@
+[package]
+name = "mindpalace-desktop"
+version = "3.0.0"
+description = "mindpalace — your projects, a board, and an agent that works the tickets"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+
+[profile.release]
+strip = true
+lto = true
