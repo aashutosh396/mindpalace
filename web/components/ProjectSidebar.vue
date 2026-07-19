@@ -53,12 +53,11 @@ async function create() {
 
     <div style="flex: 1"></div>
     <button
-      v-if="state.update?.behind"
       class="btn ghost update-btn"
       :disabled="state.updating"
-      :title="`installed ${state.update.local} → latest ${state.update.remote}`"
+      :title="state.update ? `installed ${state.update.local} · latest ${state.update.remote}` : 'Check GitHub for a newer build'"
       @click="getUpdate">
-      {{ state.updating ? 'Downloading…' : '⟳ Get update' }}
+      {{ state.updating ? 'Checking…' : state.update?.behind ? '⟳ Get update' : '⟳ Check for updates' }}
     </button>
     <div class="side-foot">
       <span class="side-label" :style="{ color: state.connected ? 'var(--sage)' : 'var(--danger)' }">

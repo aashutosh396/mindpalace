@@ -7,8 +7,8 @@ const text = ref('')
 const log = ref<HTMLElement>()
 const LANES = [
   { key: 'auto', label: 'Auto', hint: 'I decide: work becomes a card, talk gets an answer' },
-  { key: 'chat', label: '💬', hint: 'Just talk — never makes a card' },
-  { key: 'task', label: '🎫', hint: 'Always make a card' }
+  { key: 'chat', label: '💬 Chat', hint: 'Just talk — never makes a card' },
+  { key: 'task', label: '🎫 Ticket', hint: 'Always make a card on the board' }
 ] as const
 const lane = ref<'auto' | 'chat' | 'task'>('auto')
 

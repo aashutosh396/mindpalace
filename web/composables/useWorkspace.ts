@@ -98,9 +98,14 @@ const actions = {
   async getUpdate() {
     state.updating = true
     try {
-      const r = await api('/update/apply', { method: 'POST' })
-      if (r.ok) toast('Update downloaded — drag mindpalace to Applications, then relaunch')
-      else toast(r.error || 'update failed', true)
+      state.update = await api('/update/check')     // always re-check on press
+      if (!state.update.behind) {
+        toast(`You're up to date (${state.update.local})`)
+      } else {
+        const r = await api('/update/apply', { method: 'POST' })
+        if (r.ok) toast('Update downloaded — drag mindpalace to Applications, then relaunch')
+        else toast(r.error || 'update failed', true)
+      }
     } catch (e: any) { toast(e.message, true) }
     state.updating = false
   },
