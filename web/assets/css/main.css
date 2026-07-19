@@ -21,6 +21,7 @@
   --slate: #a09d92;          /* todo */
   --danger: #b0503c;
   --shadow: 0 4px 18px rgba(40, 35, 25, .06);
+  --content: #ffffff;        /* the middle pane */
 
   --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -48,6 +49,7 @@
   --slate: #8a877d;
   --danger: #d08874;
   --shadow: 0 4px 18px rgba(0, 0, 0, .25);
+  --content: #262624;
 }
 
 * { box-sizing: border-box; margin: 0; }
@@ -214,7 +216,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .btn.ghost:hover { color: var(--text); border-color: var(--slate); }
 
 /* ---- main column ---- */
-.main { display: flex; flex-direction: column; min-width: 0; }
+.main { display: flex; flex-direction: column; min-width: 0; background: var(--content); }
 .main-head {
   display: flex; align-items: baseline; gap: 14px;
   padding: 16px 26px 6px;
@@ -233,7 +235,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* ---- chat as the main stage ---- */
 .corridor { display: flex; flex-direction: column; min-height: 0; }
-.corridor.center { background: var(--bg); flex: 1; }
+.corridor.center { background: none; flex: 1; }
 .corridor.center .corridor-head { display: none; }
 .corridor.center .chat-log,
 .corridor.center .composer {
