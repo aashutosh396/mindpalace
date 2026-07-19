@@ -71,6 +71,8 @@ function connect() {
       state.progress[data.task_id] = data.text
     } else if (event === 'repos.changed' && data.project_id === state.current?.id) {
       api(`/projects/${data.project_id}/repos`).then(r => { state.repos = r })
+    } else if (event === 'assets.changed' && data.project_id === state.current?.id) {
+      api(`/projects/${data.project_id}/assets`).then(a => { state.assets = a })
     } else if (event === 'chat.message' && data.project_id === state.current?.id) {
       if (!state.chat.find(m => m.id === data.id)) state.chat.push(data)
     }
@@ -146,6 +148,28 @@ const actions = {
   },
   async loadAllRepos() {
     try { state.allRepos = await api('/repos') } catch { /* picker just stays empty */ }
+  },
+  async uploadAssets(files: FileList | File[]) {
+    if (!state.current) return
+    for (const f of Array.from(files)) {
+      const form = new FormData()
+      form.append('file', f)
+      try {
+        const res = await fetch(`/api/projects/${state.current.id}/assets`, {
+          method: 'POST', body: form
+        })
+        if (!res.ok) throw new Error((await res.json()).error || `upload failed (${res.status})`)
+      } catch (e: any) { toast(e.message, true); return }
+    }
+    state.assets = await api(`/projects/${state.current.id}/assets`)
+    toast(files.length > 1 ? `${files.length} files uploaded` : 'Uploaded')
+  },
+  async deleteAsset(aid: number) {
+    if (!state.current) return
+    try {
+      await api(`/projects/${state.current.id}/assets/${aid}`, { method: 'DELETE' })
+      state.assets = await api(`/projects/${state.current.id}/assets`)
+    } catch (e: any) { toast(e.message, true) }
   },
   toast
 }

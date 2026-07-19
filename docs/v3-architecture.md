@@ -121,8 +121,11 @@ the desktop app at P6. Same code either way.
    with project context → live progress on the card → 'review' with result +
    agent reply in chat. "close card N" chat command; crash recovery requeues
    orphaned cards; echo provider for no-cost loop testing.
-4. **P4 — repos**: attach repos, linked repos, per-task path allowlist.
-5. **P5 — assets**: upload endpoint + browser, agent can read assets in-session.
+4. **P4 — repos** ✅: attach repos, link-from-another-room picker, remove/unlink.
+   Grounded runs: cwd = primary repo, --add-dir others + assets (guidance, not a
+   hard wall — strict allowlist mode can layer on later).
+5. **P5 — assets** ✅: drag-drop/pick upload, download, delete (file + row), live
+   sync; agent reads assets in-session via the grounded --add-dir.
 6. **P6 — desktop packaging**: PyInstaller sidecar build, Tauri shell + tray +
    first-run wizard (Claude CLI detect/install), GitHub-Releases updater, CI
    matrix for .dmg / .exe / .deb.

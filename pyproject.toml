@@ -15,7 +15,7 @@ dependencies = ["rich>=13", "prompt_toolkit>=3"]
 [project.optional-dependencies]
 discord = ["discord.py>=2.3"]
 # v3 web GUI gateway:  pip install "mindpalace[web]"  ·  run with  mindpalace serve
-web = ["fastapi>=0.110", "uvicorn>=0.27", "websockets>=12"]
+web = ["fastapi>=0.110", "uvicorn>=0.27", "websockets>=12", "python-multipart>=0.0.9"]
 
 [project.scripts]
 mindpalace = "mindpalace.cli:main"

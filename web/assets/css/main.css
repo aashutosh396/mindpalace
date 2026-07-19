@@ -252,6 +252,18 @@ button, input, textarea { font: inherit; color: inherit; }
 }
 .row-x:hover { color: var(--danger); }
 
+.dropzone {
+  border: 1.5px dashed var(--edge); border-radius: var(--r);
+  padding: 26px 16px; text-align: center; cursor: pointer;
+  color: var(--parchment-dim);
+  transition: border-color .15s, color .15s;
+}
+.dropzone:hover, .dropzone.over { border-color: var(--brass); color: var(--parchment); }
+.dz-sub { font-size: 12px; margin-top: 4px; color: var(--parchment-dim); }
+.panel-row a.path { color: var(--parchment); text-decoration: none; }
+.panel-row a.path:hover { color: var(--brass); text-decoration: underline; }
+.panel-row .dim { margin-left: auto; }
+
 /* ---- empty states: an invitation, not a mood ---- */
 .empty {
   color: var(--parchment-dim);

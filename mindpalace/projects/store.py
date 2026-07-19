@@ -288,6 +288,24 @@ def add_asset(pid: int, filename: str, path: str, size: int) -> dict:
     return dict(r)
 
 
+def get_asset(aid: int) -> dict | None:
+    with _lock:
+        r = _db().execute("SELECT * FROM asset WHERE id=?", (aid,)).fetchone()
+    return dict(r) if r else None
+
+
+def delete_asset(pid: int, aid: int) -> dict | None:
+    """Row + file: an asset is a managed upload, so deleting it deletes the bytes."""
+    with _lock:
+        db = _db()
+        r = db.execute("SELECT * FROM asset WHERE id=? AND project_id=?", (aid, pid)).fetchone()
+        if not r:
+            return None
+        db.execute("DELETE FROM asset WHERE id=?", (aid,))
+        db.commit()
+    return dict(r)
+
+
 def list_assets(pid: int) -> list[dict]:
     with _lock:
         rows = _db().execute("SELECT * FROM asset WHERE project_id=? ORDER BY uploaded_at DESC",

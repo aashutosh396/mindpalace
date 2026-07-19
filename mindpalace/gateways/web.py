@@ -29,8 +29,8 @@ DEFAULT_PORT = 7777
 # globals for FastAPI to resolve it (PEP 563 strings + py3.9), and the module
 # must still import cleanly when the [web] extra isn't installed.
 try:
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-    from fastapi.responses import HTMLResponse, JSONResponse
+    from fastapi import FastAPI, UploadFile, WebSocket, WebSocketDisconnect
+    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
     _HAVE_WEB = True
 except ImportError:
@@ -225,6 +225,47 @@ def create_app():
     @app.get("/api/projects/{pid}/assets")
     def assets_list(pid: int):
         return store.list_assets(pid)
+
+    @app.post("/api/projects/{pid}/assets")
+    async def assets_upload(pid: int, file: UploadFile):
+        p = store.get_project(pid)
+        if not p:
+            return _404("project")
+        adir = store.project_dir(p["slug"]) / "assets"
+        adir.mkdir(parents=True, exist_ok=True)
+        # sanitize to a plain basename; dedupe collisions with -2, -3, …
+        base = Path(file.filename or "upload").name.replace("/", "_") or "upload"
+        dest, n = adir / base, 2
+        while dest.exists():
+            dest = adir / f"{Path(base).stem}-{n}{Path(base).suffix}"
+            n += 1
+        size = 0
+        with dest.open("wb") as out:
+            while chunk := await file.read(1 << 20):
+                out.write(chunk)
+                size += len(chunk)
+        a = store.add_asset(pid, dest.name, str(dest), size)
+        await bus.broadcast("assets.changed", {"project_id": pid})
+        return a
+
+    @app.get("/api/assets/{aid}/download")
+    def asset_download(aid: int):
+        a = store.get_asset(aid)
+        if not a or not Path(a["path"]).is_file():
+            return _404("asset")
+        return FileResponse(a["path"], filename=a["filename"])
+
+    @app.delete("/api/projects/{pid}/assets/{aid}")
+    async def asset_delete(pid: int, aid: int):
+        a = store.delete_asset(pid, aid)
+        if not a:
+            return _404("asset")
+        try:
+            Path(a["path"]).unlink(missing_ok=True)
+        except OSError:
+            pass
+        await bus.broadcast("assets.changed", {"project_id": pid})
+        return {"ok": True}
 
     # ---- live event bus ----
     @app.websocket("/ws")
