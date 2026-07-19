@@ -81,11 +81,29 @@ def create_app():
     @app.get("/api/health")
     def health():
         from ..providers import get_provider
+        from ..projects import updates
         from .. import __version__
         p = get_provider()
         ok, why = p.available()
-        return {"version": __version__, "provider": p.name,
-                "provider_ok": ok, "provider_status": why}
+        return {"version": __version__, "commit": updates.local_commit()[:12],
+                "provider": p.name, "provider_ok": ok, "provider_status": why}
+
+    # ---- dev-channel updates (rolling build of the v3 branch) ----
+    @app.get("/api/update/check")
+    async def update_check():
+        from ..projects import updates
+        try:
+            return await asyncio.get_running_loop().run_in_executor(None, updates.check)
+        except Exception as e:
+            return JSONResponse({"error": f"update check failed: {str(e)[:160]}"}, status_code=502)
+
+    @app.post("/api/update/apply")
+    async def update_apply():
+        from ..projects import updates
+        try:
+            return await asyncio.get_running_loop().run_in_executor(None, updates.apply)
+        except Exception as e:
+            return JSONResponse({"error": f"update failed: {str(e)[:160]}"}, status_code=502)
 
     # ---- projects ----
     @app.get("/api/projects")

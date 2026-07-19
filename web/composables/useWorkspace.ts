@@ -26,7 +26,9 @@ const state = reactive({
   toast: '' as string,
   toastError: false,
   connected: false,
-  health: null as null | { version: string; provider: string; provider_ok: boolean; provider_status: string }
+  health: null as null | { version: string; commit: string; provider: string; provider_ok: boolean; provider_status: string },
+  update: null as null | { behind: boolean; local: string; remote: string; installer: string | null },
+  updating: false
 })
 
 async function api(path: string, opts: RequestInit = {}) {
@@ -91,6 +93,16 @@ const actions = {
   },
   async checkHealth() {
     try { state.health = await api('/health') } catch { /* banner just stays hidden */ }
+    try { state.update = await api('/update/check') } catch { /* offline — button stays hidden */ }
+  },
+  async getUpdate() {
+    state.updating = true
+    try {
+      const r = await api('/update/apply', { method: 'POST' })
+      if (r.ok) toast('Update downloaded — drag mindpalace to Applications, then relaunch')
+      else toast(r.error || 'update failed', true)
+    } catch (e: any) { toast(e.message, true) }
+    state.updating = false
   },
   async open(p: Project) {
     state.current = p

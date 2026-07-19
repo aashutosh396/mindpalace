@@ -1,0 +1,60 @@
+# Rolling dev build — every push to v3 refreshes the `v3-latest` prerelease
+# with a mac-arm dmg. The app's "Get update" button downloads from here.
+# (Mac arm only for now — the owner's platform; full matrix runs on tags.)
+name: desktop-rolling
+
+on:
+  push:
+    branches: [v3]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-rolling
+  cancel-in-progress: true
+
+jobs:
+  rolling:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build daemon sidecar
+        run: |
+          python -m pip install ".[web]" pyinstaller
+          cd desktop/sidecar
+          bash build.sh python
+          mkdir -p ../src-tauri/binaries
+          cp dist/mindpalaced-* ../src-tauri/binaries/
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Build app
+        run: |
+          cd desktop
+          npm ci
+          npx tauri build
+
+      - name: Refresh v3-latest prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg)
+          BODY="Rolling dev build of branch v3 — commit ${GITHUB_SHA:0:12}"
+          gh release view v3-latest >/dev/null 2>&1 \
+            || gh release create v3-latest --prerelease --title "v3 rolling (dev channel)" --notes "$BODY"
+          gh release edit v3-latest --notes "$BODY"
+          gh release upload v3-latest "$DMG" --clobber

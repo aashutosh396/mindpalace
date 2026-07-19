@@ -138,6 +138,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .new-proj input::placeholder { color: var(--text-dim); }
 .side-foot { display: flex; align-items: center; justify-content: space-between; }
+.update-btn { margin: 0 4px 8px; color: var(--brass); border-color: var(--brass); }
 .theme-toggle {
   background: none; border: 1px solid var(--edge); border-radius: 99px;
   color: var(--text-dim); cursor: pointer; font-size: 13px;

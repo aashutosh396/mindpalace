@@ -22,12 +22,16 @@ EOF
 
 echo "building mindpalaced for $TRIPLE"
 cd "$HERE"
+
+# stamp the build with its git commit so the app can check for updates
+git -C "$REPO" rev-parse HEAD > build_commit.txt 2>/dev/null || echo unknown > build_commit.txt
 # --paths: resolve mindpalace from repo SOURCE (editable installs' PEP 660
 # finder hooks are invisible to PyInstaller's analysis)
 "$PY" -m PyInstaller --noconfirm --clean --onefile \
   --name "mindpalaced-$TRIPLE" \
   --paths "$REPO" \
   --add-data "$REPO/mindpalace/web_dist:mindpalace/web_dist" \
+  --add-data "build_commit.txt:mindpalace" \
   --add-data "$REPO/mindpalace/skills:mindpalace/skills" \
   --collect-submodules mindpalace \
   --hidden-import uvicorn.logging \

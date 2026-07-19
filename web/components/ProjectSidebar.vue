@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
 
-const { state, open, createProject } = useWorkspace()
+const { state, open, createProject, getUpdate } = useWorkspace()
 const name = ref('')
 const dark = ref(false)
 
@@ -52,6 +52,14 @@ async function create() {
     </form>
 
     <div style="flex: 1"></div>
+    <button
+      v-if="state.update?.behind"
+      class="btn ghost update-btn"
+      :disabled="state.updating"
+      :title="`installed ${state.update.local} → latest ${state.update.remote}`"
+      @click="getUpdate">
+      {{ state.updating ? 'Downloading…' : '⟳ Get update' }}
+    </button>
     <div class="side-foot">
       <span class="side-label" :style="{ color: state.connected ? 'var(--sage)' : 'var(--danger)' }">
         {{ state.connected ? '● live' : '○ reconnecting…' }}
