@@ -1,9 +1,25 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
 
 const { state, open, createProject } = useWorkspace()
 const name = ref('')
+const dark = ref(false)
+
+onMounted(() => {
+  dark.value = localStorage.getItem('theme') === 'dark'
+  apply()
+})
+
+function apply() {
+  document.documentElement.dataset.theme = dark.value ? 'dark' : 'light'
+}
+
+function toggleTheme() {
+  dark.value = !dark.value
+  localStorage.setItem('theme', dark.value ? 'dark' : 'light')
+  apply()
+}
 
 async function create() {
   const n = name.value.trim()
@@ -36,8 +52,12 @@ async function create() {
     </form>
 
     <div style="flex: 1"></div>
-    <div class="side-label" :style="{ color: state.connected ? 'var(--sage)' : 'var(--danger)' }">
-      {{ state.connected ? '● live' : '○ reconnecting…' }}
+    <div class="side-foot">
+      <span class="side-label" :style="{ color: state.connected ? 'var(--sage)' : 'var(--danger)' }">
+        {{ state.connected ? '● live' : '○ reconnecting…' }}
+      </span>
+      <button class="theme-toggle" :title="dark ? 'Switch to light' : 'Switch to dark'"
+        @click="toggleTheme">{{ dark ? '☀' : '☾' }}</button>
     </div>
   </aside>
 </template>
