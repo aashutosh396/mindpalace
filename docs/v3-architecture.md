@@ -126,11 +126,14 @@ the desktop app at P6. Same code either way.
    hard wall — strict allowlist mode can layer on later).
 5. **P5 — assets** ✅: drag-drop/pick upload, download, delete (file + row), live
    sync; agent reads assets in-session via the grounded --add-dir.
-6. **P6 — desktop packaging**: PyInstaller sidecar build, Tauri shell + tray +
-   first-run wizard (Claude CLI detect/install), GitHub-Releases updater, CI
-   matrix for .dmg / .exe / .deb.
-7. **P7 — polish**: auth token on the local port, multi-repo status chips,
-   Flutter mobile remote (thin client on the same API).
+6. **P6 — desktop packaging** ✅: PyInstaller sidecar (mindpalaced, ~17MB, UI +
+   skills packed in), Tauri shell (spawns sidecar / reuses dev daemon on :7777,
+   kills it on quit), palace-arch icon set, first-run Claude-CLI banner, CI
+   matrix (.dmg mac arm+intel / .deb+AppImage / .msi+.exe) on v3* tags.
+   Built + installed + launched on the owner's mac. Deferred to P7: tray icon,
+   Tauri auto-updater (needs signing keys).
+7. **P7 — polish**: auth token on the local port, Tauri updater + signing,
+   tray icon, multi-repo status chips, Flutter mobile remote (same API).
 
 ## AI sources (Settings) — deferred, but designed for
 
