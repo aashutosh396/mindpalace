@@ -167,10 +167,23 @@ def create_app():
             path = (body.get("path") or "").strip()
             if not path:
                 return JSONResponse({"error": "path required"}, status_code=422)
-            if not Path(path).expanduser().is_dir():
+            root = Path(path).expanduser().resolve()
+            if not root.is_dir():
                 return JSONResponse({"error": f"not a directory: {path}"}, status_code=422)
-            r = store.add_repo(pid, str(Path(path).expanduser()),
-                               body.get("url"), bool(body.get("is_primary")))
+            # the FOLDER is the project root (agent's cwd); every git repo
+            # nested inside is tracked with it
+            from ..projects import scan
+            existing = set(store.repo_paths_for(pid))
+            added = []
+            if str(root) not in existing:
+                added.append(store.add_repo(pid, str(root), body.get("url"),
+                                            bool(body.get("is_primary"))))
+                existing.add(str(root))
+            for rp in scan.discover_repos(str(root)):
+                if rp not in existing:
+                    added.append(store.add_repo(pid, rp))
+                    existing.add(rp)
+            r = {"added": added, "discovered": max(0, len(added) - 1)}
         await bus.broadcast("repos.changed", {"project_id": pid})
         return r
 

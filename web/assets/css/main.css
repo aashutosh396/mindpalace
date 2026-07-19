@@ -123,11 +123,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   transition: background .15s;
 }
 .menu-item:hover { background: var(--room-raised); }
-.menu-item.primary {
-  background: var(--room-raised);
-  font-weight: 500;
-}
-.menu-item.primary:hover { background: var(--bubble); }
+.menu-item.primary { font-weight: 500; }   /* fill on hover only — a filled row means "you are here" */
+.menu-item.primary:hover { background: var(--room-raised); }
 .menu-item.here { background: var(--room-raised); }
 .mi-icon.plain { background: none; color: inherit; font-size: 14px; }
 .menu-item.dim { color: var(--text-dim); font-size: 13px; }

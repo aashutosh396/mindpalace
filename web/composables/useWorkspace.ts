@@ -213,11 +213,13 @@ const actions = {
   async addRepo(path: string, isPrimary: boolean) {
     if (!state.current) return
     try {
-      await api(`/projects/${state.current.id}/repos`, {
+      const r = await api(`/projects/${state.current.id}/repos`, {
         method: 'POST', body: JSON.stringify({ path, is_primary: isPrimary })
       })
       state.repos = await api(`/projects/${state.current.id}/repos`)
-      toast('Repo attached')
+      toast(r.discovered > 0
+        ? `Folder attached — found ${r.discovered} git repo${r.discovered > 1 ? 's' : ''} inside`
+        : 'Folder attached')
     } catch (e: any) { toast(e.message, true) }
   },
   async linkRepo(repoId: number) {
