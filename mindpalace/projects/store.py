@@ -147,6 +147,8 @@ def delete_project(pid: int) -> bool:
         if not db.execute("SELECT 1 FROM project WHERE id=?", (pid,)).fetchone():
             return False
         db.execute("DELETE FROM chat_message WHERE project_id=?", (pid,))
+        db.execute("DELETE FROM task_log WHERE task_id IN "
+                   "(SELECT id FROM task WHERE project_id=?)", (pid,))
         db.execute("DELETE FROM task WHERE project_id=?", (pid,))
         db.execute("DELETE FROM repo_link WHERE project_id=?", (pid,))
         db.execute("DELETE FROM asset WHERE project_id=?", (pid,))
