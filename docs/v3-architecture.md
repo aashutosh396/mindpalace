@@ -127,6 +127,20 @@ the desktop app at P6. Same code either way.
 7. **P7 — polish**: auth token on the local port, multi-repo status chips,
    Flutter mobile remote (thin client on the same API).
 
+## AI sources (Settings) — deferred, but designed for
+
+A Settings screen lets the user configure AI sources and pick a **primary**:
+Claude Max (CLI + subscription), Claude API (key), Codex (CLI + ChatGPT plan),
+Codex API (key), and Custom API (any OpenAI-compatible endpoint — the opencode
+pattern).
+
+- **v3.0 ships Claude Max only.** Everything else comes after the Claude Max
+  path is done (owner decision, 2026-07-19).
+- **Design rule from day one**: the brain calls the engine through ONE provider
+  interface (`run_task(instruction, ctx) -> events`). Claude Max is the first
+  adapter behind it. Adding a source later = new adapter + a Settings row,
+  never a rewrite. No engine-specific calls anywhere else in the codebase.
+
 ## What carries over from v2 untouched
 
 Brain, session continuity, skills library, MCP registry, goal loops, per-room
