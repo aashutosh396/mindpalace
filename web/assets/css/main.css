@@ -94,59 +94,99 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 @media (max-width: 1000px) { .shell { grid-template-columns: 210px 1fr; } .board-rail { display: none; } }
 
-/* ---- sidebar: the index of rooms ---- */
+/* ---- sidebar: claude-style menu ---- */
 .sidebar {
   background: var(--bg-deep);
   border-right: 1px solid var(--edge);
   display: flex; flex-direction: column;
-  padding: 16px 12px;
-  gap: 2px;
+  padding: 14px 10px 10px;
+  gap: 1px;
   overflow-y: auto;
 }
 .wordmark {
   font-family: var(--serif);
-  font-size: 21px;
+  font-size: 22px;
   letter-spacing: .01em;
-  padding: 4px 12px 18px;
+  padding: 4px 14px 16px;
 }
 .wordmark em { font-style: normal; color: var(--brass); }
-.side-label {
-  font-size: 12px; letter-spacing: .02em;
-  color: var(--text-dim); padding: 8px 12px 4px;
+
+.menu-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; text-align: left;
+  background: none; border: none; border-radius: 10px;
+  padding: 7px 12px; cursor: pointer;
+  font-size: 15px; color: var(--text);
+  transition: background .15s;
 }
+.menu-item:hover { background: var(--room-raised); }
+.menu-item.dim { color: var(--text-dim); font-size: 14px; }
+.menu-item.dim:hover { color: var(--text); }
+.menu-item:disabled { opacity: .5; cursor: default; }
+.mi-icon {
+  width: 24px; height: 24px; border-radius: 99px;
+  background: var(--room-raised);
+  display: grid; place-items: center;
+  font-size: 15px; line-height: 1; color: var(--text);
+  flex: none;
+}
+.menu-item.dim .mi-icon { background: none; color: inherit; font-size: 14px; }
+
+.side-label {
+  font-size: 13px;
+  color: var(--text-dim); padding: 14px 14px 4px;
+}
+.rooms { display: flex; flex-direction: column; gap: 1px; }
 .proj-item {
   display: flex; align-items: center; gap: 8px;
   width: 100%; text-align: left;
-  background: none; border: none; border-radius: 10px;
-  padding: 8px 12px; cursor: pointer;
-  color: var(--text);
+  background: none; border: none; border-radius: 9px;
+  padding: 6px 14px; cursor: pointer;
+  font-size: 14px; color: var(--text);
   transition: background .15s;
 }
 .proj-item:hover { background: var(--room-raised); }
-.proj-item.active { background: var(--card); box-shadow: var(--shadow); }
+.proj-item.active { background: var(--room-raised); }
+.proj-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .proj-item .count {
-  margin-left: auto; font-family: var(--mono); font-size: 11px;
+  margin-left: auto; flex: none; font-family: var(--mono); font-size: 11px;
   color: var(--brass); background: var(--brass-soft);
   border-radius: 99px; padding: 0 7px; line-height: 18px;
 }
-.new-proj {
-  margin-top: 10px;
-  display: flex; gap: 6px; padding: 0 4px;
-}
+.side-empty { font-size: 13.5px; color: var(--text-dim); padding: 4px 14px; }
+.new-proj { padding: 4px 8px 2px; display: flex; }
 .new-proj input {
   flex: 1; min-width: 0;
   background: var(--card); border: 1px solid var(--edge); border-radius: 10px;
-  padding: 7px 11px; color: var(--text);
+  padding: 6px 11px; color: var(--text); font-size: 14px;
 }
 .new-proj input::placeholder { color: var(--text-dim); }
-.side-foot { display: flex; align-items: center; justify-content: space-between; }
-.theme-toggle {
-  background: none; border: 1px solid var(--edge); border-radius: 99px;
-  color: var(--text-dim); cursor: pointer; font-size: 13px;
-  padding: 2px 10px;
+
+/* footer: avatar + name + plan line, like the account block */
+.side-user {
+  display: flex; align-items: center; gap: 10px;
+  border-top: 1px solid var(--edge);
+  margin-top: 8px; padding: 12px 8px 4px 10px;
 }
-.theme-toggle:hover { color: var(--brass); border-color: var(--brass); }
-.update-btn { margin: 0 4px 8px; color: var(--brass); border-color: var(--brass); }
+.avatar {
+  width: 34px; height: 34px; border-radius: 99px; flex: none;
+  background: var(--brass); color: #fff;
+  font-family: var(--serif); font-size: 18px;
+  display: grid; place-items: center;
+}
+.side-user-meta { min-width: 0; }
+.side-user .name { font-size: 14px; font-weight: 500; }
+.side-user .plan {
+  font-size: 12px; color: var(--text-dim);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.theme-toggle {
+  margin-left: auto;
+  background: none; border: none; border-radius: 9px;
+  color: var(--text-dim); cursor: pointer; font-size: 15px;
+  padding: 4px 9px;
+}
+.theme-toggle:hover { background: var(--room-raised); color: var(--text); }
 
 /* ---- buttons ---- */
 .btn {
