@@ -14,6 +14,8 @@ dependencies = ["rich>=13", "prompt_toolkit>=3"]
 
 [project.optional-dependencies]
 discord = ["discord.py>=2.3"]
+# v3 web GUI gateway:  pip install "mindpalace[web]"  ·  run with  mindpalace serve
+web = ["fastapi>=0.110", "uvicorn>=0.27", "websockets>=12"]
 
 [project.scripts]
 mindpalace = "mindpalace.cli:main"
@@ -34,6 +36,8 @@ packages = [
   "mindpalace.memory",
   "mindpalace.plugins",
   "mindpalace.plugins.contrib",
+  "mindpalace.projects",
+  "mindpalace.providers",
 ]
 
 [tool.setuptools.package-data]
@@ -41,6 +45,11 @@ packages = [
 # (SKILL.md + data/ + scripts/, e.g. ui-ux-pro-max's searchable design DB).
 # setuptools globs don't recurse, so patterns are enumerated per depth (max 8).
 mindpalace = [
+  # v3 web GUI — the pre-built Nuxt bundle rides inside the package (users never run Node)
+  "web_dist/*",
+  "web_dist/*/*",
+  "web_dist/*/*/*",
+  "web_dist/*/*/*/*",
   "skills/global/*.md",
   "skills/global/*/*",
   "skills/global/*/*/*",

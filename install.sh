@@ -19,9 +19,13 @@ else
   echo "    https://docs.claude.com/claude-code"
 fi
 
-# 3. install the package (with Discord extra if requested:  ./install.sh discord)
+# 3. install the package (extras:  ./install.sh discord | web | all)
 EXTRA=""
-[ "${1:-}" = "discord" ] && EXTRA="[discord]"
+case "${1:-}" in
+  discord) EXTRA="[discord]" ;;
+  web)     EXTRA="[web]" ;;
+  all)     EXTRA="[discord,web]" ;;
+esac
 if command -v pipx >/dev/null 2>&1; then
   pipx install "$HERE$EXTRA" 2>/dev/null || pipx install --force "$HERE$EXTRA"
 else

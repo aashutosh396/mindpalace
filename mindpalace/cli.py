@@ -5,6 +5,7 @@
   mindpalace setup      re-run onboarding
   mindpalace gateway discord|terminal   configure/switch interface
   mindpalace whatsapp setup   configure WhatsApp Cloud API; `mindpalace whatsapp` runs the webhook (VPS)
+  mindpalace serve [--port N] [--no-open]   v3 web GUI — projects/kanban/chat at localhost:7777
   mindpalace goal "<task>"   ralph-wiggum loop: iterate until done (--max N, --until PROMISE)
   mindpalace daemon     run the background daemon in the FOREGROUND (for systemd/launchd)
   mindpalace stop       stop the background daemon
@@ -124,6 +125,20 @@ def main(argv=None):
             print("WhatsApp not configured — run `mindpalace whatsapp setup` first."); return
         from .gateways import whatsapp
         whatsapp.run(); return
+
+    if cmd == "serve":                          # v3 web GUI (projects / kanban / chat)
+        port, open_browser = None, True
+        rest = argv[1:]
+        i = 0
+        while i < len(rest):
+            if rest[i] == "--port" and i + 1 < len(rest) and rest[i + 1].isdigit():
+                port = int(rest[i + 1]); i += 2
+            elif rest[i] == "--no-open":
+                open_browser = False; i += 1
+            else:
+                i += 1
+        from .gateways import web
+        web.run(port=port, open_browser=open_browser); return
 
     if cmd in ("add-bot", "addbot"):
         from . import bots
