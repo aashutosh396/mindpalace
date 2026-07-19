@@ -42,9 +42,18 @@ same brain. A project in the GUI is the same concept as an activated channel tod
 
 ## Distribution — "how do I give this to everyone?"
 
-- **v3.0**: install mindpalace (existing `install.sh` / pip), run `mindpalace serve`,
-  open `http://localhost:7777`. One install, one command. The Nuxt app is built to
-  static files and shipped inside the Python package — users never run Node.
+**Hard requirement: install stays `./install.sh` and done.** No Node, no npm, no
+build step on the user's machine — ever.
+
+- The Nuxt app is pre-built (`npm run generate`) by developers/CI and the static
+  output is committed into the repo (e.g. `mindpalace/web/dist/`) and declared as
+  package data in `pyproject.toml`. pip ships the UI inside the package like any
+  other file.
+- **v3.0 user flow**: `./install.sh` (unchanged) → `mindpalace` → daemon starts the
+  web gateway and auto-opens `http://localhost:7777`. The browser is the GUI —
+  nothing extra to install.
+- Updating = `git pull && ./install.sh`, same as today.
+- Only new runtime deps: FastAPI + uvicorn, pulled in silently by pip.
 - **Later (optional)**: wrap the same UI in Tauri for a desktop-app feel. Zero rework —
   Tauri just embeds the localhost page.
 - **Not this**: a hosted web app. Then the agent would act on the server's files, not
