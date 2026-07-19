@@ -127,7 +127,7 @@ def main(argv=None):
         whatsapp.run(); return
 
     if cmd == "serve":                          # v3 web GUI (projects / kanban / chat)
-        port, open_browser = None, True
+        port, open_browser, dev = None, True, False
         rest = argv[1:]
         i = 0
         while i < len(rest):
@@ -135,10 +135,12 @@ def main(argv=None):
                 port = int(rest[i + 1]); i += 2
             elif rest[i] == "--no-open":
                 open_browser = False; i += 1
+            elif rest[i] == "--dev":            # auto-reload on python edits
+                dev = True; i += 1
             else:
                 i += 1
         from .gateways import web
-        web.run(port=port, open_browser=open_browser); return
+        web.run(port=port, open_browser=open_browser, dev=dev); return
 
     if cmd in ("add-bot", "addbot"):
         from . import bots

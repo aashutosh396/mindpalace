@@ -326,7 +326,7 @@ def create_app():
     return app
 
 
-def run(port: int | None = None, open_browser: bool = True):
+def run(port: int | None = None, open_browser: bool = True, dev: bool = False):
     _require_fastapi()
     import uvicorn
     config.ensure_dirs()
@@ -338,4 +338,10 @@ def run(port: int | None = None, open_browser: bool = True):
         import webbrowser
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     # localhost only — never expose the daemon to the network unauthenticated
-    uvicorn.run(create_app(), host="127.0.0.1", port=port, log_level="warning")
+    if dev:
+        # auto-restart on python edits; pair with `cd web && npm run dev` for UI HMR
+        uvicorn.run("mindpalace.gateways.web:create_app", factory=True,
+                    host="127.0.0.1", port=port, log_level="info",
+                    reload=True, reload_dirs=[str(config.PKG_ROOT)])
+    else:
+        uvicorn.run(create_app(), host="127.0.0.1", port=port, log_level="warning")

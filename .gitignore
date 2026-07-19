@@ -22,3 +22,4 @@ config.json
 _skillforge/staging/
 _skillforge/staging*/
 _skillforge/new_manifest.json
+.venv-dev/
