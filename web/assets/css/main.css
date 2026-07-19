@@ -224,7 +224,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .btn.ghost:hover { color: var(--text); border-color: var(--slate); }
 
 /* ---- main column ---- */
-.main { display: flex; flex-direction: column; min-width: 0; background: var(--content); }
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--content); }
 .main-head {
   display: flex; align-items: baseline; gap: 14px;
   padding: 16px 26px 6px;

@@ -23,7 +23,8 @@ function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
 }
 
-watch(() => [state.chat.length, state.awaitingReply], async () => {
+// stay pinned to the latest message — on new messages AND on opening a room
+watch(() => [state.chat.length, state.awaitingReply, state.current?.id], async () => {
   await nextTick()
   log.value?.scrollTo({ top: log.value.scrollHeight })
 })
