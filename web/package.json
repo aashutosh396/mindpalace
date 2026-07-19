@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "nuxt dev",
     "generate": "nuxt generate",
-    "build:dist": "nuxt generate && rm -rf ../mindpalace/web_dist && cp -R .output/public ../mindpalace/web_dist"
+    "build:dist": "NUXT_IGNORE_LOCK=1 nuxt generate && rm -rf ../mindpalace/web_dist && cp -R .output/public ../mindpalace/web_dist"
   },
   "devDependencies": {
     "nuxt": "^3.17.0"
