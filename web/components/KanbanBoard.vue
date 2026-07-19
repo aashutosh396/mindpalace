@@ -54,6 +54,9 @@ function nextOf(s: Status): Status | null {
             <span>#{{ t.id }}</span>
             <span>{{ t.created_by }}</span>
           </div>
+          <div v-if="t.status === 'in_progress' && state.progress[t.id]" class="card-progress">
+            {{ state.progress[t.id] }}
+          </div>
           <div v-if="t.result" class="card-result">{{ t.result }}</div>
           <div class="card-actions">
             <button v-if="nextOf(t.status)" @click="moveTask(t.id, nextOf(t.status)!)">

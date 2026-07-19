@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from .. import config
-from ..projects import store
+from ..projects import store, worker
 
 DEFAULT_PORT = 7777
 
@@ -61,8 +63,15 @@ class Bus:
 
 def create_app():
     _require_fastapi()
-    app = FastAPI(title="mindpalace", docs_url=None, redoc_url=None)
     bus = Bus()
+
+    @asynccontextmanager
+    async def lifespan(app):
+        wtask = asyncio.create_task(worker.watch_loop(bus.broadcast))
+        yield
+        wtask.cancel()
+
+    app = FastAPI(title="mindpalace", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.bus = bus
 
     def _404(what: str):
@@ -175,12 +184,29 @@ def create_app():
         text = (body.get("text") or "").strip()
         if not text:
             return JSONResponse({"error": "text required"}, status_code=422)
+
+        # "close card 12" / "close task #12" → close it, don't open a new ticket
+        m = re.match(r"(?i)^close\s+(?:card|task|ticket)?\s*#?(\d+)$", text)
+        if m:
+            tid = int(m.group(1))
+            umsg = store.add_chat(pid, "user", text)
+            await bus.broadcast("chat.message", umsg)
+            t = store.get_task(tid)
+            if t and t["project_id"] == pid:
+                t = store.set_task_status(tid, "done")
+                reply = f"Closed card #{tid} — {t['title']}"
+                await bus.broadcast("task.updated", t)
+            else:
+                reply = f"No card #{tid} in this room."
+            amsg = store.add_chat(pid, "agent", reply, task_id=tid if t else None)
+            await bus.broadcast("chat.message", amsg)
+            return {"message": umsg, "task": None}
+
         task = store.create_task(pid, text.splitlines()[0][:120], text)
         msg = store.add_chat(pid, "user", text, task_id=task["id"])
         await bus.broadcast("chat.message", msg)
         await bus.broadcast("task.created", task)
-        # P3 wires the worker that picks the ticket up and runs the provider;
-        # until then the card sits honestly in 'todo'.
+        # the ticket worker (projects/worker.py) claims it from 'todo' within ~2s
         return {"message": msg, "task": task}
 
     # ---- assets ----

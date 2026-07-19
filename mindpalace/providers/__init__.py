@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from .base import Provider, ProviderEvent
 from .claude_max import ClaudeMaxProvider
+from .echo import EchoProvider
 
-_REGISTRY = {"claude_max": ClaudeMaxProvider}
+_REGISTRY = {"claude_max": ClaudeMaxProvider, "echo": EchoProvider}
 
 
 def get_provider(name: str | None = None) -> Provider:

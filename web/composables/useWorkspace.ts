@@ -20,6 +20,7 @@ const state = reactive({
   repos: { own: [] as any[], linked: [] as any[] },
   assets: [] as any[],
   arrived: new Set<number>(),      // task ids that just appeared (for the arrive animation)
+  progress: {} as Record<number, string>,   // live step line per working card
   toast: '' as string,
   toastError: false,
   connected: false
@@ -64,6 +65,9 @@ function connect() {
     } else if (event === 'task.updated') {
       const i = state.tasks.findIndex(t => t.id === data.id)
       if (i >= 0) state.tasks[i] = data
+      if (data.status !== 'in_progress') delete state.progress[data.id]
+    } else if (event === 'task.progress') {
+      state.progress[data.task_id] = data.text
     } else if (event === 'chat.message' && data.project_id === state.current?.id) {
       if (!state.chat.find(m => m.id === data.id)) state.chat.push(data)
     }

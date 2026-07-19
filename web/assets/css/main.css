@@ -174,6 +174,14 @@ button, input, textarea { font: inherit; color: inherit; }
   display: flex; gap: 8px; margin-top: 6px;
   font-family: var(--mono); font-size: 11px; color: var(--parchment-dim);
 }
+.card-progress {
+  margin-top: 6px;
+  font-family: var(--mono); font-size: 11px; color: var(--brass);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: .55; } }
+
 .card-result {
   margin-top: 6px; font-size: 12.5px; color: var(--parchment-dim);
   white-space: pre-wrap; word-break: break-word;

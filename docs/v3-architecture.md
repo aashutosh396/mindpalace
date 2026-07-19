@@ -113,12 +113,14 @@ stays with the original project. The agent's sandbox allowlist per task =
 Develop in browser mode (fast loop: `mindpalace serve` + `nuxt dev`); package as
 the desktop app at P6. Same code either way.
 
-1. **P1 — web gateway skeleton**: FastAPI in the daemon, serves static dir, REST
+1. **P1 — web gateway skeleton** ✅: FastAPI in the daemon, serves static dir, REST
    for projects CRUD, WS event bus. `mindpalace serve` command.
-2. **P2 — Nuxt app**: project list + create, project screen shell (chat / kanban /
-   assets tabs).
-3. **P3 — chat→ticket loop**: chat input → task row → brain queue → status
-   transitions streamed to the board. `close_task` tool.
+2. **P2 — Nuxt app** ✅: project list + create, project screen shell (chat / kanban /
+   assets tabs). "Palace at night" design; static build in mindpalace/web_dist.
+3. **P3 — chat→ticket loop** ✅: ticket worker claims 'todo' cards → provider run
+   with project context → live progress on the card → 'review' with result +
+   agent reply in chat. "close card N" chat command; crash recovery requeues
+   orphaned cards; echo provider for no-cost loop testing.
 4. **P4 — repos**: attach repos, linked repos, per-task path allowlist.
 5. **P5 — assets**: upload endpoint + browser, agent can read assets in-session.
 6. **P6 — desktop packaging**: PyInstaller sidecar build, Tauri shell + tray +
