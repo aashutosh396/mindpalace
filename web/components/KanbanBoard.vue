@@ -11,8 +11,9 @@ const COLS: { key: Status; label: string; color: string }[] = [
   { key: 'done', label: 'Done', color: 'var(--sage)' }
 ]
 
+const tasks = computed<any[]>(() => state.current ? state.tasks : state.allTasks)
 const byStatus = computed(() =>
-  Object.fromEntries(STATUSES.map(s => [s, state.tasks.filter(t => t.status === s)])))
+  Object.fromEntries(STATUSES.map(s => [s, tasks.value.filter((t: any) => t.status === s)])))
 
 const dragOver = ref<Status | null>(null)
 
@@ -49,6 +50,7 @@ function nextOf(s: Status): Status | null {
           :style="{ '--status': col.color }"
           draggable="true"
           @dragstart="$event.dataTransfer?.setData('text/task-id', String(t.id))">
+          <span v-if="!state.current && t.room_name" class="room-tag">{{ t.room_name }}</span>
           <div class="card-title">{{ t.title }}</div>
           <div class="card-meta">
             <span>#{{ t.id }}</span>

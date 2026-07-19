@@ -11,8 +11,9 @@ const COLS: { key: Status; label: string; color: string }[] = [
   { key: 'done', label: 'Done', color: 'var(--sage)' }
 ]
 
+const tasks = computed<any[]>(() => state.current ? state.tasks : state.allTasks)
 const byStatus = computed(() =>
-  Object.fromEntries(STATUSES.map(s => [s, state.tasks.filter(t => t.status === s)])))
+  Object.fromEntries(STATUSES.map(s => [s, tasks.value.filter((t: any) => t.status === s)])))
 
 function nextOf(s: Status): Status | null {
   const i = STATUSES.indexOf(s)
@@ -23,7 +24,7 @@ function nextOf(s: Status): Status | null {
 <template>
   <aside class="board-rail">
     <div class="rail-head">
-      <span class="rail-title">The board</span>
+      <span class="rail-title">{{ state.current ? 'The board' : 'All rooms' }}</span>
       <button class="expand" title="Expand the board" aria-label="Expand the board"
         @click="state.boardOpen = true">⛶</button>
     </div>
@@ -39,6 +40,7 @@ function nextOf(s: Status): Status | null {
           v-for="t in byStatus[col.key]" :key="t.id"
           class="rail-card" :class="{ arriving: state.arrived.has(t.id) }"
           :style="{ '--status': col.color }">
+          <span v-if="!state.current && t.room_name" class="room-tag">{{ t.room_name }}</span>
           <div class="rail-card-title">{{ t.title }}</div>
           <div v-if="t.status === 'in_progress' && state.progress[t.id]" class="card-progress">
             {{ state.progress[t.id] }}
@@ -50,7 +52,7 @@ function nextOf(s: Status): Status | null {
           </div>
         </article>
       </section>
-      <div v-if="!state.tasks.length" class="empty" style="padding: 24px 10px; font-size: 12.5px">
+      <div v-if="!tasks.length" class="empty" style="padding: 24px 10px; font-size: 12.5px">
         No cards yet — send an instruction in the chat.
       </div>
     </div>

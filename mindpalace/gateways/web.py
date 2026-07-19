@@ -175,6 +175,10 @@ def create_app():
         return r
 
     # ---- tasks (kanban) ----
+    @app.get("/api/tasks")
+    def tasks_all():
+        return store.all_tasks()
+
     @app.get("/api/projects/{pid}/tasks")
     def tasks_list(pid: int):
         return store.list_tasks(pid)

@@ -231,6 +231,21 @@ def list_tasks(pid: int) -> list[dict]:
     return _rows(rows)
 
 
+def all_tasks() -> list[dict]:
+    """Cross-room view for the Home board: every open card + the 12 latest done,
+    each tagged with its room."""
+    with _lock:
+        rows = _db().execute(
+            """SELECT t.*, p.slug AS room_slug, p.name AS room_name
+               FROM task t JOIN project p ON p.id = t.project_id
+               WHERE t.status != 'done' ORDER BY t.created_at""").fetchall()
+        done = _db().execute(
+            """SELECT t.*, p.slug AS room_slug, p.name AS room_name
+               FROM task t JOIN project p ON p.id = t.project_id
+               WHERE t.status = 'done' ORDER BY t.closed_at DESC LIMIT 12""").fetchall()
+    return _rows(rows) + list(reversed(_rows(done)))
+
+
 def set_task_status(tid: int, status: str, result: str | None = None) -> dict | None:
     if status not in STATUSES:
         return None

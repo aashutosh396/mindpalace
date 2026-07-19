@@ -50,7 +50,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       </template>
     </main>
 
-    <BoardRail v-if="state.current" />
+    <BoardRail />
 
     <div v-if="state.toast" class="toast" :class="{ error: state.toastError }" role="status">
       {{ state.toast }}
@@ -59,7 +59,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">
       <div class="sheet" role="dialog" aria-label="Project board">
         <div class="sheet-head">
-          <span class="rail-title">The board — {{ state.current?.name }}</span>
+          <span class="rail-title">{{ state.current ? `The board — ${state.current.name}` : 'The board — all rooms' }}</span>
           <button class="row-x" title="Close" aria-label="Close the board" @click="state.boardOpen = false">✕</button>
         </div>
         <KanbanBoard />

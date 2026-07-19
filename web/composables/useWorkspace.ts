@@ -16,6 +16,7 @@ const state = reactive({
   projects: [] as Project[],
   current: null as Project | null,   // null = the Home hall
   tasks: [] as Task[],
+  allTasks: [] as any[],             // cross-room cards for the Home board
   chat: [] as ChatMsg[],
   homeChat: [] as any[],
   repos: { own: [] as any[], linked: [] as any[] },
@@ -84,6 +85,10 @@ function connect() {
       state.projects = state.projects.filter(p => p.id !== data.id)
       if (state.current?.id === data.id) state.current = null
     } else if (event === 'task.created') {
+      if (!state.allTasks.find((t: any) => t.id === data.id)) {
+        const room = state.projects.find(p => p.id === data.project_id)
+        state.allTasks.push({ ...data, room_slug: room?.slug, room_name: room?.name })
+      }
       if (data.project_id === state.current?.id) {
         if (!state.tasks.find(t => t.id === data.id)) {
           state.tasks.push(data)
@@ -98,6 +103,8 @@ function connect() {
     } else if (event === 'task.updated') {
       const i = state.tasks.findIndex(t => t.id === data.id)
       if (i >= 0) state.tasks[i] = data
+      const j = state.allTasks.findIndex((t: any) => t.id === data.id)
+      if (j >= 0) state.allTasks[j] = { ...state.allTasks[j], ...data }
       if (data.status !== 'in_progress') delete state.progress[data.id]
       if (data.project_id === state.current?.id) syncCount()
       else api('/projects').then(ps => { state.projects = ps }).catch(() => {})
@@ -123,11 +130,12 @@ const actions = {
     actions.checkHealth()
     state.projects = await api('/projects')
     state.homeChat = await api('/home/chat')   // land in the hall
+    state.allTasks = await api('/tasks')
   },
   async goHome() {
     state.current = null
     state.awaitingReply = false
-    state.homeChat = await api('/home/chat')
+    ;[state.homeChat, state.allTasks] = await Promise.all([api('/home/chat'), api('/tasks')])
   },
   async sendHomeChat(text: string) {
     try {
@@ -194,7 +202,7 @@ const actions = {
     } catch (e: any) { toast(e.message, true) }
   },
   async moveTask(id: number, status: Status) {
-    const t = state.tasks.find(t => t.id === id)
+    const t = state.tasks.find(t => t.id === id) || state.allTasks.find((t: any) => t.id === id)
     if (!t || t.status === status) return
     const prev = t.status
     t.status = status                              // optimistic; WS confirms
