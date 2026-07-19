@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useWorkspace } from './composables/useWorkspace'
 
 const { state, init, checkHealth } = useWorkspace()
-const tab = ref<'board' | 'assets' | 'repos'>('board')
+const tab = ref<'chat' | 'repos' | 'assets'>('chat')
 
-onMounted(init)
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') state.boardOpen = false
+}
+
+onMounted(() => { init(); window.addEventListener('keydown', onKey) })
+onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
@@ -24,14 +29,14 @@ onMounted(init)
           <h1 class="room-name">{{ state.current.name }}</h1>
           <span class="room-slug">{{ state.current.slug }}</span>
           <nav class="tabs">
-            <button class="tab" :class="{ active: tab === 'board' }" @click="tab = 'board'">Board</button>
+            <button class="tab" :class="{ active: tab === 'chat' }" @click="tab = 'chat'">Chat</button>
             <button class="tab" :class="{ active: tab === 'repos' }" @click="tab = 'repos'">Repos</button>
             <button class="tab" :class="{ active: tab === 'assets' }" @click="tab = 'assets'">Assets</button>
           </nav>
         </div>
-        <div class="main-body">
-          <KanbanBoard v-if="tab === 'board'" />
-          <ReposPanel v-else-if="tab === 'repos'" />
+        <ChatRail v-if="tab === 'chat'" class="center" />
+        <div v-else class="main-body">
+          <ReposPanel v-if="tab === 'repos'" />
           <AssetsPanel v-else />
         </div>
       </template>
@@ -43,10 +48,20 @@ onMounted(init)
       </div>
     </main>
 
-    <ChatRail />
+    <BoardRail v-if="state.current" />
 
     <div v-if="state.toast" class="toast" :class="{ error: state.toastError }" role="status">
       {{ state.toast }}
+    </div>
+
+    <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">
+      <div class="sheet" role="dialog" aria-label="Project board">
+        <div class="sheet-head">
+          <span class="rail-title">The board — {{ state.current?.name }}</span>
+          <button class="row-x" title="Close" aria-label="Close the board" @click="state.boardOpen = false">✕</button>
+        </div>
+        <KanbanBoard />
+      </div>
     </div>
   </div>
 </template>

@@ -86,11 +86,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* ---- shell layout: sidebar | main | corridor ---- */
 .shell {
   display: grid;
-  grid-template-columns: 232px 1fr 340px;
+  grid-template-columns: 232px 1fr 300px;
   flex: 1;
   min-height: 0;
 }
-@media (max-width: 1000px) { .shell { grid-template-columns: 200px 1fr; } .corridor { display: none; } }
+@media (max-width: 1000px) { .shell { grid-template-columns: 200px 1fr; } .board-rail { display: none; } }
 
 /* ---- sidebar: the index of rooms ---- */
 .sidebar {
@@ -283,6 +283,80 @@ button, input, textarea, select { font: inherit; color: inherit; }
   padding: 9px 11px;
 }
 .chat-input textarea::placeholder { color: var(--text-dim); }
+
+/* ---- chat as the main center ---- */
+.corridor.center {
+  background: var(--bg);
+  border-left: none;
+  flex: 1;
+}
+.corridor.center .corridor-head { display: none; }   /* room name lives in the header above */
+.corridor.center .chat-log,
+.corridor.center .lane-row,
+.corridor.center .chat-input {
+  width: 100%; max-width: 880px; margin: 0 auto;     /* reading width */
+}
+.corridor.center .chat-log { padding: 18px 22px; }
+.corridor.center .lane-row { border-top: none; }
+.corridor.center .msg { max-width: 78%; }
+
+/* ---- the board rail (compact, right) ---- */
+.board-rail {
+  background: var(--bg-deep);
+  border-left: 1px solid var(--edge);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.rail-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 14px 10px; border-bottom: 1px solid var(--edge);
+}
+.rail-title { font-family: var(--serif); font-size: 16px; }
+.expand {
+  background: none; border: 1px solid var(--edge); border-radius: 8px;
+  color: var(--text-dim); cursor: pointer; padding: 2px 9px; font-size: 14px;
+}
+.expand:hover { color: var(--brass); border-color: var(--brass); }
+.rail-body { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 14px; }
+.rail-group-head {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--serif); font-size: 13.5px; margin-bottom: 6px;
+}
+.rail-group-head .dot { width: 7px; height: 7px; border-radius: 99px; }
+.rail-group-head .n { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+.rail-card {
+  background: var(--card); border: 1px solid var(--edge);
+  border-left: 3px solid var(--status, var(--slate));
+  border-radius: 8px; padding: 7px 9px; margin-bottom: 6px;
+}
+.rail-card.arriving { animation: arrive .35s ease-out; }
+.rail-card-title {
+  font-size: 12.5px; font-weight: 600;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.rail-card-foot {
+  display: flex; gap: 6px; align-items: center; margin-top: 5px;
+  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+}
+.rail-card-foot .id { margin-right: auto; }
+.rail-card-foot button {
+  background: none; border: 1px solid var(--edge); border-radius: 6px;
+  color: var(--text-dim); font-size: 11px; padding: 0 7px; cursor: pointer;
+}
+.rail-card-foot button:hover { color: var(--brass); border-color: var(--brass); }
+
+/* ---- the board sheet (⛶ fullscreen) ---- */
+.sheet-backdrop {
+  position: fixed; inset: 0; background: #00000073; z-index: 40;
+  display: grid; place-items: center;
+}
+.sheet {
+  width: 78vw; height: 82vh;
+  background: var(--bg); border: 1px solid var(--edge); border-radius: 16px;
+  padding: 16px 18px;
+  display: flex; flex-direction: column; min-height: 0;
+}
+.sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.sheet .board { flex: 1; overflow: auto; min-height: 0; }
 
 /* ---- panels (assets / repos) ---- */
 .panel { display: flex; flex-direction: column; gap: 10px; max-width: 720px; }

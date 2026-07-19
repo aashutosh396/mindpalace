@@ -5,6 +5,7 @@ export default defineNuxtConfig({
   ssr: false,
   devtools: { enabled: false },
   compatibilityDate: '2025-07-15',
+  devServer: { port: 3777 },   // pinned — 3000/3001 collide with other local apps
   css: ['~/assets/css/main.css'],
   app: {
     head: {

@@ -26,6 +26,7 @@ const state = reactive({
   toast: '' as string,
   toastError: false,
   connected: false,
+  boardOpen: false,                // the board sheet (⛶) is expanded
   health: null as null | { version: string; commit: string; provider: string; provider_ok: boolean; provider_status: string },
   update: null as null | { behind: boolean; local: string; remote: string; installer: string | null },
   updating: false
@@ -51,7 +52,9 @@ function toast(msg: string, error = false) {
 let ws: WebSocket | null = null
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  ws = new WebSocket(`${proto}://${location.host}/ws`)
+  // dev: the nitro proxy doesn't upgrade websockets — talk to the daemon directly
+  const host = import.meta.dev ? '127.0.0.1:7777' : location.host
+  ws = new WebSocket(`${proto}://${host}/ws`)
   ws.onopen = () => { state.connected = true }
   ws.onclose = () => { state.connected = false; setTimeout(connect, 2000) }
   ws.onmessage = (e) => {
