@@ -1,0 +1,255 @@
+/* mindpalace — "the palace at night"
+   Rooms (panels) in a violet-black palace, parchment text, candlelight brass.
+   One signature: arched doorways on the board columns; the chat rail is the
+   corridor where an instruction becomes a card. */
+
+:root {
+  --night: #16131f;          /* app background */
+  --night-deep: #100e17;     /* corridor / sidebar */
+  --room: #201b2e;           /* panels, cards */
+  --room-raised: #272138;    /* hover / raised */
+  --edge: #2e2740;           /* borders */
+  --parchment: #eae4d8;      /* primary text */
+  --parchment-dim: #9a93a8;  /* secondary text */
+  --brass: #c9a86a;          /* the accent: actions, focus, in-progress */
+  --brass-soft: #c9a86a33;
+  --lilac: #9b84c7;          /* review */
+  --sage: #7fa87f;           /* done */
+  --slate: #6e6880;          /* todo */
+  --danger: #c77a7a;
+
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --arch: 18px 18px 0 0;     /* the doorway cap */
+  --r: 10px;
+}
+
+* { box-sizing: border-box; margin: 0; }
+
+html, body, #__nuxt { height: 100%; }
+
+body {
+  background: var(--night);
+  color: var(--parchment);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--brass-soft); }
+
+button, input, textarea { font: inherit; color: inherit; }
+
+:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* ---- shell layout: sidebar | main | corridor ---- */
+.shell {
+  display: grid;
+  grid-template-columns: 232px 1fr 340px;
+  height: 100%;
+}
+@media (max-width: 1000px) { .shell { grid-template-columns: 200px 1fr; } .corridor { display: none; } }
+
+/* ---- sidebar: the index of rooms ---- */
+.sidebar {
+  background: var(--night-deep);
+  border-right: 1px solid var(--edge);
+  display: flex; flex-direction: column;
+  padding: 18px 12px;
+  gap: 4px;
+  overflow-y: auto;
+}
+.wordmark {
+  font-family: var(--serif);
+  font-size: 19px;
+  letter-spacing: .02em;
+  padding: 2px 10px 16px;
+}
+.wordmark em { font-style: normal; color: var(--brass); }
+.side-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .12em;
+  color: var(--parchment-dim); padding: 8px 10px 4px;
+}
+.proj-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; text-align: left;
+  background: none; border: none; border-radius: var(--r);
+  padding: 8px 10px; cursor: pointer;
+  color: var(--parchment-dim);
+  transition: background .15s, color .15s;
+}
+.proj-item:hover { background: var(--room); color: var(--parchment); }
+.proj-item.active { background: var(--room); color: var(--parchment); box-shadow: inset 2px 0 0 var(--brass); }
+.proj-item .count {
+  margin-left: auto; font-family: var(--mono); font-size: 11px;
+  color: var(--brass); background: var(--brass-soft);
+  border-radius: 99px; padding: 0 7px; line-height: 18px;
+}
+.new-proj {
+  margin-top: 8px;
+  display: flex; gap: 6px; padding: 0 4px;
+}
+.new-proj input {
+  flex: 1; min-width: 0;
+  background: var(--room); border: 1px solid var(--edge); border-radius: var(--r);
+  padding: 7px 10px; color: var(--parchment);
+}
+.new-proj input::placeholder { color: var(--parchment-dim); }
+
+/* ---- buttons ---- */
+.btn {
+  background: var(--brass); color: #241d10; border: none;
+  border-radius: var(--r); padding: 7px 13px; cursor: pointer;
+  font-weight: 600;
+  transition: filter .15s;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.ghost {
+  background: none; color: var(--parchment-dim);
+  border: 1px solid var(--edge);
+}
+.btn.ghost:hover { color: var(--parchment); border-color: var(--slate); }
+
+/* ---- main column ---- */
+.main { display: flex; flex-direction: column; min-width: 0; }
+.main-head {
+  display: flex; align-items: baseline; gap: 14px;
+  padding: 18px 22px 0;
+}
+.room-name { font-family: var(--serif); font-size: 24px; }
+.room-slug { font-family: var(--mono); font-size: 12px; color: var(--parchment-dim); }
+.tabs { margin-left: auto; display: flex; gap: 2px; }
+.tab {
+  background: none; border: none; cursor: pointer;
+  color: var(--parchment-dim); padding: 6px 12px; border-radius: var(--r);
+}
+.tab:hover { color: var(--parchment); }
+.tab.active { color: var(--brass); background: var(--brass-soft); }
+.main-body { flex: 1; overflow: auto; padding: 18px 22px 22px; }
+
+/* ---- the board: rooms with arched doorways ---- */
+.board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; min-height: 100%; align-items: start; }
+@media (max-width: 1400px) { .board { grid-template-columns: repeat(2, 1fr); } }
+.col {
+  background: var(--room);
+  border: 1px solid var(--edge);
+  border-radius: var(--arch);   /* the doorway */
+  display: flex; flex-direction: column;
+  min-height: 220px;
+}
+.col-head {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--edge);
+  border-radius: var(--arch);
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--serif); font-size: 15px;
+}
+.col-head .dot { width: 8px; height: 8px; border-radius: 99px; }
+.col-head .n { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--parchment-dim); }
+.col.drop-over { border-color: var(--brass); }
+.col-cards { padding: 10px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+
+.card {
+  background: var(--night);
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--status, var(--slate));
+  border-radius: var(--r);
+  padding: 10px 12px;
+  cursor: grab;
+  transition: background .15s, transform .2s, opacity .2s;
+}
+.card:hover { background: var(--room-raised); }
+.card.arriving { animation: arrive .35s ease-out; }
+@keyframes arrive { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+.card-title { font-weight: 600; }
+.card-meta {
+  display: flex; gap: 8px; margin-top: 6px;
+  font-family: var(--mono); font-size: 11px; color: var(--parchment-dim);
+}
+.card-result {
+  margin-top: 6px; font-size: 12.5px; color: var(--parchment-dim);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 80px; overflow: hidden;
+}
+.card-actions { margin-top: 8px; display: flex; gap: 6px; }
+.card-actions button {
+  background: none; border: 1px solid var(--edge); border-radius: 7px;
+  color: var(--parchment-dim); font-size: 11.5px; padding: 2px 8px; cursor: pointer;
+}
+.card-actions button:hover { color: var(--brass); border-color: var(--brass); }
+
+/* ---- the corridor (chat rail) ---- */
+.corridor {
+  background: var(--night-deep);
+  border-left: 1px solid var(--edge);
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+.corridor-head {
+  padding: 18px 16px 10px;
+  font-family: var(--serif); font-size: 16px;
+  border-bottom: 1px solid var(--edge);
+}
+.corridor-sub { font-family: var(--sans); font-size: 12px; color: var(--parchment-dim); margin-top: 2px; }
+.chat-log { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 92%; }
+.msg .who { font-size: 11px; color: var(--parchment-dim); margin-bottom: 2px; }
+.msg .bubble {
+  background: var(--room); border: 1px solid var(--edge);
+  border-radius: 12px; padding: 8px 11px;
+  white-space: pre-wrap; word-break: break-word;
+}
+.msg.user { align-self: flex-end; }
+.msg.user .bubble { background: var(--brass-soft); border-color: transparent; }
+.msg .ticket {
+  font-family: var(--mono); font-size: 11px; color: var(--brass); margin-top: 3px;
+}
+.chat-input { padding: 12px; border-top: 1px solid var(--edge); display: flex; gap: 8px; }
+.chat-input textarea {
+  flex: 1; resize: none; min-height: 40px; max-height: 140px;
+  background: var(--room); border: 1px solid var(--edge); border-radius: var(--r);
+  padding: 9px 11px;
+}
+.chat-input textarea::placeholder { color: var(--parchment-dim); }
+
+/* ---- panels (assets / repos) ---- */
+.panel { display: flex; flex-direction: column; gap: 10px; max-width: 720px; }
+.panel-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--room); border: 1px solid var(--edge); border-radius: var(--r);
+  padding: 10px 14px;
+}
+.panel-row .path { font-family: var(--mono); font-size: 12.5px; }
+.panel-row .tag {
+  font-size: 11px; border-radius: 99px; padding: 1px 9px;
+  background: var(--brass-soft); color: var(--brass);
+}
+.panel-row .dim { color: var(--parchment-dim); font-size: 12px; margin-left: auto; }
+.panel form { display: flex; gap: 8px; }
+.panel form input {
+  flex: 1; background: var(--room); border: 1px solid var(--edge);
+  border-radius: var(--r); padding: 8px 11px;
+}
+
+/* ---- empty states: an invitation, not a mood ---- */
+.empty {
+  color: var(--parchment-dim);
+  padding: 40px 20px; text-align: center;
+}
+.empty .glyph { font-family: var(--serif); font-size: 34px; color: var(--brass); display: block; margin-bottom: 8px; }
+
+/* ---- toasts ---- */
+.toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  background: var(--room-raised); border: 1px solid var(--edge);
+  border-radius: 99px; padding: 8px 18px; z-index: 50;
+}
+.toast.error { border-color: var(--danger); color: var(--danger); }
