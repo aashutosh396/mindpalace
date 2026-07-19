@@ -120,6 +120,19 @@ const actions = {
     ])
     state.tasks = tasks; state.chat = chat; state.repos = repos; state.assets = assets
   },
+  async deleteProject(p: Project) {
+    try {
+      await api(`/projects/${p.id}`, { method: 'DELETE' })
+      state.projects = state.projects.filter(x => x.id !== p.id)
+      if (state.current?.id === p.id) {
+        state.current = null
+        state.tasks = []; state.chat = []; state.assets = []
+        state.repos = { own: [], linked: [] }
+        if (state.projects.length) await actions.open(state.projects[0])
+      }
+      toast(`Deleted "${p.name}"`)
+    } catch (e: any) { toast(e.message, true) }
+  },
   async createProject(name: string) {
     try {
       const p = await api('/projects', { method: 'POST', body: JSON.stringify({ name }) })

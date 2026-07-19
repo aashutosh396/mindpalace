@@ -165,6 +165,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--text-dim); background: var(--room-raised);
   border-radius: 99px; padding: 0 7px; line-height: 18px;
 }
+.room-x {
+  display: none; margin-left: auto; flex: none;
+  color: var(--text-dim); font-size: 13px;
+  border-radius: 6px; padding: 0 5px; line-height: 20px;
+}
+.room-x:hover { color: var(--danger); background: var(--bubble); }
+.proj-item:hover .room-x { display: block; }
+.proj-item:hover .count { display: none; }   /* ✕ takes the badge's spot on hover */
 .side-empty { font-size: 13.5px; color: var(--text-dim); padding: 4px 14px; }
 .new-proj { padding: 4px 8px 2px; display: flex; }
 .new-proj input {

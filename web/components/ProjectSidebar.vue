@@ -2,7 +2,13 @@
 import { nextTick, onMounted, ref } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
 
-const { state, open, createProject, getUpdate } = useWorkspace()
+const { state, open, createProject, deleteProject, getUpdate } = useWorkspace()
+
+function confirmDelete(p: any) {
+  if (window.confirm(`Delete "${p.name}"? Its cards and chat go with it (asset files stay on disk).`)) {
+    deleteProject(p)
+  }
+}
 const creating = ref(false)
 const name = ref('')
 const nameInput = ref<HTMLInputElement>()
@@ -62,6 +68,11 @@ async function create() {
         <span class="room-lead" :class="{ on: state.current?.id === p.id }">●</span>
         <span class="proj-name">{{ p.name }}</span>
         <span v-if="p.open_tasks" class="count">{{ p.open_tasks }}</span>
+        <span
+          class="room-x" role="button" tabindex="0"
+          :title="`Delete ${p.name}`" :aria-label="`Delete ${p.name}`"
+          @click.stop="confirmDelete(p)"
+          @keydown.enter.stop="confirmDelete(p)">✕</span>
       </button>
       <p v-if="!state.projects.length" class="side-empty">No rooms yet.</p>
     </nav>
