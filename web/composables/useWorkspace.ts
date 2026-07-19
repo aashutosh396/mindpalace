@@ -18,6 +18,7 @@ const state = reactive({
   tasks: [] as Task[],
   chat: [] as ChatMsg[],
   repos: { own: [] as any[], linked: [] as any[] },
+  allRepos: [] as any[],           // every repo in the palace, for the link picker
   assets: [] as any[],
   arrived: new Set<number>(),      // task ids that just appeared (for the arrive animation)
   progress: {} as Record<number, string>,   // live step line per working card
@@ -68,6 +69,8 @@ function connect() {
       if (data.status !== 'in_progress') delete state.progress[data.id]
     } else if (event === 'task.progress') {
       state.progress[data.task_id] = data.text
+    } else if (event === 'repos.changed' && data.project_id === state.current?.id) {
+      api(`/projects/${data.project_id}/repos`).then(r => { state.repos = r })
     } else if (event === 'chat.message' && data.project_id === state.current?.id) {
       if (!state.chat.find(m => m.id === data.id)) state.chat.push(data)
     }
@@ -123,6 +126,26 @@ const actions = {
       state.repos = await api(`/projects/${state.current.id}/repos`)
       toast('Repo attached')
     } catch (e: any) { toast(e.message, true) }
+  },
+  async linkRepo(repoId: number) {
+    if (!state.current) return
+    try {
+      await api(`/projects/${state.current.id}/repos`, {
+        method: 'POST', body: JSON.stringify({ link_repo_id: repoId })
+      })
+      state.repos = await api(`/projects/${state.current.id}/repos`)
+      toast('Repo linked')
+    } catch (e: any) { toast(e.message, true) }
+  },
+  async removeRepo(repoId: number) {
+    if (!state.current) return
+    try {
+      await api(`/projects/${state.current.id}/repos/${repoId}`, { method: 'DELETE' })
+      state.repos = await api(`/projects/${state.current.id}/repos`)
+    } catch (e: any) { toast(e.message, true) }
+  },
+  async loadAllRepos() {
+    try { state.allRepos = await api('/repos') } catch { /* picker just stays empty */ }
   },
   toast
 }

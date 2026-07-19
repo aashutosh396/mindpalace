@@ -242,10 +242,15 @@ button, input, textarea { font: inherit; color: inherit; }
 }
 .panel-row .dim { color: var(--parchment-dim); font-size: 12px; margin-left: auto; }
 .panel form { display: flex; gap: 8px; }
-.panel form input {
-  flex: 1; background: var(--room); border: 1px solid var(--edge);
-  border-radius: var(--r); padding: 8px 11px;
+.panel form input, .panel form select {
+  flex: 1; min-width: 0; background: var(--room); border: 1px solid var(--edge);
+  border-radius: var(--r); padding: 8px 11px; color: var(--parchment);
 }
+.row-x {
+  margin-left: auto; background: none; border: none; cursor: pointer;
+  color: var(--parchment-dim); border-radius: 6px; padding: 2px 6px;
+}
+.row-x:hover { color: var(--danger); }
 
 /* ---- empty states: an invitation, not a mood ---- */
 .empty {

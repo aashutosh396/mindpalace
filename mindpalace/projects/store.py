@@ -165,6 +165,38 @@ def repos_for(pid: int) -> dict:
     return {"own": _rows(own), "linked": _rows(linked)}
 
 
+def all_repos() -> list[dict]:
+    """Every repo in the palace with its owner room — feeds the link picker."""
+    with _lock:
+        rows = _db().execute(
+            """SELECT r.*, p.slug AS owner_slug, p.name AS owner_name
+               FROM repo r JOIN project p ON p.id = r.project_id
+               ORDER BY p.name, r.is_primary DESC, r.id""").fetchall()
+    return _rows(rows)
+
+
+def remove_repo(pid: int, repo_id: int) -> bool:
+    """Owner project removes its repo (links from other rooms go with it)."""
+    with _lock:
+        db = _db()
+        if not db.execute("SELECT 1 FROM repo WHERE id=? AND project_id=?",
+                          (repo_id, pid)).fetchone():
+            return False
+        db.execute("DELETE FROM repo_link WHERE repo_id=?", (repo_id,))
+        db.execute("DELETE FROM repo WHERE id=?", (repo_id,))
+        db.commit()
+    return True
+
+
+def unlink_repo(pid: int, repo_id: int) -> bool:
+    with _lock:
+        db = _db()
+        cur = db.execute("DELETE FROM repo_link WHERE project_id=? AND repo_id=?",
+                         (pid, repo_id))
+        db.commit()
+    return cur.rowcount > 0
+
+
 def repo_paths_for(pid: int) -> list[str]:
     """The task sandbox allowlist: own ∪ linked repo paths (asset dir added by caller)."""
     r = repos_for(pid)

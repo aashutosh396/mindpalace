@@ -121,9 +121,21 @@ def create_app():
         return {"ok": True}
 
     # ---- repos ----
+    @app.get("/api/repos")
+    def repos_all():
+        return store.all_repos()
+
     @app.get("/api/projects/{pid}/repos")
     def repos_list(pid: int):
         return store.repos_for(pid)
+
+    @app.delete("/api/projects/{pid}/repos/{rid}")
+    async def repos_remove(pid: int, rid: int):
+        # own repo → remove it (links elsewhere die with it); linked → just unlink
+        if not (store.remove_repo(pid, rid) or store.unlink_repo(pid, rid)):
+            return _404("repo")
+        await bus.broadcast("repos.changed", {"project_id": pid})
+        return {"ok": True}
 
     @app.post("/api/projects/{pid}/repos")
     async def repos_add(pid: int, body: dict):
