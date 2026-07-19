@@ -36,17 +36,35 @@ _WRAP = (
 )
 
 
+_KEEPER = (
+    "You are the PALACE-KEEPER — you work general cards about the palace itself "
+    "(the owner's project workspace), not any single project.\n"
+    "You can manage the palace through its local API at http://127.0.0.1:{port}:\n"
+    "  GET  /api/projects                     — list rooms\n"
+    "  POST /api/projects {{\"name\": ...}}      — create a room\n"
+    "  POST /api/projects/<id>/repos {{\"path\": \"/abs/folder\"}}\n"
+    "      — attach a project's MAIN FOLDER to a room (nested git repos are "
+    "auto-discovered; first attach becomes the working directory)\n"
+    "Typical chores: scan the owner's machine or vault for projects, create rooms "
+    "for them, attach their folders. Prefer editing the palace via the API, files "
+    "via the filesystem."
+)
+
+
 def _ctx_for(task: dict) -> TaskContext | None:
+    from .. import config
     p = store.get_project(task["project_id"])
     if not p:
         return None
     repos = store.repo_paths_for(task["project_id"])
     assets = str(store.project_dir(p["slug"]) / "assets")
-    return TaskContext(
-        project_slug=p["slug"], repo_paths=repos, asset_dir=assets,
-        system=_SYSTEM.format(name=p["name"],
-                              repos="\n".join(f"  - {r}" for r in repos) or "  (none attached yet)",
-                              assets=assets))
+    system = _SYSTEM.format(name=p["name"],
+                            repos="\n".join(f"  - {r}" for r in repos) or "  (none attached yet)",
+                            assets=assets)
+    if p["slug"] == store.HOME_SLUG:
+        port = int(config.load_config().get("web", {}).get("port", 7777))
+        system = _KEEPER.format(port=port)
+    return TaskContext(project_slug=p["slug"], repo_paths=repos, asset_dir=assets, system=system)
 
 
 async def run_one(task: dict, broadcast) -> None:

@@ -133,6 +133,9 @@ def create_app():
 
     @app.delete("/api/projects/{pid}")
     async def project_delete(pid: int):
+        p = store.get_project(pid)
+        if p and p["slug"] == store.HOME_SLUG:
+            return JSONResponse({"error": "the Home workroom can't be deleted"}, status_code=422)
         if not store.delete_project(pid):
             return _404("project")
         await bus.broadcast("project.deleted", {"id": pid})

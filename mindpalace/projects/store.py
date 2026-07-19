@@ -98,14 +98,35 @@ def get_project(pid: int) -> dict | None:
     return dict(r) if r else None
 
 
-def list_projects() -> list[dict]:
+HOME_SLUG = "home"
+
+
+def ensure_home_project() -> dict:
+    """The reserved Home workroom — general, palace-level cards live here."""
+    with _lock:
+        r = _db().execute("SELECT * FROM project WHERE slug=?", (HOME_SLUG,)).fetchone()
+    if r:
+        return dict(r)
+    with _lock:
+        db = _db()
+        cur = db.execute("INSERT INTO project (slug, name, created_at) VALUES (?,?,?)",
+                         (HOME_SLUG, "Home", time.time()))
+        db.commit()
+        pid = cur.lastrowid
+    return get_project(pid)
+
+
+def list_projects(include_home: bool = False) -> list[dict]:
     with _lock:
         rows = _db().execute(
             """SELECT p.*,
                  (SELECT COUNT(*) FROM task t WHERE t.project_id=p.id
                     AND t.status != 'done') AS open_tasks
                FROM project p ORDER BY p.created_at DESC""").fetchall()
-    return _rows(rows)
+    out = _rows(rows)
+    if not include_home:
+        out = [p for p in out if p["slug"] != HOME_SLUG]
+    return out
 
 
 def rename_project(pid: int, name: str) -> dict | None:

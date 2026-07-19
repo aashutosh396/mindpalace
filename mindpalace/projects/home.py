@@ -31,7 +31,11 @@ _PROMPT = (
     '  {{"action":"file","room":"<existing slug>","title":"...","body":"...","reply":"..."}}\n'
     '      work that belongs to an EXISTING room (match loosely by name/topic)\n'
     '  {{"action":"create","room_name":"...","title":"...","body":"...","reply":"..."}}\n'
-    '      work for a genuinely NEW project no room covers\n\n'
+    '      work for a genuinely NEW project no room covers\n'
+    '  {{"action":"general","title":"...","body":"...","reply":"..."}}\n'
+    '      work about the PALACE ITSELF, not one project — scanning folders for '
+    'projects, creating/organizing rooms, machine-wide chores. Files a general card '
+    'the palace-keeper works.\n\n'
     "Rules: STRONGLY prefer file over create — create only when nothing plausibly "
     "matches. body = the owner's full instruction. reply = 1-3 short lines, simple "
     "English, and when you file/create, SAY where it went so a wrong guess is easy "
@@ -77,7 +81,7 @@ async def _decide(text: str) -> dict:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=90)
         d = _parse(out.decode(errors="replace"))
-        if d and d.get("action") in ("chat", "file", "create"):
+        if d and d.get("action") in ("chat", "file", "create", "general"):
             return d
     except Exception:
         try:
@@ -107,6 +111,13 @@ async def handle(text: str, broadcast) -> None:
     """One hall turn: decide → execute → reply. The user message is already stored."""
     d = await _decide(text)
     action, ref_pid, task_id = d.get("action"), None, None
+
+    if action == "general":                      # palace-level work → the Home workroom
+        p = store.ensure_home_project()
+        title = (d.get("title") or text.splitlines()[0])[:120]
+        task = store.create_task(p["id"], title, d.get("body") or text)
+        ref_pid, task_id = p["id"], task["id"]
+        await broadcast("task.created", task)
 
     if action in ("file", "create"):
         title = (d.get("title") or text.splitlines()[0])[:120]
