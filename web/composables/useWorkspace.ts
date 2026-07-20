@@ -379,7 +379,7 @@ const actions = {
   },
   remindersApi: {
     list: async () => { state.reminders = await api('/reminders') },
-    add: (text: string, due_at: number) => api('/reminders', { method: 'POST', body: JSON.stringify({ text, due_at }) }),
+    add: (text: string, due_at: number, repeat = '') => api('/reminders', { method: 'POST', body: JSON.stringify({ text, due_at, repeat }) }),
     update: (rid: number, body: any) => api(`/reminders/${rid}`, { method: 'PATCH', body: JSON.stringify(body) }),
     remove: (rid: number) => api(`/reminders/${rid}`, { method: 'DELETE' })
   },

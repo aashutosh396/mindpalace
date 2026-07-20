@@ -34,9 +34,11 @@ _PROMPT = (
     '      work that belongs to an EXISTING room (match loosely by name/topic/projects)\n'
     '  {{"action":"general","title":"...","body":"...","reply":"..."}}\n'
     '      work about the PALACE ITSELF handled by the keeper (see below)\n'
-    '  {{"action":"remind","text":"...","when":"YYYY-MM-DD HH:MM","reply":"..."}}\n'
+    '  {{"action":"remind","text":"...","when":"YYYY-MM-DD HH:MM","repeat":"","reply":"..."}}\n'
     '      the owner asks to be REMINDED of something at a time — no agent work, '
-    'just a ping. Compute the absolute local datetime from IT IS NOW.\n\n'
+    'just a ping. Compute the absolute local datetime from IT IS NOW. repeat is '
+    '"" for once, or "hourly"/"daily"/"weekly" when they want it repeating '
+    '(e.g. "every day at 9", "remind me weekly").\n\n'
     "Rules: body = the owner's full instruction. reply = 1-3 short lines, simple "
     "English; when you file, SAY where it went. JSON only."
 )
@@ -124,7 +126,7 @@ async def handle(text: str, broadcast) -> None:
         import time as _t
         try:
             due = _t.mktime(_t.strptime(d.get("when", ""), "%Y-%m-%d %H:%M"))
-            store.add_reminder(d.get("text") or text, due)
+            store.add_reminder(d.get("text") or text, due, d.get("repeat") or "")
             await broadcast("reminders.changed", {})
         except (ValueError, OverflowError):
             reply = "(I couldn't parse that time — try 'remind me at 2026-07-21 09:00' style.)"

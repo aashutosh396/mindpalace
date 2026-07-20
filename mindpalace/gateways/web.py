@@ -460,13 +460,14 @@ def create_app():
         due = body.get("due_at")
         if not text or not isinstance(due, (int, float)):
             return JSONResponse({"error": "need text + due_at (epoch seconds)"}, status_code=422)
-        r = store.add_reminder(text, float(due))
+        r = store.add_reminder(text, float(due), (body.get("repeat") or ""))
         await bus.broadcast("reminders.changed", {})
         return r
 
     @app.patch("/api/reminders/{rid}")
     async def reminders_patch(rid: int, body: dict):
-        r = store.update_reminder(rid, body.get("text"), body.get("due_at"))
+        r = store.update_reminder(rid, body.get("text"), body.get("due_at"),
+                                  body.get("repeat"))
         if not r:
             return _404("reminder")
         await bus.broadcast("reminders.changed", {})

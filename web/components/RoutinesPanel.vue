@@ -7,14 +7,21 @@ const { state, routinesApi, openTask } = useWorkspace()
 const editing = ref<any | null>(null)
 
 function startEdit(r: any) {
-  editing.value = { id: r.id, title: r.title, body: r.body, schedule: r.schedule }
+  const [kind, arg] = (r.schedule || 'daily@09:00').split('@')
+  editing.value = {
+    id: r.id, title: r.title, body: r.body || '',
+    mode: kind === 'every' ? 'every' : 'daily',
+    at: kind === 'daily' ? arg : '09:00',
+    everyN: kind === 'every' ? (parseInt(arg) || 1) : 4,
+    everyUnit: kind === 'every' && String(arg).endsWith('m') ? 'm' : 'h'
+  }
 }
 
 async function saveEdit() {
   if (!editing.value) return
-  await routinesApi.update(editing.value.id, {
-    title: editing.value.title, body: editing.value.body, schedule: editing.value.schedule
-  })
+  const e = editing.value
+  const schedule = e.mode === 'daily' ? `daily@${e.at}` : `every@${e.everyN}${e.everyUnit}`
+  await routinesApi.update(e.id, { title: e.title, body: e.body, schedule })
   editing.value = null
   await load()
 }
@@ -61,6 +68,7 @@ async function toggle(r: any) {
 }
 
 async function remove(r: any) {
+  if (!window.confirm(`Delete routine “${r.title}”? Its run history goes with it — this cannot be undone.`)) return
   await routinesApi.remove(r.id)
   await load()
 }
@@ -102,14 +110,24 @@ async function remove(r: any) {
             <button class="btn ghost" style="flex: none" @click.stop="toggle(r)">
           {{ r.enabled ? 'Pause' : 'Resume' }}
         </button>
-        <button class="row-x" style="margin-left: 4px" title="Delete routine" @click.stop="remove(r)">✕</button>
+        <button class="btn ghost danger" style="flex: none; margin-left: 4px" @click.stop="remove(r)">Delete</button>
       </div>
           <div v-if="editing?.id === r.id" class="routine-form" style="margin: 4px 0 6px" @click.stop>
             <input v-model="editing.title" aria-label="Routine title" />
             <textarea v-model="editing.body" rows="2" aria-label="Routine details"></textarea>
             <div class="routine-when">
-              <input v-model="editing.schedule" style="width: 140px" aria-label="Schedule"
-                title="daily@HH:MM or every@N h/m — e.g. daily@09:00, every@4h" />
+              <select v-model="editing.mode" aria-label="Schedule type">
+                <option value="daily">daily at</option>
+                <option value="every">every</option>
+              </select>
+              <input v-if="editing.mode === 'daily'" v-model="editing.at" type="time" aria-label="Time of day" />
+              <template v-else>
+                <input v-model.number="editing.everyN" type="number" min="1" style="width: 70px" aria-label="Interval" />
+                <select v-model="editing.everyUnit" aria-label="Interval unit">
+                  <option value="h">hours</option>
+                  <option value="m">minutes</option>
+                </select>
+              </template>
               <button class="btn" @click="saveEdit">Save</button>
               <button class="btn ghost" @click="editing = null">Cancel</button>
             </div>

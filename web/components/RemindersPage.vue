@@ -7,14 +7,15 @@ const { state, remindersApi, toast } = useWorkspace()
 
 const text = ref('')
 const when = ref('')
+const repeat = ref('')
 
 onMounted(() => remindersApi.list())
 
 async function add() {
   if (!text.value.trim() || !when.value) return
   const due = new Date(when.value).getTime() / 1000
-  await remindersApi.add(text.value.trim(), due)
-  text.value = ''; when.value = ''
+  await remindersApi.add(text.value.trim(), due, repeat.value)
+  text.value = ''; when.value = ''; repeat.value = ''
   await remindersApi.list()
   toast('Reminder set')
 }
@@ -24,14 +25,15 @@ const editing = ref<any | null>(null)
 function startEdit(r: any) {
   const d = new Date(r.due_at * 1000)
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
-  editing.value = { id: r.id, text: r.text, when: d.toISOString().slice(0, 16) }
+  editing.value = { id: r.id, text: r.text, when: d.toISOString().slice(0, 16), repeat: r.repeat || '' }
 }
 
 async function saveEdit() {
   if (!editing.value) return
   await remindersApi.update(editing.value.id, {
     text: editing.value.text,
-    due_at: new Date(editing.value.when).getTime() / 1000
+    due_at: new Date(editing.value.when).getTime() / 1000,
+    repeat: editing.value.repeat
   })
   editing.value = null
   await remindersApi.list()
@@ -56,6 +58,12 @@ function fmt(ts: number) {
       <form class="rem-add page" @submit.prevent="add">
         <input v-model="text" placeholder="Remind me to…" aria-label="Reminder text" />
         <input v-model="when" type="datetime-local" aria-label="When" />
+        <select v-model="repeat" aria-label="Repeat" class="rem-repeat">
+          <option value="">once</option>
+          <option value="hourly">hourly</option>
+          <option value="daily">daily</option>
+          <option value="weekly">weekly</option>
+        </select>
         <button class="btn" :disabled="!text.trim() || !when">Set</button>
       </form>
 
@@ -69,6 +77,12 @@ function fmt(ts: number) {
           <form class="rem-add" style="flex: 1" @submit.prevent="saveEdit">
             <input v-model="editing.text" aria-label="Reminder text" />
             <input v-model="editing.when" type="datetime-local" aria-label="When" />
+            <select v-model="editing.repeat" aria-label="Repeat" class="rem-repeat">
+              <option value="">once</option>
+              <option value="hourly">hourly</option>
+              <option value="daily">daily</option>
+              <option value="weekly">weekly</option>
+            </select>
             <button class="btn">Save</button>
             <button class="btn ghost" type="button" @click="editing = null">Cancel</button>
           </form>
@@ -76,9 +90,10 @@ function fmt(ts: number) {
         <template v-else>
           <AlarmClock :size="14" :stroke-width="1.75" class="rem-ico" />
           <span class="rem-text">{{ r.text }}</span>
+          <span v-if="r.repeat" class="rem-rep">↻ {{ r.repeat }}</span>
           <span class="rem-when">{{ fmt(r.due_at) }}</span>
           <button class="btn ghost" style="flex: none" @click="startEdit(r)">Edit</button>
-          <button class="row-x" :aria-label="`Delete reminder: ${r.text}`" @click="remove(r)">✕</button>
+          <button class="btn ghost danger" style="flex: none" @click="remove(r)">Delete</button>
         </template>
       </div>
     </div>

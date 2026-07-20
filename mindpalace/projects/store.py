@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS home_chat (
   ref_room_id INTEGER, task_id INTEGER, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS reminder (    -- a ping at a time; no agent run
   id INTEGER PRIMARY KEY, text TEXT NOT NULL,
-  due_at REAL NOT NULL, fired INTEGER DEFAULT 0, created_at REAL NOT NULL);
+  due_at REAL NOT NULL, repeat TEXT DEFAULT '',   -- '' once | hourly | daily | weekly
+  fired INTEGER DEFAULT 0, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS asset (
   id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES room(id),
   filename TEXT NOT NULL, path TEXT NOT NULL, size INTEGER DEFAULT 0,
@@ -100,6 +101,10 @@ def _db() -> sqlite3.Connection:
             pass
         try:                                          # migration: room context
             _conn.execute("ALTER TABLE room ADD COLUMN context TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+        try:                                          # migration: repeating reminders
+            _conn.execute("ALTER TABLE reminder ADD COLUMN repeat TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
         _conn.commit()
@@ -532,6 +537,7 @@ def list_routines(rid: int | None = None) -> list[dict]:
 def delete_routine(rtid: int) -> bool:
     with _lock:
         db = _db()
+        db.execute("DELETE FROM routine_run WHERE routine_id=?", (rtid,))
         cur = db.execute("DELETE FROM routine WHERE id=?", (rtid,))
         db.commit()
     return cur.rowcount > 0
@@ -619,14 +625,19 @@ def mark_routine_run(rtid: int, schedule: str) -> None:
 
 
 # ---- reminders (a ping at a time; no agent run) ----
-def add_reminder(text: str, due_at: float) -> dict:
+REPEAT_SECS = {"hourly": 3600, "daily": 86400, "weekly": 604800}
+
+
+def add_reminder(text: str, due_at: float, repeat: str = "") -> dict:
     now = time.time()
+    repeat = repeat if repeat in REPEAT_SECS else ""
     with _lock:
         db = _db()
-        cur = db.execute("INSERT INTO reminder (text, due_at, created_at) VALUES (?,?,?)",
-                         (text, due_at, now))
+        cur = db.execute("INSERT INTO reminder (text, due_at, repeat, created_at) VALUES (?,?,?,?)",
+                         (text, due_at, repeat, now))
         db.commit()
-        return {"id": cur.lastrowid, "text": text, "due_at": due_at, "created_at": now}
+        return {"id": cur.lastrowid, "text": text, "due_at": due_at,
+                "repeat": repeat, "created_at": now}
 
 
 def list_reminders() -> list[dict]:
@@ -636,7 +647,7 @@ def list_reminders() -> list[dict]:
     return _rows(rows)
 
 
-def update_reminder(rid: int, text=None, due_at=None) -> dict | None:
+def update_reminder(rid: int, text=None, due_at=None, repeat=None) -> dict | None:
     with _lock:
         db = _db()
         r = db.execute("SELECT * FROM reminder WHERE id=?", (rid,)).fetchone()
@@ -646,6 +657,9 @@ def update_reminder(rid: int, text=None, due_at=None) -> dict | None:
             db.execute("UPDATE reminder SET text=? WHERE id=?", (text.strip(), rid))
         if isinstance(due_at, (int, float)):
             db.execute("UPDATE reminder SET due_at=? WHERE id=?", (float(due_at), rid))
+        if repeat is not None:
+            db.execute("UPDATE reminder SET repeat=? WHERE id=?",
+                       (repeat if repeat in REPEAT_SECS else "", rid))
         db.commit()
         return dict(db.execute("SELECT * FROM reminder WHERE id=?", (rid,)).fetchone())
 
@@ -662,12 +676,20 @@ def due_reminders(now: float | None = None) -> list[dict]:
     now = now or time.time()
     with _lock:
         db = _db()
-        rows = db.execute(
-            "SELECT * FROM reminder WHERE fired=0 AND due_at <= ?", (now,)).fetchall()
+        rows = _rows(db.execute(
+            "SELECT * FROM reminder WHERE fired=0 AND due_at <= ?", (now,)).fetchall())
+        for r in rows:
+            step = REPEAT_SECS.get(r.get("repeat") or "")
+            if step:                                  # repeating: roll forward, never fired
+                nxt = r["due_at"]
+                while nxt <= now:
+                    nxt += step
+                db.execute("UPDATE reminder SET due_at=? WHERE id=?", (nxt, r["id"]))
+            else:
+                db.execute("UPDATE reminder SET fired=1 WHERE id=?", (r["id"],))
         if rows:
-            db.execute("UPDATE reminder SET fired=1 WHERE fired=0 AND due_at <= ?", (now,))
             db.commit()
-    return _rows(rows)
+    return rows
 
 
 # ======================================================================
