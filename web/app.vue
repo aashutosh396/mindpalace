@@ -44,6 +44,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <button class="tab" :class="{ active: tab === 'repos' }" @click="tab = 'repos'">Projects</button>
             <button class="tab" :class="{ active: tab === 'assets' }" @click="tab = 'assets'">Assets</button>
             <button class="tab" :class="{ active: tab === 'routines' }" @click="tab = 'routines'">Routines</button>
+            <button class="tab" :title="state.railOpen ? 'Hide the board' : 'Show the board'"
+              @click="toggleRail">{{ state.railOpen ? '⟩' : '⟨' }}</button>
           </nav>
         </div>
         <ChatRail v-if="tab === 'chat'" class="center" />
@@ -58,12 +60,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <div class="main-head">
           <h1 class="room-name">Home</h1>
           <span class="room-slug">the hall — speak, I'll route it</span>
+          <nav class="tabs">
+            <button class="tab" :title="state.railOpen ? 'Hide the board' : 'Show the board'"
+              @click="toggleRail">{{ state.railOpen ? '⟩' : '⟨' }}</button>
+          </nav>
         </div>
         <ChatRail class="center" />
       </template>
     </main>
 
     <BoardRail v-show="state.railOpen" />
+
+    <div class="foot foot-side"><ProfileFoot /></div>
+    <div class="foot foot-main"><Composer /></div>
+    <div v-show="state.railOpen" class="foot foot-rail"></div>
 
     <div v-if="state.toast" class="toast" :class="{ error: state.toastError }" role="status">
       {{ state.toast }}
@@ -73,19 +83,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     <SearchOverlay v-if="state.searchOpen" />
     <ProjectsSheet v-if="state.projectsOpen" />
     <OnboardingOverlay v-if="state.showOnboarding" />
-
-    <footer class="baseline">
-      <span class="bl-item">
-        <span :style="{ color: state.connected ? 'var(--sage)' : 'var(--danger)' }">●</span>
-        {{ state.connected ? 'live' : 'reconnecting' }}
-        <template v-if="state.health"> · {{ state.health.commit.slice(0, 7) }}</template>
-      </span>
-      <span class="bl-spacer"></span>
-      <span class="bl-item dim-inline">⌘K search</span>
-      <span class="bl-item">{{ state.allTasks.filter(t => t.status === 'review').length }} in review</span>
-      <button class="bl-toggle" :title="state.railOpen ? 'Hide the board' : 'Show the board'"
-        @click="toggleRail">{{ state.railOpen ? 'board ⟩' : '⟨ board' }}</button>
-    </footer>
 
     <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">
       <div class="sheet" role="dialog" aria-label="Project board">

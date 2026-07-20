@@ -1,27 +1,11 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
 
 const { state, open, goHome, createRoom, deleteRoom, loadProjects, getUpdate } = useWorkspace()
 const creating = ref(false)
 const name = ref('')
 const nameInput = ref<HTMLInputElement>()
-const dark = ref(false)
-
-onMounted(() => {
-  dark.value = localStorage.getItem('theme') === 'dark'
-  apply()
-})
-
-function apply() {
-  document.documentElement.dataset.theme = dark.value ? 'dark' : 'light'
-}
-
-function toggleTheme() {
-  dark.value = !dark.value
-  localStorage.setItem('theme', dark.value ? 'dark' : 'light')
-  apply()
-}
 
 async function startCreate() {
   creating.value = true
@@ -98,18 +82,5 @@ async function openProjects() {
       {{ state.updating ? 'Checking…' : state.update?.behind ? 'Get update' : 'Check for updates' }}
     </button>
 
-    <div class="side-user">
-      <div class="avatar">m</div>
-      <div class="side-user-meta">
-        <div class="name">mindpalace</div>
-        <div class="plan">
-          <span :style="{ color: state.connected ? 'var(--sage)' : 'var(--danger)' }">●</span>
-          {{ state.connected ? 'live' : 'reconnecting…' }}
-          <template v-if="state.health"> · {{ state.health.commit.slice(0, 7) }}</template>
-        </div>
-      </div>
-      <button class="theme-toggle" :title="dark ? 'Switch to light' : 'Switch to dark'"
-        @click="toggleTheme">{{ dark ? '☀' : '☾' }}</button>
-    </div>
   </aside>
 </template>
