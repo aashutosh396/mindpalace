@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS repo (
 CREATE TABLE IF NOT EXISTS room (        -- the owner's channels
   id INTEGER PRIMARY KEY, slug TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
   icon TEXT DEFAULT 'hash',
+  context TEXT DEFAULT '',               -- what this room is for (~250 chars, grounds the agent)
   pending_proposal TEXT,                 -- last 'Next I propose…' awaiting a 'start'
   created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS room_project (
@@ -95,6 +96,10 @@ def _db() -> sqlite3.Connection:
             pass
         try:                                          # migration: proposals
             _conn.execute("ALTER TABLE room ADD COLUMN pending_proposal TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:                                          # migration: room context
+            _conn.execute("ALTER TABLE room ADD COLUMN context TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
         _conn.commit()
@@ -209,12 +214,12 @@ def remove_repo(pid: int, repo_id: int) -> bool:
 # ======================================================================
 # ROOMS — the owner's channels
 # ======================================================================
-def create_room(name: str) -> dict:
+def create_room(name: str, context: str = "") -> dict:
     with _lock:
         db = _db()
         slug = _unique_slug(db, "room", slugify(name))
-        cur = db.execute("INSERT INTO room (slug, name, created_at) VALUES (?,?,?)",
-                         (slug, name.strip() or slug, time.time()))
+        cur = db.execute("INSERT INTO room (slug, name, context, created_at) VALUES (?,?,?,?)",
+                         (slug, name.strip() or slug, context.strip()[:250], time.time()))
         db.commit()
         rid = cur.lastrowid
     (room_dir(slug) / "assets").mkdir(parents=True, exist_ok=True)
@@ -255,13 +260,16 @@ def list_rooms(include_home: bool = False) -> list[dict]:
     return out
 
 
-def update_room(rid: int, name: str | None = None, icon: str | None = None) -> dict | None:
+def update_room(rid: int, name: str | None = None, icon: str | None = None,
+                context: str | None = None) -> dict | None:
     with _lock:
         db = _db()
         if name and name.strip():
             db.execute("UPDATE room SET name=? WHERE id=?", (name.strip(), rid))
         if icon:
             db.execute("UPDATE room SET icon=? WHERE id=?", (icon.strip()[:40], rid))
+        if context is not None:
+            db.execute("UPDATE room SET context=? WHERE id=?", (context.strip()[:250], rid))
         db.commit()
     return get_room(rid)
 
@@ -361,6 +369,7 @@ def rooms_index() -> list[dict]:
         open_cards = [t for t in tasks if t["status"] != "done"]
         out.append({
             "slug": r["slug"], "name": r["name"], "id": r["id"],
+            "context": r.get("context") or "",
             "projects": [p["name"] for p in projects_for_room(r["id"])],
             "counts": {s: sum(1 for t in tasks if t["status"] == s) for s in STATUSES},
             "open_titles": [t["title"] for t in open_cards[:3]],

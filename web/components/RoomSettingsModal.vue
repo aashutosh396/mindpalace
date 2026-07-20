@@ -7,10 +7,11 @@ import { ROOM_ICONS } from '../composables/icons'
 const { state, updateRoom } = useWorkspace()
 const room = state.roomSettings!
 const name = ref(room.name)
+const context = ref((room as any).context || '')
 const icon = ref(room.icon || 'hash')
 
 async function save() {
-  await updateRoom(room.id, { name: name.value, icon: icon.value })
+  await updateRoom(room.id, { name: name.value, icon: icon.value, context: context.value })
   state.roomSettings = null
 }
 </script>
@@ -27,6 +28,12 @@ async function save() {
 
       <div class="tm-section">Name</div>
       <input v-model="name" class="onboard-input" aria-label="Room name" @keydown.enter="save" />
+
+      <div class="tm-section">Context</div>
+      <textarea
+        v-model="context" class="onboard-input" rows="3" maxlength="250" style="resize: none"
+        placeholder="What is this room for? (~250 chars — helps the agent know what to do here)"
+        aria-label="Room context"></textarea>
 
       <div class="tm-section">Icon</div>
       <div class="icon-grid" role="radiogroup" aria-label="Room icon">

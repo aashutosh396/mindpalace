@@ -50,7 +50,9 @@ def _rooms_block() -> str:
     for r in idx:
         c = r["counts"]
         lines.append(
-            f"- {r['slug']} (\"{r['name']}\") — projects: {', '.join(r['projects']) or 'none'}; "
+            f"- {r['slug']} (\"{r['name']}\")"
+            + (f" — {r['context']}" if r.get("context") else "")
+            + f" — projects: {', '.join(r['projects']) or 'none'}; "
             f"todo {c['todo']}, doing {c['in_progress']}, review {c['review']}, done {c['done']}"
             + (f"; open: {'; '.join(r['open_titles'])}" if r["open_titles"] else ""))
     return "\n".join(lines)

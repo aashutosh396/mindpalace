@@ -268,7 +268,7 @@ def create_app():
         name = (body.get("name") or "").strip()
         if not name:
             return JSONResponse({"error": "name required"}, status_code=422)
-        r = store.create_room(name)
+        r = store.create_room(name, (body.get("context") or ""))
         # a room named like an inventory project connects to it automatically
         import difflib
         projs = store.list_projects()
@@ -288,7 +288,8 @@ def create_app():
 
     @app.patch("/api/rooms/{rid}")
     async def room_update(rid: int, body: dict):
-        r = store.update_room(rid, name=body.get("name"), icon=body.get("icon"))
+        r = store.update_room(rid, name=body.get("name"), icon=body.get("icon"),
+                              context=body.get("context"))
         if r:
             await bus.broadcast("room.updated", r)
         return r or _404("room")

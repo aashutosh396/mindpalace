@@ -19,6 +19,7 @@ from ..providers.base import TaskContext
 
 _SYSTEM = (
     "You are the resident agent of the room '{name}'.\n"
+    "{context}"
     "Projects connected to this room — do your work INSIDE their folders:\n{repos}\n"
     "Room assets folder (briefs, designs, uploads the owner gave you): {assets}\n"
     "You have full machine access; stay within this room's world unless the "
@@ -65,7 +66,8 @@ def _ctx_for(task: dict) -> TaskContext | None:
     repos_block = "\n".join(
         f"  - {p['name']}: " + (", ".join(x["path"] for x in p["repos"]) or "(no folders)")
         for p in projects) or "  (no projects connected yet)"
-    system = _SYSTEM.format(name=r["name"], repos=repos_block, assets=assets)
+    ctx_line = f"What this room is for: {r['context']}\n" if r.get("context") else ""
+    system = _SYSTEM.format(name=r["name"], context=ctx_line, repos=repos_block, assets=assets)
     if r["slug"] == store.HOME_SLUG:
         port = int(config.load_config().get("web", {}).get("port", 7777))
         system = _KEEPER.format(port=port)

@@ -279,15 +279,15 @@ const actions = {
     ])
     state.tasks = tasks; state.chat = chat; state.roomProjects = projects; state.assets = assets
   },
-  async createRoom(name: string) {
+  async createRoom(name: string, context = '') {
     try {
-      const r = await api('/rooms', { method: 'POST', body: JSON.stringify({ name }) })
+      const r = await api('/rooms', { method: 'POST', body: JSON.stringify({ name, context }) })
       if (!state.rooms.find(x => x.id === r.id)) state.rooms.unshift(r)
       await actions.open(r)
       if (r.connected?.length) toast(`Connected project: ${r.connected.join(', ')}`)
     } catch (e: any) { toast(e.message, true) }
   },
-  async updateRoom(rid: number, body: { name?: string; icon?: string }) {
+  async updateRoom(rid: number, body: { name?: string; icon?: string; context?: string }) {
     try {
       const r = await api(`/rooms/${rid}`, { method: 'PATCH', body: JSON.stringify(body) })
       const i = state.rooms.findIndex(x => x.id === rid)
