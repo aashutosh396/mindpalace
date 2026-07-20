@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useWorkspace } from './composables/useWorkspace'
 
-const { state, init, checkHealth } = useWorkspace()
+const { state, init, checkHealth, toggleRail } = useWorkspace()
 const tab = ref<'chat' | 'repos' | 'assets' | 'routines'>('chat')
 
 function onKey(e: KeyboardEvent) {
@@ -31,7 +31,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     <button class="btn ghost" @click="checkHealth">Check again</button>
     <code>curl -fsSL https://claude.ai/install.sh | bash</code>
   </div>
-  <div class="shell">
+  <div class="shell" :class="{ 'rail-closed': !state.railOpen }">
     <ProjectSidebar />
 
     <main class="main">
@@ -63,7 +63,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       </template>
     </main>
 
-    <BoardRail />
+    <BoardRail v-show="state.railOpen" />
 
     <div v-if="state.toast" class="toast" :class="{ error: state.toastError }" role="status">
       {{ state.toast }}
@@ -73,6 +73,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     <SearchOverlay v-if="state.searchOpen" />
     <ProjectsSheet v-if="state.projectsOpen" />
     <OnboardingOverlay v-if="state.showOnboarding" />
+
+    <footer class="baseline">
+      <span class="bl-item">
+        <span :style="{ color: state.connected ? 'var(--sage)' : 'var(--danger)' }">●</span>
+        {{ state.connected ? 'live' : 'reconnecting' }}
+        <template v-if="state.health"> · {{ state.health.commit.slice(0, 7) }}</template>
+      </span>
+      <span class="bl-spacer"></span>
+      <span class="bl-item dim-inline">⌘K search</span>
+      <span class="bl-item">{{ state.allTasks.filter(t => t.status === 'review').length }} in review</span>
+      <button class="bl-toggle" :title="state.railOpen ? 'Hide the board' : 'Show the board'"
+        @click="toggleRail">{{ state.railOpen ? 'board ⟩' : '⟨ board' }}</button>
+    </footer>
 
     <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">
       <div class="sheet" role="dialog" aria-label="Project board">

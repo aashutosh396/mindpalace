@@ -30,6 +30,7 @@ const state = reactive({
   toastError: false,
   connected: false,
   boardOpen: false,
+  railOpen: localStorage.getItem('railOpen') !== '0',   // the right sidebar slides
   projectsOpen: false,               // the Projects sheet
   modal: null as null | { task: any; room: any; log: any[]; thread: any[] },
   showOnboarding: false,
@@ -260,6 +261,10 @@ const actions = {
     try {
       await api(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
     } catch (e: any) { t.status = prev; toast(e.message, true) }
+  },
+  toggleRail() {
+    state.railOpen = !state.railOpen
+    localStorage.setItem('railOpen', state.railOpen ? '1' : '0')
   },
   async doSearch(q: string) {
     try { state.searchResults = await api(`/search?q=${encodeURIComponent(q)}`) }
