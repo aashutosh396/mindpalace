@@ -50,20 +50,20 @@ watch(() => state.modal?.log.length, async () => {
       </div>
 
       <h2 class="tm-title">{{ t.title }}</h2>
-      <p v-if="t.body && t.body !== t.title" class="tm-body">{{ t.body }}</p>
+      <p v-if="t.body && t.body !== t.title" class="tm-body" v-html="md(t.body)"></p>
 
       <div class="tm-cols">
         <div class="tm-left">
           <template v-if="t.result">
             <div class="tm-section">Result</div>
-            <div class="tm-result">{{ t.result }}</div>
+            <div class="tm-result" v-html="md(t.result)"></div>
           </template>
 
           <template v-if="state.modal!.thread.length">
             <div class="tm-section">Follow-ups</div>
             <div class="tm-thread">
               <div v-for="m in state.modal!.thread" :key="m.id" class="tm-thread-msg" :class="m.role">
-                <span class="who">{{ m.role === 'user' ? 'You' : 'Agent' }}</span>{{ m.text }}
+                <span class="who">{{ m.role === 'user' ? 'You' : 'Agent' }}</span><span v-html="md(m.text)"></span>
               </div>
             </div>
           </template>

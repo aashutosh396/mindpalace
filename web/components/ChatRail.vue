@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
+import { md } from '../composables/md'
 
 const { state, open, loadOlderChat } = useWorkspace()
 const log = ref<HTMLElement>()
@@ -80,7 +81,7 @@ async function onScroll() {
         :class="m.role === 'user' ? 'user' : m.role === 'brief' ? 'brief' : 'agent'">
         <div class="who">{{ m.role === 'user' ? 'You' : m.role === 'brief' ? 'The palace' : state.agentName }}
           <span class="when">{{ msgTime(m.created_at) }}</span></div>
-        <div class="bubble">{{ m.text }}</div>
+        <div class="bubble" v-html="md(m.text)"></div>
         <div v-if="m.task_id" class="ticket">
           → card #{{ m.task_id }}
           <template v-if="!state.current && roomOf(m)">

@@ -342,6 +342,18 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .rec-hint { margin-left: auto; font-size: 11.5px; }
 
+.md-code, .md-pre {
+  font-family: var(--mono); font-size: .92em;
+  background: var(--brass-soft); border-radius: 5px; padding: 1px 5px;
+}
+.md-pre {
+  display: block; padding: 8px 11px; margin: 4px 0; overflow-x: auto;
+  background: var(--room); border: 1px solid var(--edge);
+}
+.md-h { display: inline-block; margin-top: 2px; }
+.md-li { color: var(--text-dim); }
+.md-link { color: var(--brass); }
+
 .rem-add { display: flex; gap: 6px; }
 .rem-add.page { margin-bottom: 4px; }
 .rem-add.page input { padding: 7px 11px; font-size: 13.5px; }

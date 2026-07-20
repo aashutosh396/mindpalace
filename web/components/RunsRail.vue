@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { Repeat } from 'lucide-vue-next'
 import { useWorkspace } from '../composables/useWorkspace'
+import { md } from '../composables/md'
 
 const { state } = useWorkspace()
 const runs = ref<any[]>([])
@@ -49,7 +50,7 @@ function fmtRun(ts: number) {
           <span class="rt-tick" :class="tickClass(run)">{{ tick(run) }}</span>
           <span class="run-card-when">{{ fmtRun(run.created_at) }}</span>
         </div>
-        <div class="run-card-result">{{ run.result || 'still running…' }}</div>
+        <div class="run-card-result" v-html="run.result ? md(run.result) : 'still running…'"></div>
       </div>
     </div>
   </aside>
