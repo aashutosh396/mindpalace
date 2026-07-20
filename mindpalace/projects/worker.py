@@ -18,10 +18,10 @@ from ..providers import get_provider
 from ..providers.base import TaskContext
 
 _SYSTEM = (
-    "You are the resident agent of the project room '{name}'.\n"
-    "The project's repositories — do your work INSIDE these paths:\n{repos}\n"
-    "Project assets folder (briefs, designs, uploads the owner gave you): {assets}\n"
-    "You have full machine access; stay within this project's world unless the "
+    "You are the resident agent of the room '{name}'.\n"
+    "Projects connected to this room — do your work INSIDE their folders:\n{repos}\n"
+    "Room assets folder (briefs, designs, uploads the owner gave you): {assets}\n"
+    "You have full machine access; stay within this room's world unless the "
     "ticket explicitly points elsewhere."
 )
 
@@ -37,37 +37,39 @@ _WRAP = (
 
 
 _KEEPER = (
-    "You are the PALACE-KEEPER — you work general cards about the palace itself "
-    "(the owner's project workspace), not any single project.\n"
-    "You can manage the palace through its local API at http://127.0.0.1:{port}:\n"
-    "  GET  /api/projects                     — list rooms\n"
-    "  POST /api/projects {{\"name\": ...}}      — create a room\n"
+    "You are the PALACE-KEEPER — you work general cards about the palace itself.\n"
+    "The palace has TWO layers: PROJECTS are inventory (a name + folders/repos on "
+    "disk — you manage these); ROOMS are the owner's channels (the owner creates "
+    "those — NEVER create or delete rooms).\n"
+    "Manage the inventory through the local API at http://127.0.0.1:{port}:\n"
+    "  GET  /api/projects                       — list projects (with folders + rooms using them)\n"
+    "  POST /api/projects {{\"name\": ...}}        — create a project (inventory entry)\n"
     "  POST /api/projects/<id>/repos {{\"path\": \"/abs/folder\"}}\n"
-    "      — attach a project's MAIN FOLDER to a room (nested git repos are "
-    "auto-discovered; first attach becomes the working directory)\n"
-    "Typical chores: scan the owner's machine or vault for projects, create rooms "
-    "for them, attach their folders. Prefer editing the palace via the API, files "
-    "via the filesystem.\n"
-    "IRON RULE: a room without its folder is useless — whenever you create a room "
-    "for a project, IMMEDIATELY attach the project's main folder in the same run, "
-    "and verify with GET /api/projects/<id>/repos before reporting done."
+    "      — attach a project's MAIN FOLDER (nested git repos auto-discovered)\n"
+    "  GET  /api/rooms                          — list the owner's rooms (read-only for you)\n"
+    "Typical chores: scan the owner's machine or vault for projects, create project "
+    "entries, attach their folders, deduplicate the inventory.\n"
+    "IRON RULE: a project without its folder is useless — when you create one, "
+    "attach its folder in the same run and verify with GET before reporting done."
 )
 
 
 def _ctx_for(task: dict) -> TaskContext | None:
     from .. import config
-    p = store.get_project(task["project_id"])
-    if not p:
+    r = store.get_room(task["room_id"])
+    if not r:
         return None
-    repos = store.repo_paths_for(task["project_id"])
-    assets = str(store.project_dir(p["slug"]) / "assets")
-    system = _SYSTEM.format(name=p["name"],
-                            repos="\n".join(f"  - {r}" for r in repos) or "  (none attached yet)",
-                            assets=assets)
-    if p["slug"] == store.HOME_SLUG:
+    paths = store.room_paths(task["room_id"])
+    assets = str(store.room_dir(r["slug"]) / "assets")
+    projects = store.projects_for_room(task["room_id"])
+    repos_block = "\n".join(
+        f"  - {p['name']}: " + (", ".join(x["path"] for x in p["repos"]) or "(no folders)")
+        for p in projects) or "  (no projects connected yet)"
+    system = _SYSTEM.format(name=r["name"], repos=repos_block, assets=assets)
+    if r["slug"] == store.HOME_SLUG:
         port = int(config.load_config().get("web", {}).get("port", 7777))
         system = _KEEPER.format(port=port)
-    return TaskContext(project_slug=p["slug"], repo_paths=repos, asset_dir=assets, system=system)
+    return TaskContext(project_slug=r["slug"], repo_paths=paths, asset_dir=assets, system=system)
 
 
 _GOAL_WRAP = (
@@ -101,7 +103,7 @@ def _on_event_for(task: dict, broadcast):
 
 async def _finish(task: dict, reply: str, broadcast) -> None:
     t = store.set_task_status(task["id"], "review", result=reply)
-    msg = store.add_chat(task["project_id"], "agent", reply, task_id=task["id"])
+    msg = store.add_chat(task["room_id"], "agent", reply, task_id=task["id"])
     await broadcast("chat.message", msg)
     if t:
         await broadcast("task.updated", t)
@@ -109,8 +111,8 @@ async def _finish(task: dict, reply: str, broadcast) -> None:
 
 async def run_one(task: dict, broadcast) -> None:
     ctx = _ctx_for(task)
-    if ctx is None:                                   # project vanished under the card
-        store.set_task_status(task["id"], "done", result="(project was deleted)")
+    if ctx is None:                                   # room vanished under the card
+        store.set_task_status(task["id"], "done", result="(room was deleted)")
         return
     on_event = _on_event_for(task, broadcast)
 
@@ -169,29 +171,29 @@ _CHAT_WRAP = (
 )
 
 
-async def run_chat(pid: int, text: str, broadcast) -> None:
-    """Chat-lane turn: answer in the corridor, read-only, no card."""
-    task_like = {"project_id": pid, "id": 0}
+async def run_chat(rid: int, text: str, broadcast) -> None:
+    """Chat-lane turn: answer in the room, read-only, no card."""
+    task_like = {"room_id": rid, "id": 0}
     ctx = _ctx_for(task_like)
     if ctx is None:
         return
     ctx.readonly = True
-    hist = store.list_chat(pid, 20)[:-1]              # everything before this message
+    hist = store.list_chat(rid, 20)[:-1]              # everything before this message
     hist_txt = "\n".join(f"{m['role']}: {m['text'][:300]}" for m in hist) or "(none)"
     try:
         reply = await get_provider().run_task(
             _CHAT_WRAP.format(hist=hist_txt, text=text), ctx, None)
     except Exception as e:
         reply = f"(error: {str(e)[:160]})"
-    msg = store.add_chat(pid, "agent", reply)
+    msg = store.add_chat(rid, "agent", reply)
     await broadcast("chat.message", msg)
 
 
 def recover() -> int:
     """Requeue cards orphaned in 'in_progress' by a crash/restart."""
     n = 0
-    for p in store.list_projects():
-        for t in store.list_tasks(p["id"]):
+    for r in store.list_rooms(include_home=True):
+        for t in store.list_tasks(r["id"]):
             if t["status"] == "in_progress":
                 store.set_task_status(t["id"], "todo")
                 n += 1
@@ -205,7 +207,7 @@ async def routine_loop(broadcast, interval: int = 60):
     while True:
         try:
             for r in store.due_routines():
-                task = store.create_task(r["project_id"], r["title"], r["body"],
+                task = store.create_task(r["room_id"], r["title"], r["body"],
                                          created_by="routine")
                 store.mark_routine_run(r["id"], r["schedule"])
                 await broadcast("task.created", task)

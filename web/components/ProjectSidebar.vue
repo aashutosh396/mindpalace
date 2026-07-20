@@ -2,13 +2,7 @@
 import { nextTick, onMounted, ref } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
 
-const { state, open, goHome, createProject, deleteProject, getUpdate } = useWorkspace()
-
-function confirmDelete(p: any) {
-  if (window.confirm(`Delete "${p.name}"? Its cards and chat go with it (asset files stay on disk).`)) {
-    deleteProject(p)
-  }
-}
+const { state, open, goHome, createRoom, deleteRoom, loadProjects, getUpdate } = useWorkspace()
 const creating = ref(false)
 const name = ref('')
 const nameInput = ref<HTMLInputElement>()
@@ -40,7 +34,18 @@ async function create() {
   if (!n) { creating.value = false; return }
   name.value = ''
   creating.value = false
-  await createProject(n)
+  await createRoom(n)
+}
+
+function confirmDelete(r: any) {
+  if (window.confirm(`Delete room "${r.name}"? Its cards and chat go with it (projects and asset files stay).`)) {
+    deleteRoom(r)
+  }
+}
+
+async function openProjects() {
+  await loadProjects()
+  state.projectsOpen = true
 }
 </script>
 
@@ -52,12 +57,12 @@ async function create() {
       <span class="mi-icon plain">🏛</span> Home
     </button>
     <button class="menu-item primary" @click="startCreate">
-      <span class="mi-icon">+</span> New project
+      <span class="mi-icon">+</span> New room
     </button>
     <form v-if="creating" class="new-proj" @submit.prevent="create">
       <input
-        ref="nameInput" v-model="name" placeholder="Project name…"
-        aria-label="New project name"
+        ref="nameInput" v-model="name" placeholder="Room name…"
+        aria-label="New room name"
         @blur="!name.trim() && (creating = false)"
         @keydown.esc="creating = false; name = ''" />
     </form>
@@ -65,21 +70,26 @@ async function create() {
     <div class="side-label">Rooms</div>
     <nav class="rooms">
       <button
-        v-for="p in state.projects" :key="p.id"
-        class="proj-item" :class="{ active: state.current?.id === p.id }"
-        @click="open(p)">
-        <span class="room-lead" :class="{ on: state.current?.id === p.id }">●</span>
-        <span class="proj-name">{{ p.name }}</span>
-        <span v-if="p.open_tasks" class="count">{{ p.open_tasks }}</span>
+        v-for="r in state.rooms" :key="r.id"
+        class="proj-item" :class="{ active: state.current?.id === r.id }"
+        @click="open(r)">
+        <span class="room-lead" :class="{ on: state.current?.id === r.id }">●</span>
+        <span class="proj-name">{{ r.name }}</span>
+        <span v-if="r.open_tasks" class="count">{{ r.open_tasks }}</span>
         <span
           class="room-x" role="button" tabindex="0"
-          :title="`Delete ${p.name}`" :aria-label="`Delete ${p.name}`"
-          @click.stop="confirmDelete(p)"
-          @keydown.enter.stop="confirmDelete(p)">✕</span>
+          :title="`Delete ${r.name}`" :aria-label="`Delete ${r.name}`"
+          @click.stop="confirmDelete(r)"
+          @keydown.enter.stop="confirmDelete(r)">✕</span>
       </button>
-      <p v-if="!state.projects.length" class="side-empty">No rooms yet.</p>
+      <p v-if="!state.rooms.length" class="side-empty">
+        No rooms yet — rooms are your channels; make one.
+      </p>
     </nav>
 
+    <button class="menu-item dim" @click="openProjects">
+      <span class="mi-icon">▦</span> Projects
+    </button>
     <button class="menu-item dim" :disabled="state.updating" @click="getUpdate">
       <span class="mi-icon">⟳</span>
       {{ state.updating ? 'Checking…' : state.update?.behind ? 'Get update' : 'Check for updates' }}

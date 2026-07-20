@@ -16,7 +16,7 @@ const lane = ref<'auto' | 'chat' | 'task' | 'goal'>('auto')
 const msgs = computed<any[]>(() => state.current ? state.chat : state.homeChat)
 
 function roomOf(m: any) {
-  return state.projects.find(p => p.id === m.ref_project_id)
+  return state.rooms.find(r => r.id === m.ref_room_id)
 }
 
 async function send() {
@@ -51,7 +51,7 @@ watch(() => [msgs.value.length, state.awaitingReply, state.current?.id], async (
         <template v-else>What's on your mind?</template>
         <div class="chat-hello-sub">
           <template v-if="state.current">Work becomes a card on the board · questions just get an answer</template>
-          <template v-else>Just talk — I'll file work in the right room, or make a new one</template>
+          <template v-else>Just talk — I'll answer, or file work into your rooms (I never make rooms; those are yours)</template>
         </div>
       </div>
       <div v-for="m in msgs" :key="m.id" class="msg"
@@ -85,7 +85,7 @@ watch(() => [msgs.value.length, state.awaitingReply, state.current?.id], async (
             :title="l.hint" :aria-checked="lane === l.key" role="radio"
             @click="lane = l.key">{{ l.label }}</button>
         </template>
-        <span v-else class="lane active" style="cursor: default" title="The concierge decides: answer, file, or create a room">🏛 Concierge</span>
+        <span v-else class="lane active" style="cursor: default" title="The concierge decides: answer, file into one of your rooms, or hand palace chores to the keeper">🏛 Concierge</span>
         <button class="send" :disabled="!text.trim()" title="Send" aria-label="Send">↑</button>
       </div>
     </form>

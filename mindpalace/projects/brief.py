@@ -13,7 +13,7 @@ def ensure_daily_brief() -> dict | None:
     """Insert today's brief if it doesn't exist yet. Returns the new row or None."""
     if store.has_brief_today():
         return None
-    if not store.list_projects() and not store.all_tasks():
+    if not store.list_rooms() and not store.all_tasks():
         return None                                  # empty palace — nothing to say
     s = store.brief_stats()
     lines = ["🌅 Morning brief"]

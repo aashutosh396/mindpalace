@@ -1,9 +1,15 @@
-"""SQLite store for the v3 workspace: projects, repos, tasks, chat, assets.
+"""SQLite store for the v3 palace — TWO layers:
 
-One DB at  <home>/projects/index.db ; asset bytes live on disk at
-<home>/projects/<slug>/assets/ — the DB holds metadata only (vault philosophy).
-Thread-safe by construction (uvicorn workers + watchers share it): one connection,
-WAL mode, every access under a lock — the same lesson the memory store learned.
+  PROJECTS  the inventory (machine layer): a name + folders/git repos on disk.
+            Scanned/managed by the keeper. No chat, no board, no assets.
+  ROOMS     the channels (human layer): created BY THE OWNER, like Discord
+            channels. A room connects to any number of projects (that's where
+            its agent gets folders/grounding) and carries the chat, the kanban
+            cards, the assets and the routines.
+
+One DB at <home>/projects/index.db ; room asset bytes at
+<home>/rooms/<slug>/assets/. Thread-safe: one connection, WAL, every access
+under a lock.
 """
 from __future__ import annotations
 
@@ -15,42 +21,47 @@ import time
 from .. import config
 
 STATUSES = ("todo", "in_progress", "review", "done")
+HOME_SLUG = "home"
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS project (
+CREATE TABLE IF NOT EXISTS project (     -- inventory: resources, not workspaces
   id INTEGER PRIMARY KEY, slug TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
   created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS repo (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES project(id),
   path TEXT NOT NULL, url TEXT, is_primary INTEGER DEFAULT 0);
-CREATE TABLE IF NOT EXISTS repo_link (      -- repo referenced FROM another project
+CREATE TABLE IF NOT EXISTS room (        -- the owner's channels
+  id INTEGER PRIMARY KEY, slug TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+  created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS room_project (
+  room_id INTEGER NOT NULL REFERENCES room(id),
   project_id INTEGER NOT NULL REFERENCES project(id),
-  repo_id INTEGER NOT NULL REFERENCES repo(id),
-  PRIMARY KEY (project_id, repo_id));
+  PRIMARY KEY (room_id, project_id));
 CREATE TABLE IF NOT EXISTS task (
-  id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES project(id),
+  id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES room(id),
   title TEXT NOT NULL, body TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'todo',
   created_by TEXT NOT NULL DEFAULT 'user', session_id TEXT,
+  kind TEXT DEFAULT 'task', promise TEXT, iterations INTEGER DEFAULT 0,
   result TEXT DEFAULT '', created_at REAL NOT NULL, closed_at REAL);
-CREATE TABLE IF NOT EXISTS chat_message (
-  id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES project(id),
-  role TEXT NOT NULL, text TEXT NOT NULL, task_id INTEGER REFERENCES task(id),
-  created_at REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS task_log (    -- the work trail: one row per agent step
+CREATE TABLE IF NOT EXISTS task_log (
   id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES task(id),
   text TEXT NOT NULL, created_at REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS task_thread ( -- follow-up conversation on a card
+CREATE TABLE IF NOT EXISTS task_thread (
   id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES task(id),
   role TEXT NOT NULL, text TEXT NOT NULL, created_at REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS routine (     -- recurring cards
-  id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES project(id),
+CREATE TABLE IF NOT EXISTS routine (
+  id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES room(id),
   title TEXT NOT NULL, body TEXT DEFAULT '', schedule TEXT NOT NULL,
   enabled INTEGER DEFAULT 1, last_run REAL, next_run REAL, created_at REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS home_chat (   -- the hall: routing conversation, no project
+CREATE TABLE IF NOT EXISTS chat_message (
+  id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES room(id),
+  role TEXT NOT NULL, text TEXT NOT NULL, task_id INTEGER REFERENCES task(id),
+  created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS home_chat (
   id INTEGER PRIMARY KEY, role TEXT NOT NULL, text TEXT NOT NULL,
-  ref_project_id INTEGER, task_id INTEGER, created_at REAL NOT NULL);
+  ref_room_id INTEGER, task_id INTEGER, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS asset (
-  id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES project(id),
+  id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES room(id),
   filename TEXT NOT NULL, path TEXT NOT NULL, size INTEGER DEFAULT 0,
   uploaded_at REAL NOT NULL);
 """
@@ -69,14 +80,6 @@ def _db() -> sqlite3.Connection:
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA foreign_keys=ON")
         _conn.executescript(_SCHEMA)
-        # migrations for DBs created before these columns existed
-        for col, ddl in (("kind", "TEXT DEFAULT 'task'"),
-                         ("promise", "TEXT"),
-                         ("iterations", "INTEGER DEFAULT 0")):
-            try:
-                _conn.execute(f"ALTER TABLE task ADD COLUMN {col} {ddl}")
-            except sqlite3.OperationalError:
-                pass                                 # already there
         _conn.commit()
     return _conn
 
@@ -87,26 +90,31 @@ def _rows(rows) -> list[dict]:
 
 def slugify(name: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return s or "project"
+    return s or "item"
 
 
-def project_dir(slug: str):
-    return config.home() / "projects" / slug
+def _unique_slug(db, table: str, base: str) -> str:
+    slug, n = base, 2
+    while db.execute(f"SELECT 1 FROM {table} WHERE slug=?", (slug,)).fetchone():
+        slug = f"{base}-{n}"; n += 1
+    return slug
 
 
-# ---- projects ----
+def room_dir(slug: str):
+    return config.home() / "rooms" / slug
+
+
+# ======================================================================
+# PROJECTS — the inventory
+# ======================================================================
 def create_project(name: str) -> dict:
-    slug = base = slugify(name)
     with _lock:
         db = _db()
-        n = 2
-        while db.execute("SELECT 1 FROM project WHERE slug=?", (slug,)).fetchone():
-            slug = f"{base}-{n}"; n += 1
+        slug = _unique_slug(db, "project", slugify(name))
         cur = db.execute("INSERT INTO project (slug, name, created_at) VALUES (?,?,?)",
                          (slug, name.strip() or slug, time.time()))
         db.commit()
         pid = cur.lastrowid
-    (project_dir(slug) / "assets").mkdir(parents=True, exist_ok=True)
     return get_project(pid)
 
 
@@ -116,34 +124,19 @@ def get_project(pid: int) -> dict | None:
     return dict(r) if r else None
 
 
-HOME_SLUG = "home"
-
-
-def ensure_home_project() -> dict:
-    """The reserved Home workroom — general, palace-level cards live here."""
+def list_projects() -> list[dict]:
+    """Inventory with repo summary + which rooms use each project."""
     with _lock:
-        r = _db().execute("SELECT * FROM project WHERE slug=?", (HOME_SLUG,)).fetchone()
-    if r:
-        return dict(r)
-    with _lock:
-        db = _db()
-        cur = db.execute("INSERT INTO project (slug, name, created_at) VALUES (?,?,?)",
-                         (HOME_SLUG, "Home", time.time()))
-        db.commit()
-        pid = cur.lastrowid
-    return get_project(pid)
-
-
-def list_projects(include_home: bool = False) -> list[dict]:
-    with _lock:
-        rows = _db().execute(
-            """SELECT p.*,
-                 (SELECT COUNT(*) FROM task t WHERE t.project_id=p.id
-                    AND t.status != 'done') AS open_tasks
-               FROM project p ORDER BY p.created_at DESC""").fetchall()
-    out = _rows(rows)
-    if not include_home:
-        out = [p for p in out if p["slug"] != HOME_SLUG]
+        rows = _db().execute("SELECT * FROM project ORDER BY name").fetchall()
+        out = []
+        for p in _rows(rows):
+            repos = _rows(_db().execute(
+                "SELECT * FROM repo WHERE project_id=? ORDER BY is_primary DESC, id",
+                (p["id"],)).fetchall())
+            rooms = _rows(_db().execute(
+                """SELECT r.id, r.name, r.slug FROM room_project l
+                   JOIN room r ON r.id=l.room_id WHERE l.project_id=?""", (p["id"],)).fetchall())
+            out.append({**p, "repos": repos, "rooms": rooms})
     return out
 
 
@@ -155,25 +148,18 @@ def rename_project(pid: int, name: str) -> dict | None:
 
 
 def delete_project(pid: int) -> bool:
-    """Removes DB rows only — asset files stay on disk for manual cleanup (never
-    silently destroy user bytes)."""
     with _lock:
         db = _db()
         if not db.execute("SELECT 1 FROM project WHERE id=?", (pid,)).fetchone():
             return False
-        db.execute("DELETE FROM chat_message WHERE project_id=?", (pid,))
-        db.execute("DELETE FROM task_log WHERE task_id IN "
-                   "(SELECT id FROM task WHERE project_id=?)", (pid,))
-        db.execute("DELETE FROM task WHERE project_id=?", (pid,))
-        db.execute("DELETE FROM repo_link WHERE project_id=?", (pid,))
-        db.execute("DELETE FROM asset WHERE project_id=?", (pid,))
+        db.execute("DELETE FROM room_project WHERE project_id=?", (pid,))
         db.execute("DELETE FROM repo WHERE project_id=?", (pid,))
         db.execute("DELETE FROM project WHERE id=?", (pid,))
         db.commit()
     return True
 
 
-# ---- repos ----
+# ---- repos (belong to projects) ----
 def add_repo(pid: int, path: str, url: str | None = None, is_primary: bool = False) -> dict:
     with _lock:
         db = _db()
@@ -184,81 +170,210 @@ def add_repo(pid: int, path: str, url: str | None = None, is_primary: bool = Fal
     return dict(r)
 
 
-def link_repo(pid: int, repo_id: int) -> bool:
-    """Reference a repo owned by ANOTHER project (read/write from this project's chat)."""
+def repos_for_project(pid: int) -> list[dict]:
     with _lock:
-        db = _db()
-        if not db.execute("SELECT 1 FROM repo WHERE id=?", (repo_id,)).fetchone():
-            return False
-        db.execute("INSERT OR IGNORE INTO repo_link (project_id, repo_id) VALUES (?,?)",
-                   (pid, repo_id))
-        db.commit()
-    return True
-
-
-def repos_for(pid: int) -> dict:
-    """{'own': [...], 'linked': [...]} — linked rows carry their owner project's slug."""
-    with _lock:
-        db = _db()
-        own = db.execute("SELECT * FROM repo WHERE project_id=? ORDER BY is_primary DESC, id",
-                         (pid,)).fetchall()
-        linked = db.execute(
-            """SELECT r.*, p.slug AS owner_slug FROM repo_link l
-               JOIN repo r ON r.id = l.repo_id JOIN project p ON p.id = r.project_id
-               WHERE l.project_id=? ORDER BY r.id""", (pid,)).fetchall()
-    return {"own": _rows(own), "linked": _rows(linked)}
-
-
-def all_repos() -> list[dict]:
-    """Every repo in the palace with its owner room — feeds the link picker."""
-    with _lock:
-        rows = _db().execute(
-            """SELECT r.*, p.slug AS owner_slug, p.name AS owner_name
-               FROM repo r JOIN project p ON p.id = r.project_id
-               ORDER BY p.name, r.is_primary DESC, r.id""").fetchall()
+        rows = _db().execute("SELECT * FROM repo WHERE project_id=? ORDER BY is_primary DESC, id",
+                             (pid,)).fetchall()
     return _rows(rows)
 
 
+def project_repo_paths(pid: int) -> list[str]:
+    return [r["path"] for r in repos_for_project(pid)]
+
+
 def remove_repo(pid: int, repo_id: int) -> bool:
-    """Owner project removes its repo (links from other rooms go with it)."""
     with _lock:
         db = _db()
-        if not db.execute("SELECT 1 FROM repo WHERE id=? AND project_id=?",
-                          (repo_id, pid)).fetchone():
-            return False
-        db.execute("DELETE FROM repo_link WHERE repo_id=?", (repo_id,))
-        db.execute("DELETE FROM repo WHERE id=?", (repo_id,))
-        db.commit()
-    return True
-
-
-def unlink_repo(pid: int, repo_id: int) -> bool:
-    with _lock:
-        db = _db()
-        cur = db.execute("DELETE FROM repo_link WHERE project_id=? AND repo_id=?",
-                         (pid, repo_id))
+        cur = db.execute("DELETE FROM repo WHERE id=? AND project_id=?", (repo_id, pid))
         db.commit()
     return cur.rowcount > 0
 
 
-def repo_paths_for(pid: int) -> list[str]:
-    """The task sandbox allowlist: own ∪ linked repo paths (asset dir added by caller)."""
-    r = repos_for(pid)
-    return [x["path"] for x in r["own"] + r["linked"]]
+# ======================================================================
+# ROOMS — the owner's channels
+# ======================================================================
+def create_room(name: str) -> dict:
+    with _lock:
+        db = _db()
+        slug = _unique_slug(db, "room", slugify(name))
+        cur = db.execute("INSERT INTO room (slug, name, created_at) VALUES (?,?,?)",
+                         (slug, name.strip() or slug, time.time()))
+        db.commit()
+        rid = cur.lastrowid
+    (room_dir(slug) / "assets").mkdir(parents=True, exist_ok=True)
+    return get_room(rid)
 
 
-# ---- tasks (the kanban) ----
-def create_task(pid: int, title: str, body: str = "", created_by: str = "user",
+def ensure_home_room() -> dict:
+    """Hidden system room where the palace-keeper's general cards live."""
+    with _lock:
+        r = _db().execute("SELECT * FROM room WHERE slug=?", (HOME_SLUG,)).fetchone()
+    if r:
+        return dict(r)
+    with _lock:
+        db = _db()
+        cur = db.execute("INSERT INTO room (slug, name, created_at) VALUES (?,?,?)",
+                         (HOME_SLUG, "Home", time.time()))
+        db.commit()
+        rid = cur.lastrowid
+    return get_room(rid)
+
+
+def get_room(rid: int) -> dict | None:
+    with _lock:
+        r = _db().execute("SELECT * FROM room WHERE id=?", (rid,)).fetchone()
+    return dict(r) if r else None
+
+
+def list_rooms(include_home: bool = False) -> list[dict]:
+    with _lock:
+        rows = _db().execute(
+            """SELECT r.*,
+                 (SELECT COUNT(*) FROM task t WHERE t.room_id=r.id
+                    AND t.status != 'done') AS open_tasks
+               FROM room r ORDER BY r.created_at DESC""").fetchall()
+    out = _rows(rows)
+    if not include_home:
+        out = [r for r in out if r["slug"] != HOME_SLUG]
+    return out
+
+
+def rename_room(rid: int, name: str) -> dict | None:
+    with _lock:
+        _db().execute("UPDATE room SET name=? WHERE id=?", (name.strip(), rid))
+        _db().commit()
+    return get_room(rid)
+
+
+def delete_room(rid: int) -> bool:
+    """Rows only — room asset files stay on disk. Projects are untouched
+    (they're inventory; other rooms may use them)."""
+    with _lock:
+        db = _db()
+        if not db.execute("SELECT 1 FROM room WHERE id=?", (rid,)).fetchone():
+            return False
+        db.execute("DELETE FROM chat_message WHERE room_id=?", (rid,))
+        db.execute("DELETE FROM task_thread WHERE task_id IN "
+                   "(SELECT id FROM task WHERE room_id=?)", (rid,))
+        db.execute("DELETE FROM task_log WHERE task_id IN "
+                   "(SELECT id FROM task WHERE room_id=?)", (rid,))
+        db.execute("DELETE FROM task WHERE room_id=?", (rid,))
+        db.execute("DELETE FROM routine WHERE room_id=?", (rid,))
+        db.execute("DELETE FROM asset WHERE room_id=?", (rid,))
+        db.execute("DELETE FROM room_project WHERE room_id=?", (rid,))
+        db.execute("DELETE FROM room WHERE id=?", (rid,))
+        db.commit()
+    return True
+
+
+# ---- room ↔ project connections ----
+def connect_project(rid: int, pid: int) -> bool:
+    with _lock:
+        db = _db()
+        if not db.execute("SELECT 1 FROM project WHERE id=?", (pid,)).fetchone():
+            return False
+        db.execute("INSERT OR IGNORE INTO room_project (room_id, project_id) VALUES (?,?)",
+                   (rid, pid))
+        db.commit()
+    return True
+
+
+def disconnect_project(rid: int, pid: int) -> bool:
+    with _lock:
+        db = _db()
+        cur = db.execute("DELETE FROM room_project WHERE room_id=? AND project_id=?", (rid, pid))
+        db.commit()
+    return cur.rowcount > 0
+
+
+def projects_for_room(rid: int) -> list[dict]:
+    with _lock:
+        rows = _db().execute(
+            """SELECT p.* FROM room_project l JOIN project p ON p.id=l.project_id
+               WHERE l.room_id=? ORDER BY p.name""", (rid,)).fetchall()
+    out = []
+    for p in _rows(rows):
+        out.append({**p, "repos": repos_for_project(p["id"])})
+    return out
+
+
+def room_paths(rid: int) -> list[str]:
+    """The room agent's grounding: every folder of every connected project."""
+    paths, seen = [], set()
+    for p in projects_for_room(rid):
+        for r in p["repos"]:
+            if r["path"] not in seen:
+                seen.add(r["path"])
+                paths.append(r["path"])
+    return paths
+
+
+def rooms_index() -> list[dict]:
+    """What the concierge sees: every room with its projects + board state."""
+    out = []
+    for r in list_rooms():
+        tasks = list_tasks(r["id"])
+        open_cards = [t for t in tasks if t["status"] != "done"]
+        out.append({
+            "slug": r["slug"], "name": r["name"], "id": r["id"],
+            "projects": [p["name"] for p in projects_for_room(r["id"])],
+            "counts": {s: sum(1 for t in tasks if t["status"] == s) for s in STATUSES},
+            "open_titles": [t["title"] for t in open_cards[:3]],
+        })
+    return out
+
+
+# ======================================================================
+# TASKS (the kanban — lives in rooms)
+# ======================================================================
+def create_task(rid: int, title: str, body: str = "", created_by: str = "user",
                 kind: str = "task", promise: str | None = None) -> dict:
     with _lock:
         db = _db()
         cur = db.execute(
-            "INSERT INTO task (project_id, title, body, created_by, kind, promise, created_at) "
+            "INSERT INTO task (room_id, title, body, created_by, kind, promise, created_at) "
             "VALUES (?,?,?,?,?,?,?)",
-            (pid, title.strip()[:200], body, created_by, kind, promise, time.time()))
+            (rid, title.strip()[:200], body, created_by, kind, promise, time.time()))
         db.commit()
         r = db.execute("SELECT * FROM task WHERE id=?", (cur.lastrowid,)).fetchone()
     return dict(r)
+
+
+def get_task(tid: int) -> dict | None:
+    with _lock:
+        r = _db().execute("SELECT * FROM task WHERE id=?", (tid,)).fetchone()
+    return dict(r) if r else None
+
+
+def list_tasks(rid: int) -> list[dict]:
+    with _lock:
+        rows = _db().execute("SELECT * FROM task WHERE room_id=? ORDER BY created_at",
+                             (rid,)).fetchall()
+    return _rows(rows)
+
+
+def all_tasks() -> list[dict]:
+    with _lock:
+        rows = _db().execute(
+            """SELECT t.*, r.slug AS room_slug, r.name AS room_name
+               FROM task t JOIN room r ON r.id = t.room_id
+               WHERE t.status != 'done' ORDER BY t.created_at""").fetchall()
+        done = _db().execute(
+            """SELECT t.*, r.slug AS room_slug, r.name AS room_name
+               FROM task t JOIN room r ON r.id = t.room_id
+               WHERE t.status = 'done' ORDER BY t.closed_at DESC LIMIT 12""").fetchall()
+    return _rows(rows) + list(reversed(_rows(done)))
+
+
+def set_task_status(tid: int, status: str, result: str | None = None) -> dict | None:
+    if status not in STATUSES:
+        return None
+    with _lock:
+        db = _db()
+        db.execute("UPDATE task SET status=?, closed_at=?, result=COALESCE(?, result) WHERE id=?",
+                   (status, time.time() if status == "done" else None, result, tid))
+        db.commit()
+    return get_task(tid)
 
 
 def set_task_iterations(tid: int, n: int) -> dict | None:
@@ -276,54 +391,13 @@ def set_task_result(tid: int, result: str) -> None:
         db.commit()
 
 
-def get_task(tid: int) -> dict | None:
-    with _lock:
-        r = _db().execute("SELECT * FROM task WHERE id=?", (tid,)).fetchone()
-    return dict(r) if r else None
-
-
-def list_tasks(pid: int) -> list[dict]:
-    with _lock:
-        rows = _db().execute("SELECT * FROM task WHERE project_id=? ORDER BY created_at",
-                             (pid,)).fetchall()
-    return _rows(rows)
-
-
-def all_tasks() -> list[dict]:
-    """Cross-room view for the Home board: every open card + the 12 latest done,
-    each tagged with its room."""
-    with _lock:
-        rows = _db().execute(
-            """SELECT t.*, p.slug AS room_slug, p.name AS room_name
-               FROM task t JOIN project p ON p.id = t.project_id
-               WHERE t.status != 'done' ORDER BY t.created_at""").fetchall()
-        done = _db().execute(
-            """SELECT t.*, p.slug AS room_slug, p.name AS room_name
-               FROM task t JOIN project p ON p.id = t.project_id
-               WHERE t.status = 'done' ORDER BY t.closed_at DESC LIMIT 12""").fetchall()
-    return _rows(rows) + list(reversed(_rows(done)))
-
-
-def set_task_status(tid: int, status: str, result: str | None = None) -> dict | None:
-    if status not in STATUSES:
-        return None
-    with _lock:
-        db = _db()
-        db.execute("UPDATE task SET status=?, closed_at=?, result=COALESCE(?, result) WHERE id=?",
-                   (status, time.time() if status == "done" else None, result, tid))
-        db.commit()
-    return get_task(tid)
-
-
-def claim_next_todo(pid: int | None = None) -> dict | None:
-    """Atomically take the oldest 'todo' task into 'in_progress' — the worker's pickup.
-    Claim happens under the lock so two watchers can never grab the same card."""
+def claim_next_todo(rid: int | None = None) -> dict | None:
     with _lock:
         db = _db()
         q = "SELECT * FROM task WHERE status='todo'"
         args: tuple = ()
-        if pid is not None:
-            q += " AND project_id=?"; args = (pid,)
+        if rid is not None:
+            q += " AND room_id=?"; args = (rid,)
         r = db.execute(q + " ORDER BY created_at LIMIT 1", args).fetchone()
         if not r:
             return None
@@ -348,7 +422,6 @@ def list_task_log(tid: int, limit: int = 300) -> list[dict]:
     return _rows(rows)
 
 
-# ---- card threads (follow-ups) ----
 def add_thread(tid: int, role: str, text: str) -> dict:
     with _lock:
         db = _db()
@@ -367,9 +440,10 @@ def list_thread(tid: int) -> list[dict]:
     return _rows(rows)
 
 
-# ---- routines (recurring cards) ----
+# ======================================================================
+# ROUTINES (live in rooms)
+# ======================================================================
 def _next_run(schedule: str, after: float) -> float:
-    """'daily@HH:MM' → next local occurrence; 'every@45m'/'every@4h' → after + interval."""
     kind, _, arg = schedule.partition("@")
     if kind == "every":
         n, unit = int(arg[:-1] or 1), arg[-1]
@@ -381,40 +455,40 @@ def _next_run(schedule: str, after: float) -> float:
     return candidate if candidate > after else candidate + 86400
 
 
-def add_routine(pid: int, title: str, body: str, schedule: str) -> dict:
+def add_routine(rid: int, title: str, body: str, schedule: str) -> dict:
     now = time.time()
     with _lock:
         db = _db()
         cur = db.execute(
-            "INSERT INTO routine (project_id, title, body, schedule, next_run, created_at) "
+            "INSERT INTO routine (room_id, title, body, schedule, next_run, created_at) "
             "VALUES (?,?,?,?,?,?)",
-            (pid, title.strip()[:200], body, schedule, _next_run(schedule, now), now))
+            (rid, title.strip()[:200], body, schedule, _next_run(schedule, now), now))
         db.commit()
         r = db.execute("SELECT * FROM routine WHERE id=?", (cur.lastrowid,)).fetchone()
     return dict(r)
 
 
-def list_routines(pid: int | None = None) -> list[dict]:
+def list_routines(rid: int | None = None) -> list[dict]:
     with _lock:
-        q = "SELECT * FROM routine" + (" WHERE project_id=?" if pid else "") + " ORDER BY id"
-        rows = _db().execute(q, (pid,) if pid else ()).fetchall()
+        q = "SELECT * FROM routine" + (" WHERE room_id=?" if rid else "") + " ORDER BY id"
+        rows = _db().execute(q, (rid,) if rid else ()).fetchall()
     return _rows(rows)
 
 
-def delete_routine(rid: int) -> bool:
+def delete_routine(rtid: int) -> bool:
     with _lock:
         db = _db()
-        cur = db.execute("DELETE FROM routine WHERE id=?", (rid,))
+        cur = db.execute("DELETE FROM routine WHERE id=?", (rtid,))
         db.commit()
     return cur.rowcount > 0
 
 
-def toggle_routine(rid: int, enabled: bool) -> dict | None:
+def toggle_routine(rtid: int, enabled: bool) -> dict | None:
     with _lock:
         db = _db()
-        db.execute("UPDATE routine SET enabled=? WHERE id=?", (int(enabled), rid))
+        db.execute("UPDATE routine SET enabled=? WHERE id=?", (int(enabled), rtid))
         db.commit()
-        r = db.execute("SELECT * FROM routine WHERE id=?", (rid,)).fetchone()
+        r = db.execute("SELECT * FROM routine WHERE id=?", (rtid,)).fetchone()
     return dict(r) if r else None
 
 
@@ -426,96 +500,44 @@ def due_routines(now: float | None = None) -> list[dict]:
     return _rows(rows)
 
 
-def mark_routine_run(rid: int, schedule: str) -> None:
+def mark_routine_run(rtid: int, schedule: str) -> None:
     now = time.time()
     with _lock:
         db = _db()
         db.execute("UPDATE routine SET last_run=?, next_run=? WHERE id=?",
-                   (now, _next_run(schedule, now), rid))
+                   (now, _next_run(schedule, now), rtid))
         db.commit()
 
 
-# ---- search ----
-def search(q: str, limit: int = 8) -> dict:
-    like = f"%{q}%"
-    with _lock:
-        db = _db()
-        rooms = db.execute(
-            "SELECT * FROM project WHERE (name LIKE ? OR slug LIKE ?) AND slug != ? LIMIT ?",
-            (like, like, HOME_SLUG, limit)).fetchall()
-        tasks = db.execute(
-            """SELECT t.*, p.slug AS room_slug, p.name AS room_name FROM task t
-               JOIN project p ON p.id = t.project_id
-               WHERE t.title LIKE ? OR t.body LIKE ? ORDER BY t.created_at DESC LIMIT ?""",
-            (like, like, limit)).fetchall()
-        chats = db.execute(
-            """SELECT c.*, p.slug AS room_slug, p.name AS room_name FROM chat_message c
-               JOIN project p ON p.id = c.project_id
-               WHERE c.text LIKE ? ORDER BY c.created_at DESC LIMIT ?""",
-            (like, limit)).fetchall()
-    return {"rooms": _rows(rooms), "tasks": _rows(tasks), "chats": _rows(chats)}
-
-
-# ---- the morning brief ----
-def brief_stats(hours: float = 24) -> dict:
-    since = time.time() - hours * 3600
-    with _lock:
-        db = _db()
-        review = db.execute(
-            """SELECT t.id, t.title, t.result, p.name AS room FROM task t
-               JOIN project p ON p.id=t.project_id
-               WHERE t.status='review' ORDER BY t.created_at DESC""").fetchall()
-        done = db.execute(
-            """SELECT t.id, t.title, p.name AS room FROM task t
-               JOIN project p ON p.id=t.project_id
-               WHERE t.status='done' AND t.closed_at >= ? ORDER BY t.closed_at DESC""",
-            (since,)).fetchall()
-        created = db.execute(
-            "SELECT COUNT(*) AS n FROM task WHERE created_at >= ?", (since,)).fetchone()
-        working = db.execute(
-            """SELECT t.id, t.title, p.name AS room FROM task t
-               JOIN project p ON p.id=t.project_id WHERE t.status='in_progress'""").fetchall()
-    return {"review": _rows(review), "done": _rows(done),
-            "created": created["n"], "working": _rows(working)}
-
-
-def has_brief_today() -> bool:
-    lt = time.localtime()
-    midnight = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
-    with _lock:
-        r = _db().execute("SELECT 1 FROM home_chat WHERE role='brief' AND created_at >= ? LIMIT 1",
-                          (midnight,)).fetchone()
-    return bool(r)
-
-
-# ---- chat ----
-def add_chat(pid: int, role: str, text: str, task_id: int | None = None) -> dict:
+# ======================================================================
+# CHAT (rooms) + HALL + ASSETS + SEARCH + BRIEF
+# ======================================================================
+def add_chat(rid: int, role: str, text: str, task_id: int | None = None) -> dict:
     with _lock:
         db = _db()
         cur = db.execute(
-            "INSERT INTO chat_message (project_id, role, text, task_id, created_at) VALUES (?,?,?,?,?)",
-            (pid, role, text, task_id, time.time()))
+            "INSERT INTO chat_message (room_id, role, text, task_id, created_at) VALUES (?,?,?,?,?)",
+            (rid, role, text, task_id, time.time()))
         db.commit()
         r = db.execute("SELECT * FROM chat_message WHERE id=?", (cur.lastrowid,)).fetchone()
     return dict(r)
 
 
-def list_chat(pid: int, limit: int = 200) -> list[dict]:
+def list_chat(rid: int, limit: int = 200) -> list[dict]:
     with _lock:
         rows = _db().execute(
-            "SELECT * FROM (SELECT * FROM chat_message WHERE project_id=? "
-            "ORDER BY created_at DESC LIMIT ?) ORDER BY created_at", (pid, limit)).fetchall()
+            "SELECT * FROM (SELECT * FROM chat_message WHERE room_id=? "
+            "ORDER BY created_at DESC LIMIT ?) ORDER BY created_at", (rid, limit)).fetchall()
     return _rows(rows)
 
 
-# ---- home chat (the hall) ----
-def add_home_chat(role: str, text: str, ref_project_id: int | None = None,
+def add_home_chat(role: str, text: str, ref_room_id: int | None = None,
                   task_id: int | None = None) -> dict:
     with _lock:
         db = _db()
         cur = db.execute(
-            "INSERT INTO home_chat (role, text, ref_project_id, task_id, created_at) VALUES (?,?,?,?,?)",
-            (role, text, ref_project_id, task_id, time.time()))
+            "INSERT INTO home_chat (role, text, ref_room_id, task_id, created_at) VALUES (?,?,?,?,?)",
+            (role, text, ref_room_id, task_id, time.time()))
         db.commit()
         r = db.execute("SELECT * FROM home_chat WHERE id=?", (cur.lastrowid,)).fetchone()
     return dict(r)
@@ -529,28 +551,12 @@ def list_home_chat(limit: int = 200) -> list[dict]:
     return _rows(rows)
 
 
-def rooms_index() -> list[dict]:
-    """What the concierge sees: every room with status counts + open card titles."""
-    out = []
-    for p in list_projects():
-        tasks = list_tasks(p["id"])
-        open_cards = [t for t in tasks if t["status"] != "done"]
-        out.append({
-            "slug": p["slug"], "name": p["name"], "id": p["id"],
-            "counts": {s: sum(1 for t in tasks if t["status"] == s) for s in STATUSES},
-            "open_titles": [t["title"] for t in open_cards[:3]],
-            "repos": repo_paths_for(p["id"]),
-        })
-    return out
-
-
-# ---- assets ----
-def add_asset(pid: int, filename: str, path: str, size: int) -> dict:
+def add_asset(rid: int, filename: str, path: str, size: int) -> dict:
     with _lock:
         db = _db()
         cur = db.execute(
-            "INSERT INTO asset (project_id, filename, path, size, uploaded_at) VALUES (?,?,?,?,?)",
-            (pid, filename, path, size, time.time()))
+            "INSERT INTO asset (room_id, filename, path, size, uploaded_at) VALUES (?,?,?,?,?)",
+            (rid, filename, path, size, time.time()))
         db.commit()
         r = db.execute("SELECT * FROM asset WHERE id=?", (cur.lastrowid,)).fetchone()
     return dict(r)
@@ -562,11 +568,10 @@ def get_asset(aid: int) -> dict | None:
     return dict(r) if r else None
 
 
-def delete_asset(pid: int, aid: int) -> dict | None:
-    """Row + file: an asset is a managed upload, so deleting it deletes the bytes."""
+def delete_asset(rid: int, aid: int) -> dict | None:
     with _lock:
         db = _db()
-        r = db.execute("SELECT * FROM asset WHERE id=? AND project_id=?", (aid, pid)).fetchone()
+        r = db.execute("SELECT * FROM asset WHERE id=? AND room_id=?", (aid, rid)).fetchone()
         if not r:
             return None
         db.execute("DELETE FROM asset WHERE id=?", (aid,))
@@ -574,8 +579,63 @@ def delete_asset(pid: int, aid: int) -> dict | None:
     return dict(r)
 
 
-def list_assets(pid: int) -> list[dict]:
+def list_assets(rid: int) -> list[dict]:
     with _lock:
-        rows = _db().execute("SELECT * FROM asset WHERE project_id=? ORDER BY uploaded_at DESC",
-                             (pid,)).fetchall()
+        rows = _db().execute("SELECT * FROM asset WHERE room_id=? ORDER BY uploaded_at DESC",
+                             (rid,)).fetchall()
     return _rows(rows)
+
+
+def search(q: str, limit: int = 8) -> dict:
+    like = f"%{q}%"
+    with _lock:
+        db = _db()
+        rooms = db.execute(
+            "SELECT * FROM room WHERE (name LIKE ? OR slug LIKE ?) AND slug != ? LIMIT ?",
+            (like, like, HOME_SLUG, limit)).fetchall()
+        projects = db.execute(
+            "SELECT * FROM project WHERE name LIKE ? OR slug LIKE ? LIMIT ?",
+            (like, like, limit)).fetchall()
+        tasks = db.execute(
+            """SELECT t.*, r.slug AS room_slug, r.name AS room_name FROM task t
+               JOIN room r ON r.id = t.room_id
+               WHERE t.title LIKE ? OR t.body LIKE ? ORDER BY t.created_at DESC LIMIT ?""",
+            (like, like, limit)).fetchall()
+        chats = db.execute(
+            """SELECT c.*, r.slug AS room_slug, r.name AS room_name FROM chat_message c
+               JOIN room r ON r.id = c.room_id
+               WHERE c.text LIKE ? ORDER BY c.created_at DESC LIMIT ?""",
+            (like, limit)).fetchall()
+    return {"rooms": _rows(rooms), "projects": _rows(projects),
+            "tasks": _rows(tasks), "chats": _rows(chats)}
+
+
+def brief_stats(hours: float = 24) -> dict:
+    since = time.time() - hours * 3600
+    with _lock:
+        db = _db()
+        review = db.execute(
+            """SELECT t.id, t.title, t.result, r.name AS room FROM task t
+               JOIN room r ON r.id=t.room_id
+               WHERE t.status='review' ORDER BY t.created_at DESC""").fetchall()
+        done = db.execute(
+            """SELECT t.id, t.title, r.name AS room FROM task t
+               JOIN room r ON r.id=t.room_id
+               WHERE t.status='done' AND t.closed_at >= ? ORDER BY t.closed_at DESC""",
+            (since,)).fetchall()
+        created = db.execute(
+            "SELECT COUNT(*) AS n FROM task WHERE created_at >= ?", (since,)).fetchone()
+        working = db.execute(
+            """SELECT t.id, t.title, r.name AS room FROM task t
+               JOIN room r ON r.id=t.room_id WHERE t.status='in_progress'""").fetchall()
+    return {"review": _rows(review), "done": _rows(done),
+            "created": created["n"], "working": _rows(working)}
+
+
+def has_brief_today() -> bool:
+    lt = time.localtime()
+    midnight = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+    with _lock:
+        r = _db().execute("SELECT 1 FROM home_chat WHERE role='brief' AND created_at >= ? LIMIT 1",
+                          (midnight,)).fetchone()
+    return bool(r)

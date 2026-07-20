@@ -1,16 +1,13 @@
 """Web gateway — the v3 GUI's backend. Third gateway beside Discord/WhatsApp.
 
-Serves three things on one localhost port:
-  • REST   /api/…   projects, tasks (kanban), chat, repos
-  • WS     /ws      live event bus — every mutation broadcasts, so the board and
-                    chat update in real time in every open window
-  • static /        the pre-built Nuxt bundle (web_dist/, shipped as package data);
-                    a plain status page until the first UI build lands
+Two-layer model:
+  /api/projects…  the INVENTORY (folders/repos on disk; keeper-managed)
+  /api/rooms…     the owner's CHANNELS (chat + kanban + assets + routines),
+                  each connected to any number of projects for grounding.
 
-Run:  mindpalace serve [--port N]     (default 7777, localhost only)
-The desktop app (Tauri) spawns this same gateway as its sidecar — the webview is
-just another client of it. API-first: nothing here talks to the brain directly,
-everything goes through the Provider interface.
+Serves three things on one localhost port: REST under /api, the live WS event
+bus at /ws, and the pre-built Nuxt bundle at /. Run: mindpalace serve [--port N]
+[--dev]. The desktop app spawns this same gateway as its sidecar.
 """
 from __future__ import annotations
 
@@ -44,7 +41,6 @@ def _require_fastapi():
             "(or from the repo:  ./install.sh web)")
 
 
-# ---- WS event bus: every mutation → broadcast to all connected windows ----
 class Bus:
     def __init__(self):
         self.clients: set = set()
@@ -98,7 +94,7 @@ def create_app():
         return {"version": __version__, "commit": updates.local_commit()[:12],
                 "provider": p.name, "provider_ok": ok, "provider_status": why}
 
-    # ---- dev-channel updates (rolling build of the v3 branch) ----
+    # ---- dev-channel updates ----
     @app.get("/api/update/check")
     async def update_check():
         from ..projects import updates
@@ -115,10 +111,17 @@ def create_app():
         except Exception as e:
             return JSONResponse({"error": f"update failed: {str(e)[:160]}"}, status_code=502)
 
-    # ---- projects ----
+    # =================================================================
+    # PROJECTS — the inventory
+    # =================================================================
     @app.get("/api/projects")
     def projects_list():
-        return store.list_projects()
+        out = store.list_projects()
+        for p in out:                                # folders vs git repos
+            for row in p["repos"]:
+                g = Path(row["path"]) / ".git"
+                row["is_git"] = g.is_dir() or g.is_file()
+        return out
 
     @app.post("/api/projects")
     async def projects_create(body: dict):
@@ -126,101 +129,144 @@ def create_app():
         if not name:
             return JSONResponse({"error": "name required"}, status_code=422)
         p = store.create_project(name)
-        await bus.broadcast("project.created", p)
-        return p
-
-    @app.get("/api/projects/{pid}")
-    def project_get(pid: int):
-        p = store.get_project(pid)
-        return p or _404("project")
+        path = (body.get("path") or "").strip()
+        if body.get("workspace"):                    # scaffold a fresh home in the nursery
+            import subprocess
+            folder = config.workspace_dir() / p["slug"]
+            folder.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "init", "-q", str(folder)], timeout=10, capture_output=True)
+            store.add_repo(p["id"], str(folder), is_primary=True)
+        elif path:                                   # attach an existing folder in the same call
+            await _attach_folder(p["id"], path)
+        await bus.broadcast("projects.changed", {})
+        return next((x for x in store.list_projects() if x["id"] == p["id"]), p)
 
     @app.patch("/api/projects/{pid}")
     async def project_rename(pid: int, body: dict):
         p = store.rename_project(pid, body.get("name", ""))
         if p:
-            await bus.broadcast("project.updated", p)
+            await bus.broadcast("projects.changed", {})
         return p or _404("project")
 
     @app.delete("/api/projects/{pid}")
     async def project_delete(pid: int):
-        p = store.get_project(pid)
-        if p and p["slug"] == store.HOME_SLUG:
-            return JSONResponse({"error": "the Home workroom can't be deleted"}, status_code=422)
         if not store.delete_project(pid):
             return _404("project")
-        await bus.broadcast("project.deleted", {"id": pid})
+        await bus.broadcast("projects.changed", {})
         return {"ok": True}
 
-    # ---- repos ----
-    @app.get("/api/repos")
-    def repos_all():
-        return store.all_repos()
-
-    @app.get("/api/projects/{pid}/repos")
-    def repos_list(pid: int):
-        r = store.repos_for(pid)
-        for row in r["own"] + r["linked"]:        # folders vs git repos, for the Files tab
-            g = Path(row["path"]) / ".git"
-            row["is_git"] = g.is_dir() or g.is_file()
-        return r
-
-    @app.delete("/api/projects/{pid}/repos/{rid}")
-    async def repos_remove(pid: int, rid: int):
-        # own repo → remove it (links elsewhere die with it); linked → just unlink
-        if not (store.remove_repo(pid, rid) or store.unlink_repo(pid, rid)):
-            return _404("repo")
-        await bus.broadcast("repos.changed", {"project_id": pid})
-        return {"ok": True}
+    async def _attach_folder(pid: int, path: str):
+        """Track a folder on a project: the folder itself + every git repo inside."""
+        root = Path(path).expanduser().resolve()
+        if not root.is_dir():
+            return JSONResponse({"error": f"not a directory: {path}"}, status_code=422)
+        from ..projects import scan
+        existing = set(store.project_repo_paths(pid))
+        added = []
+        if str(root) not in existing:
+            added.append(store.add_repo(pid, str(root),
+                                        is_primary=not existing))
+            existing.add(str(root))
+        for rp in scan.discover_repos(str(root)):
+            if rp not in existing:
+                added.append(store.add_repo(pid, rp))
+                existing.add(rp)
+        return {"added": added, "discovered": max(0, len(added) - 1)}
 
     @app.post("/api/projects/{pid}/repos")
     async def repos_add(pid: int, body: dict):
         if not store.get_project(pid):
             return _404("project")
-        if body.get("link_repo_id"):              # reference another project's repo
-            if not store.link_repo(pid, int(body["link_repo_id"])):
-                return _404("repo")
-            r = {"linked": True, "repo_id": int(body["link_repo_id"])}
-        else:
-            path = (body.get("path") or "").strip()
-            if not path:
-                return JSONResponse({"error": "path required"}, status_code=422)
-            root = Path(path).expanduser().resolve()
-            if not root.is_dir():
-                return JSONResponse({"error": f"not a directory: {path}"}, status_code=422)
-            # the FOLDER is the project root (agent's cwd); every git repo
-            # nested inside is tracked with it
-            from ..projects import scan
-            existing = set(store.repo_paths_for(pid))
-            added = []
-            if str(root) not in existing:
-                added.append(store.add_repo(pid, str(root), body.get("url"),
-                                            bool(body.get("is_primary"))))
-                existing.add(str(root))
-            for rp in scan.discover_repos(str(root)):
-                if rp not in existing:
-                    added.append(store.add_repo(pid, rp))
-                    existing.add(rp)
-            r = {"added": added, "discovered": max(0, len(added) - 1)}
-        await bus.broadcast("repos.changed", {"project_id": pid})
+        path = (body.get("path") or "").strip()
+        if not path:
+            return JSONResponse({"error": "path required"}, status_code=422)
+        r = await _attach_folder(pid, path)
+        await bus.broadcast("projects.changed", {})
         return r
 
-    # ---- tasks (kanban) ----
+    @app.delete("/api/projects/{pid}/repos/{rid}")
+    async def repos_remove(pid: int, rid: int):
+        if not store.remove_repo(pid, rid):
+            return _404("repo")
+        await bus.broadcast("projects.changed", {})
+        return {"ok": True}
+
+    # =================================================================
+    # ROOMS — the owner's channels
+    # =================================================================
+    @app.get("/api/rooms")
+    def rooms_list():
+        return store.list_rooms()
+
+    @app.post("/api/rooms")
+    async def rooms_create(body: dict):
+        name = (body.get("name") or "").strip()
+        if not name:
+            return JSONResponse({"error": "name required"}, status_code=422)
+        r = store.create_room(name)
+        await bus.broadcast("room.created", r)
+        return r
+
+    @app.patch("/api/rooms/{rid}")
+    async def room_rename(rid: int, body: dict):
+        r = store.rename_room(rid, body.get("name", ""))
+        if r:
+            await bus.broadcast("room.updated", r)
+        return r or _404("room")
+
+    @app.delete("/api/rooms/{rid}")
+    async def room_delete(rid: int):
+        r = store.get_room(rid)
+        if r and r["slug"] == store.HOME_SLUG:
+            return JSONResponse({"error": "the Home workroom can't be deleted"}, status_code=422)
+        if not store.delete_room(rid):
+            return _404("room")
+        await bus.broadcast("room.deleted", {"id": rid})
+        return {"ok": True}
+
+    # ---- room ↔ project connections ----
+    @app.get("/api/rooms/{rid}/projects")
+    def room_projects(rid: int):
+        out = store.projects_for_room(rid)
+        for p in out:
+            for row in p["repos"]:
+                g = Path(row["path"]) / ".git"
+                row["is_git"] = g.is_dir() or g.is_file()
+        return out
+
+    @app.post("/api/rooms/{rid}/projects")
+    async def room_connect(rid: int, body: dict):
+        if not store.get_room(rid):
+            return _404("room")
+        if not store.connect_project(rid, int(body.get("project_id") or 0)):
+            return _404("project")
+        await bus.broadcast("room.projects", {"room_id": rid})
+        return {"ok": True}
+
+    @app.delete("/api/rooms/{rid}/projects/{pid}")
+    async def room_disconnect(rid: int, pid: int):
+        if not store.disconnect_project(rid, pid):
+            return _404("connection")
+        await bus.broadcast("room.projects", {"room_id": rid})
+        return {"ok": True}
+
+    # ---- tasks (kanban — lives in rooms) ----
     @app.get("/api/tasks")
     def tasks_all():
         return store.all_tasks()
 
-    @app.get("/api/projects/{pid}/tasks")
-    def tasks_list(pid: int):
-        return store.list_tasks(pid)
+    @app.get("/api/rooms/{rid}/tasks")
+    def tasks_list(rid: int):
+        return store.list_tasks(rid)
 
-    @app.post("/api/projects/{pid}/tasks")
-    async def tasks_create(pid: int, body: dict):
-        if not store.get_project(pid):
-            return _404("project")
+    @app.post("/api/rooms/{rid}/tasks")
+    async def tasks_create(rid: int, body: dict):
+        if not store.get_room(rid):
+            return _404("room")
         title = (body.get("title") or "").strip()
         if not title:
             return JSONResponse({"error": "title required"}, status_code=422)
-        t = store.create_task(pid, title, body.get("body", ""))
+        t = store.create_task(rid, title, body.get("body", ""))
         await bus.broadcast("task.created", t)
         return t
 
@@ -229,8 +275,8 @@ def create_app():
         t = store.get_task(tid)
         if not t:
             return _404("task")
-        p = store.get_project(t["project_id"])
-        return {"task": t, "room": {"name": p["name"], "slug": p["slug"]} if p else None,
+        r = store.get_room(t["room_id"])
+        return {"task": t, "room": {"name": r["name"], "slug": r["slug"]} if r else None,
                 "log": store.list_task_log(tid), "thread": store.list_thread(tid)}
 
     @app.post("/api/tasks/{tid}/reply")
@@ -252,39 +298,6 @@ def create_app():
         asyncio.get_running_loop().create_task(worker.run_followup(t, text, bus.broadcast))
         return {"ok": True, "message": msg}
 
-    # ---- routines (recurring cards) ----
-    @app.get("/api/projects/{pid}/routines")
-    def routines_list(pid: int):
-        return store.list_routines(pid)
-
-    @app.post("/api/projects/{pid}/routines")
-    async def routines_add(pid: int, body: dict):
-        if not store.get_project(pid):
-            return _404("project")
-        title = (body.get("title") or "").strip()
-        schedule = (body.get("schedule") or "").strip()
-        if not title or not re.match(r"^(daily@\d{1,2}:\d{2}|every@\d+[mh])$", schedule):
-            return JSONResponse(
-                {"error": "need title + schedule like daily@09:00 or every@4h"}, status_code=422)
-        return store.add_routine(pid, title, body.get("body", ""), schedule)
-
-    @app.patch("/api/routines/{rid}")
-    def routines_toggle(rid: int, body: dict):
-        r = store.toggle_routine(rid, bool(body.get("enabled")))
-        return r or _404("routine")
-
-    @app.delete("/api/routines/{rid}")
-    def routines_delete(rid: int):
-        return {"ok": True} if store.delete_routine(rid) else _404("routine")
-
-    # ---- palace search ----
-    @app.get("/api/search")
-    def palace_search(q: str = ""):
-        q = q.strip()
-        if len(q) < 2:
-            return {"rooms": [], "tasks": [], "chats": []}
-        return store.search(q)
-
     @app.patch("/api/tasks/{tid}")
     async def task_update(tid: int, body: dict):
         status = body.get("status")
@@ -297,11 +310,44 @@ def create_app():
         await bus.broadcast("task.updated", t)
         return t
 
-    # ---- home (the hall): one chat that routes to every room ----
+    # ---- routines (rooms) ----
+    @app.get("/api/rooms/{rid}/routines")
+    def routines_list(rid: int):
+        return store.list_routines(rid)
+
+    @app.post("/api/rooms/{rid}/routines")
+    async def routines_add(rid: int, body: dict):
+        if not store.get_room(rid):
+            return _404("room")
+        title = (body.get("title") or "").strip()
+        schedule = (body.get("schedule") or "").strip()
+        if not title or not re.match(r"^(daily@\d{1,2}:\d{2}|every@\d+[mh])$", schedule):
+            return JSONResponse(
+                {"error": "need title + schedule like daily@09:00 or every@4h"}, status_code=422)
+        return store.add_routine(rid, title, body.get("body", ""), schedule)
+
+    @app.patch("/api/routines/{rtid}")
+    def routines_toggle(rtid: int, body: dict):
+        r = store.toggle_routine(rtid, bool(body.get("enabled")))
+        return r or _404("routine")
+
+    @app.delete("/api/routines/{rtid}")
+    def routines_delete(rtid: int):
+        return {"ok": True} if store.delete_routine(rtid) else _404("routine")
+
+    # ---- palace search ----
+    @app.get("/api/search")
+    def palace_search(q: str = ""):
+        q = q.strip()
+        if len(q) < 2:
+            return {"rooms": [], "projects": [], "tasks": [], "chats": []}
+        return store.search(q)
+
+    # ---- home (the hall) ----
     @app.get("/api/home/chat")
     async def home_chat_list():
         from ..projects import brief
-        row = brief.ensure_daily_brief()             # first hall open of the day
+        row = brief.ensure_daily_brief()
         if row:
             await bus.broadcast("home.message", row)
         return store.list_home_chat()
@@ -316,71 +362,66 @@ def create_app():
         asyncio.get_running_loop().create_task(home.handle(text, bus.broadcast))
         return {"message": msg}
 
-    # ---- chat: an instruction typed here becomes a ticket on the board ----
-    @app.get("/api/projects/{pid}/chat")
-    def chat_list(pid: int):
-        return store.list_chat(pid)
+    # ---- room chat: triage → card / conversation ----
+    @app.get("/api/rooms/{rid}/chat")
+    def chat_list(rid: int):
+        return store.list_chat(rid)
 
-    @app.post("/api/projects/{pid}/chat")
-    async def chat_post(pid: int, body: dict):
-        if not store.get_project(pid):
-            return _404("project")
+    @app.post("/api/rooms/{rid}/chat")
+    async def chat_post(rid: int, body: dict):
+        if not store.get_room(rid):
+            return _404("room")
         text = (body.get("text") or "").strip()
         if not text:
             return JSONResponse({"error": "text required"}, status_code=422)
 
-        # "close card 12" / "close task #12" → close it, don't open a new ticket
         m = re.match(r"(?i)^close\s+(?:card|task|ticket)?\s*#?(\d+)$", text)
         if m:
             tid = int(m.group(1))
-            umsg = store.add_chat(pid, "user", text)
+            umsg = store.add_chat(rid, "user", text)
             await bus.broadcast("chat.message", umsg)
             t = store.get_task(tid)
-            if t and t["project_id"] == pid:
+            if t and t["room_id"] == rid:
                 t = store.set_task_status(tid, "done")
                 reply = f"Closed card #{tid} — {t['title']}"
                 await bus.broadcast("task.updated", t)
             else:
                 reply = f"No card #{tid} in this room."
-            amsg = store.add_chat(pid, "agent", reply, task_id=tid if t else None)
+            amsg = store.add_chat(rid, "agent", reply, task_id=tid if t else None)
             await bus.broadcast("chat.message", amsg)
             return {"message": umsg, "task": None}
 
-        # triage: work → card; conversation → answer in the corridor, no card.
-        # The UI can force a lane; default is auto (heuristics, then haiku).
         lane = body.get("lane") or "auto"
         if lane == "auto":
             lane = await triage.classify(text)
 
         if lane == "chat":
-            msg = store.add_chat(pid, "user", text)
+            msg = store.add_chat(rid, "user", text)
             await bus.broadcast("chat.message", msg)
             asyncio.get_running_loop().create_task(
-                worker.run_chat(pid, text, bus.broadcast))
+                worker.run_chat(rid, text, bus.broadcast))
             return {"message": msg, "task": None, "lane": "chat"}
 
         kind = "goal" if lane == "goal" else "task"
-        task = store.create_task(pid, text.splitlines()[0][:120], text, kind=kind,
+        task = store.create_task(rid, text.splitlines()[0][:120], text, kind=kind,
                                  promise=worker.DEFAULT_PROMISE if kind == "goal" else None)
-        msg = store.add_chat(pid, "user", text, task_id=task["id"])
+        msg = store.add_chat(rid, "user", text, task_id=task["id"])
         await bus.broadcast("chat.message", msg)
         await bus.broadcast("task.created", task)
-        # the ticket worker (projects/worker.py) claims it from 'todo' within ~2s
         return {"message": msg, "task": task, "lane": kind}
 
-    # ---- assets ----
-    @app.get("/api/projects/{pid}/assets")
-    def assets_list(pid: int):
-        return store.list_assets(pid)
+    # ---- assets (rooms) ----
+    @app.get("/api/rooms/{rid}/assets")
+    def assets_list(rid: int):
+        return store.list_assets(rid)
 
-    @app.post("/api/projects/{pid}/assets")
-    async def assets_upload(pid: int, file: UploadFile):
-        p = store.get_project(pid)
-        if not p:
-            return _404("project")
-        adir = store.project_dir(p["slug"]) / "assets"
+    @app.post("/api/rooms/{rid}/assets")
+    async def assets_upload(rid: int, file: UploadFile):
+        r = store.get_room(rid)
+        if not r:
+            return _404("room")
+        adir = store.room_dir(r["slug"]) / "assets"
         adir.mkdir(parents=True, exist_ok=True)
-        # sanitize to a plain basename; dedupe collisions with -2, -3, …
         base = Path(file.filename or "upload").name.replace("/", "_") or "upload"
         dest, n = adir / base, 2
         while dest.exists():
@@ -391,8 +432,8 @@ def create_app():
             while chunk := await file.read(1 << 20):
                 out.write(chunk)
                 size += len(chunk)
-        a = store.add_asset(pid, dest.name, str(dest), size)
-        await bus.broadcast("assets.changed", {"project_id": pid})
+        a = store.add_asset(rid, dest.name, str(dest), size)
+        await bus.broadcast("assets.changed", {"room_id": rid})
         return a
 
     @app.get("/api/assets/{aid}/download")
@@ -402,16 +443,16 @@ def create_app():
             return _404("asset")
         return FileResponse(a["path"], filename=a["filename"])
 
-    @app.delete("/api/projects/{pid}/assets/{aid}")
-    async def asset_delete(pid: int, aid: int):
-        a = store.delete_asset(pid, aid)
+    @app.delete("/api/rooms/{rid}/assets/{aid}")
+    async def asset_delete(rid: int, aid: int):
+        a = store.delete_asset(rid, aid)
         if not a:
             return _404("asset")
         try:
             Path(a["path"]).unlink(missing_ok=True)
         except OSError:
             pass
-        await bus.broadcast("assets.changed", {"project_id": pid})
+        await bus.broadcast("assets.changed", {"room_id": rid})
         return {"ok": True}
 
     # ---- live event bus ----
@@ -420,14 +461,14 @@ def create_app():
         await sock.accept()
         bus.clients.add(sock)
         try:
-            while True:                            # inbound frames are just keepalives
+            while True:
                 await sock.receive_text()
         except WebSocketDisconnect:
             pass
         finally:
             bus.clients.discard(sock)
 
-    # ---- the UI: pre-built Nuxt bundle when present, status page until then ----
+    # ---- the UI ----
     dist = Path(__file__).resolve().parent.parent / "web_dist"
     if (dist / "index.html").exists():
         app.mount("/", StaticFiles(directory=dist, html=True), name="ui")
@@ -455,7 +496,6 @@ def run(port: int | None = None, open_browser: bool = True, dev: bool = False):
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     # localhost only — never expose the daemon to the network unauthenticated
     if dev:
-        # auto-restart on python edits; pair with `cd web && npm run dev` for UI HMR
         uvicorn.run("mindpalace.gateways.web:create_app", factory=True,
                     host="127.0.0.1", port=port, log_level="info",
                     reload=True, reload_dirs=[str(config.PKG_ROOT)])

@@ -1,15 +1,14 @@
-"""The Home room (the hall) — one conversation that reaches every room.
+"""The Home hall — one conversation that reaches every room.
 
 The owner just talks. The concierge decides, in ONE model call that also writes
 the user-facing reply:
-  • chat    → answer directly (it sees every room's board, so cross-room
-              status questions work)
-  • file    → the message is work for an EXISTING room → ticket goes there
-  • create  → a genuinely new project → room is created, ticket filed inside
+  • chat    → answer directly (it sees every room's board + projects)
+  • file    → work for an EXISTING room → ticket goes there
+  • general → work about the palace itself → the keeper's hidden workroom
 
-Guard rails: prefer filing over creating (fuzzy-match the room index first);
-every routing is announced in the reply so a wrong guess is visible and cheap
-to correct ("move card N to X" can be said in the target room or here).
+ROOMS ARE THE OWNER'S — the concierge NEVER creates one. When no room fits, it
+answers in chat and suggests making a room (or naming one). Every routing is
+announced in the reply so a wrong guess is visible and cheap to correct.
 """
 from __future__ import annotations
 
@@ -20,39 +19,38 @@ import json
 from . import store
 
 _PROMPT = (
-    "You are the concierge of the owner's project palace. Every project is a room "
-    "with a kanban board (todo/in progress/review/done), a chat, repos and assets.\n\n"
+    "You are the concierge of the owner's palace. ROOMS are the owner's channels "
+    "(each has a kanban board, chat, connected projects). PROJECTS are inventory "
+    "(folders/repos on disk) managed by the palace-keeper.\n\n"
     "THE ROOMS RIGHT NOW:\n{rooms}\n\n"
     "RECENT HALL CONVERSATION:\n{hist}\n\n"
     "THE OWNER JUST SAID:\n{text}\n\n"
     "Decide what this is and answer with STRICT JSON only (no prose, no fences):\n"
     '  {{"action":"chat","reply":"..."}}\n'
-    '      conversation, questions, status checks — answer from the room data above\n'
+    '      conversation, questions, status checks — answer from the data above. '
+    "ALSO use this when work fits NO existing room: say so and suggest the owner "
+    "create a room (you can never create rooms — they are the owner's).\n"
     '  {{"action":"file","room":"<existing slug>","title":"...","body":"...","reply":"..."}}\n'
-    '      work that belongs to an EXISTING room (match loosely by name/topic)\n'
-    '  {{"action":"create","room_name":"...","title":"...","body":"...","reply":"..."}}\n'
-    '      work for a genuinely NEW project no room covers\n'
+    '      work that belongs to an EXISTING room (match loosely by name/topic/projects)\n'
     '  {{"action":"general","title":"...","body":"...","reply":"..."}}\n'
-    '      work about the PALACE ITSELF, not one project — scanning folders for '
-    'projects, creating/organizing rooms, machine-wide chores. Files a general card '
-    'the palace-keeper works.\n\n'
-    "Rules: STRONGLY prefer file over create — create only when nothing plausibly "
-    "matches. body = the owner's full instruction. reply = 1-3 short lines, simple "
-    "English, and when you file/create, SAY where it went so a wrong guess is easy "
-    "to catch. JSON only."
+    '      work about the PALACE ITSELF — scanning for projects, managing the '
+    "project inventory, machine-wide chores. Goes to the palace-keeper.\n\n"
+    "Rules: body = the owner's full instruction. reply = 1-3 short lines, simple "
+    "English; when you file, SAY where it went. JSON only."
 )
 
 
 def _rooms_block() -> str:
     idx = store.rooms_index()
     if not idx:
-        return "(no rooms yet)"
+        return "(no rooms yet — the owner hasn't created any)"
     lines = []
     for r in idx:
         c = r["counts"]
-        lines.append(f"- {r['slug']} (\"{r['name']}\") — todo {c['todo']}, doing {c['in_progress']}, "
-                     f"review {c['review']}, done {c['done']}"
-                     + (f"; open: {'; '.join(r['open_titles'])}" if r["open_titles"] else ""))
+        lines.append(
+            f"- {r['slug']} (\"{r['name']}\") — projects: {', '.join(r['projects']) or 'none'}; "
+            f"todo {c['todo']}, doing {c['in_progress']}, review {c['review']}, done {c['done']}"
+            + (f"; open: {'; '.join(r['open_titles'])}" if r["open_titles"] else ""))
     return "\n".join(lines)
 
 
@@ -81,7 +79,7 @@ async def _decide(text: str) -> dict:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=90)
         d = _parse(out.decode(errors="replace"))
-        if d and d.get("action") in ("chat", "file", "create", "general"):
+        if d and d.get("action") in ("chat", "file", "general"):
             return d
     except Exception:
         try:
@@ -93,66 +91,46 @@ async def _decide(text: str) -> dict:
 
 
 def _match_room(slug_or_name: str) -> dict | None:
-    projects = store.list_projects()
-    by_slug = {p["slug"]: p for p in projects}
+    rooms = store.list_rooms()
+    by_slug = {r["slug"]: r for r in rooms}
     if slug_or_name in by_slug:
         return by_slug[slug_or_name]
     close = difflib.get_close_matches(slug_or_name.lower(),
-                                      [p["slug"] for p in projects]
-                                      + [p["name"].lower() for p in projects], n=1, cutoff=0.6)
+                                      [r["slug"] for r in rooms]
+                                      + [r["name"].lower() for r in rooms], n=1, cutoff=0.6)
     if close:
-        for p in projects:
-            if close[0] in (p["slug"], p["name"].lower()):
-                return p
+        for r in rooms:
+            if close[0] in (r["slug"], r["name"].lower()):
+                return r
     return None
-
-
-def _scaffold_workspace(p: dict) -> None:
-    """A brand-new project gets a real home: <workspace>/<slug>, git-initialized
-    and tracked as the room's primary folder — so its very first ticket already
-    runs grounded there instead of drifting into the vault."""
-    import subprocess
-
-    from .. import config
-    try:
-        folder = config.workspace_dir() / p["slug"]
-        folder.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "init", "-q", str(folder)], timeout=10, capture_output=True)
-        store.add_repo(p["id"], str(folder), is_primary=True)
-    except Exception as e:
-        print(f"[home] workspace scaffold failed for {p['slug']}: {e}")
 
 
 async def handle(text: str, broadcast) -> None:
     """One hall turn: decide → execute → reply. The user message is already stored."""
     d = await _decide(text)
-    action, ref_pid, task_id = d.get("action"), None, None
-
-    if action == "general":                      # palace-level work → the Home workroom
-        p = store.ensure_home_project()
-        title = (d.get("title") or text.splitlines()[0])[:120]
-        task = store.create_task(p["id"], title, d.get("body") or text)
-        ref_pid, task_id = p["id"], task["id"]
-        await broadcast("task.created", task)
-
-    if action in ("file", "create"):
-        title = (d.get("title") or text.splitlines()[0])[:120]
-        body = d.get("body") or text
-        p = _match_room(d.get("room", "")) if action == "file" else None
-        if p is None and action == "file":          # model named a room that doesn't exist
-            action = "create"
-        if action == "create":
-            p = store.create_project(d.get("room_name") or d.get("room") or title[:40])
-            await broadcast("project.created", p)
-            _scaffold_workspace(p)                   # new project = real folder from birth
-            await broadcast("repos.changed", {"project_id": p["id"]})
-        ref_pid = p["id"]
-        task = store.create_task(ref_pid, title, body)
-        task_id = task["id"]
-        msg = store.add_chat(ref_pid, "user", body, task_id=task_id)   # the room keeps the record
-        await broadcast("chat.message", msg)
-        await broadcast("task.created", task)
-
+    action, ref_rid, task_id = d.get("action"), None, None
     reply = d.get("reply") or "Done."
-    hmsg = store.add_home_chat("agent", reply, ref_project_id=ref_pid, task_id=task_id)
+
+    if action == "general":
+        room = store.ensure_home_room()
+        title = (d.get("title") or text.splitlines()[0])[:120]
+        task = store.create_task(room["id"], title, d.get("body") or text)
+        ref_rid, task_id = room["id"], task["id"]
+        await broadcast("task.created", task)
+
+    elif action == "file":
+        room = _match_room(d.get("room", ""))
+        if room is None:                             # named a room that doesn't exist
+            reply = (f"No room matches \"{d.get('room', '?')}\" — rooms are yours to make. "
+                     "Create one in the sidebar, then send this again (or name another room).")
+        else:
+            title = (d.get("title") or text.splitlines()[0])[:120]
+            body = d.get("body") or text
+            task = store.create_task(room["id"], title, body)
+            ref_rid, task_id = room["id"], task["id"]
+            msg = store.add_chat(room["id"], "user", body, task_id=task_id)
+            await broadcast("chat.message", msg)
+            await broadcast("task.created", task)
+
+    hmsg = store.add_home_chat("agent", reply, ref_room_id=ref_rid, task_id=task_id)
     await broadcast("home.message", hmsg)

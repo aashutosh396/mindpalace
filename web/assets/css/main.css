@@ -580,6 +580,29 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .dropzone:hover, .dropzone.over { border-color: var(--text-dim); color: var(--text); }
 .dz-sub { font-size: 12.5px; margin-top: 4px; color: var(--text-dim); }
 
+/* ---- projects sheet + room projects ---- */
+.projects-sheet { width: min(760px, 94vw); }
+.dim-note { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; }
+.proj-new { display: flex; gap: 8px; margin-bottom: 14px; }
+.proj-new input {
+  flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--edge);
+  border-radius: 10px; padding: 8px 12px;
+}
+.proj-list { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.proj-entry {
+  background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.proj-entry-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: none; text-align: left; cursor: pointer;
+  padding: 11px 14px; font-size: 14.5px; color: var(--text);
+}
+.proj-entry-name { font-weight: 500; }
+.proj-entry-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+.proj-entry-body .panel-row { box-shadow: none; background: var(--bg); }
+.proj-entry-actions { display: flex; gap: 8px; margin-top: 6px; }
+
 /* ---- empty states ---- */
 .empty { color: var(--text-dim); padding: 40px 20px; text-align: center; }
 .empty .glyph { font-family: var(--serif); font-size: 34px; color: var(--brass); display: block; margin-bottom: 8px; }

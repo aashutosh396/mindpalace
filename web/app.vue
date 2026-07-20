@@ -15,6 +15,7 @@ function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     if (state.searchOpen) { state.searchOpen = false; state.searchResults = null }
     else if (state.modal) state.modal = null
+    else if (state.projectsOpen) state.projectsOpen = false
     else state.boardOpen = false
   }
 }
@@ -40,14 +41,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
           <span class="room-slug">{{ state.current.slug }}</span>
           <nav class="tabs">
             <button class="tab" :class="{ active: tab === 'chat' }" @click="tab = 'chat'">Chat</button>
-            <button class="tab" :class="{ active: tab === 'repos' }" @click="tab = 'repos'">Files</button>
+            <button class="tab" :class="{ active: tab === 'repos' }" @click="tab = 'repos'">Projects</button>
             <button class="tab" :class="{ active: tab === 'assets' }" @click="tab = 'assets'">Assets</button>
             <button class="tab" :class="{ active: tab === 'routines' }" @click="tab = 'routines'">Routines</button>
           </nav>
         </div>
         <ChatRail v-if="tab === 'chat'" class="center" />
         <div v-else class="main-body">
-          <ReposPanel v-if="tab === 'repos'" />
+          <RoomProjectsPanel v-if="tab === 'repos'" :key="'p' + state.current.id" />
           <AssetsPanel v-else-if="tab === 'assets'" />
           <RoutinesPanel v-else :key="state.current.id" />
         </div>
@@ -70,6 +71,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
     <TaskModal v-if="state.modal" />
     <SearchOverlay v-if="state.searchOpen" />
+    <ProjectsSheet v-if="state.projectsOpen" />
 
     <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">
       <div class="sheet" role="dialog" aria-label="Project board">
