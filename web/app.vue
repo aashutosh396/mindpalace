@@ -41,6 +41,11 @@ async function applyHash() {
   if (state.current) await goHome()
 }
 
+// the runs rail belongs to routines pages only — leave them, board comes back
+watch([() => state.tab, () => state.current?.id, () => state.tool], () => {
+  if (state.runsFor && state.tab !== 'routines' && state.tool !== 'routines') state.runsFor = null
+})
+
 watch([() => state.current?.slug, () => state.tab, () => state.tool], () => {
   const h = state.current
     ? `#/room/${state.current.slug}` + (state.tab !== 'chat' ? '/' + SLUGS[state.tab] : '')

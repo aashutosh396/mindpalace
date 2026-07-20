@@ -262,6 +262,7 @@ const actions = {
   async goHome() {
     state.current = null
     state.tool = null
+    state.tab = 'chat'
     state.awaitingReply = false
     state.homeChatDone = false
     ;[state.homeChat, state.allTasks] = await Promise.all([api('/home/chat'), api('/tasks')])
