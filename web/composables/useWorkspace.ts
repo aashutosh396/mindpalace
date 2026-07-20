@@ -3,6 +3,7 @@
 //   PROJECTS the inventory — folders/repos, inspected via the Projects sheet
 // The live WS bus keeps every open window in sync.
 import { reactive } from 'vue'
+import { chime, ding } from './sound'
 
 export const STATUSES = ['todo', 'in_progress', 'review', 'done'] as const
 export type Status = typeof STATUSES[number]
@@ -159,6 +160,9 @@ function connect() {
         toast(`Card #${data.id} ready for review${room ? ' — ' + room.name : ''}`)
         notify(`Card #${data.id} ready for review${room ? ' — ' + room.name : ''}`,
           { task_id: data.id, kind: 'review' })
+        ding()
+      } else if (j >= 0 && state.allTasks[j].status === 'in_progress' && data.status === 'done') {
+        ding()                                        // self-verified — closed straight to done
       }
       const i = state.tasks.findIndex(t => t.id === data.id)
       if (i >= 0) state.tasks[i] = data
@@ -195,6 +199,7 @@ function connect() {
     } else if (event === 'reminder.due') {
       notify(`Reminder: ${data.text}`, { kind: 'reminder' })
       state.reminderAlerts.push(data)
+      chime()
       state.reminders = state.reminders.filter((r: any) => r.id !== data.id)
     } else if (event === 'reminders.changed') {
       api('/reminders').then(rs => { state.reminders = rs }).catch(() => {})

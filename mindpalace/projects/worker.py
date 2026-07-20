@@ -11,6 +11,7 @@ they'd sit there working forever. Requeue them to 'todo' at watcher start.
 from __future__ import annotations
 
 import asyncio
+import re
 
 from .. import config
 from . import store
@@ -32,8 +33,12 @@ _WRAP = (
     "decisions and proceed. Do this end to end:\n\n{task}\n\n"
     "When finished, reply in 3-4 short lines MAX: 'Done:' + one ✓ line per thing "
     "done (a few words each), then ONE next-step proposal if there is an obvious "
-    "one. Simple everyday English. The reply lands on the ticket for the owner's "
-    "review — no essays, no file attachments."
+    "one. Simple everyday English. No essays, no file attachments.\n"
+    "END your reply with exactly one verdict line:\n"
+    "  VERDICT: done    — you verified the work yourself and nothing needs the "
+    "owner's eyes (chores, small fixes you tested, lookups)\n"
+    "  VERDICT: review  — the owner should look (visual changes, risky edits, "
+    "decisions you made, anything you could not verify)"
 )
 
 
@@ -153,10 +158,23 @@ async def _propose_next(task: dict, room: dict, broadcast) -> None:
 
 
 async def _finish(task: dict, reply: str, broadcast) -> None:
-    # routine cards that succeeded skip Review — at 100+ cards/day, Review must
-    # stay the "needs your eyes" queue; failures still stop there.
+    # Review = the "needs your eyes" queue ONLY. The agent ends each run with a
+    # verdict: self-verified work closes straight to done; anything visual,
+    # risky, or unverified stops in Review. Failures always stop in Review.
     failed = reply.startswith("(")
-    status = "done" if task.get("created_by") == "routine" and not failed else "review"
+    verdict = None
+    m = re.search(r"\n?\s*VERDICT:\s*(done|review)\W*$", reply.strip(), re.IGNORECASE)
+    if m:
+        verdict = m.group(1).lower()
+        reply = reply.strip()[:m.start()].rstrip()
+    if failed:
+        status = "review"
+    elif task.get("created_by") == "routine":
+        status = "done"
+    elif verdict == "done":
+        status = "done"
+    else:
+        status = "review"
     t = store.set_task_status(task["id"], status, result=reply)
     room = store.get_room(task["room_id"])
     if room and room["slug"] == store.HOME_SLUG:
@@ -167,7 +185,12 @@ async def _finish(task: dict, reply: str, broadcast) -> None:
         msg = store.add_chat(task["room_id"], "agent", reply, task_id=task["id"])
         await broadcast("chat.message", msg)
         if room:                                     # and announce delivery in the hall
-            where = "closed (routine)" if status == "done" else "waiting in Review"
+            if status != "done":
+                where = "waiting in Review"
+            elif task.get("created_by") == "routine":
+                where = "closed (routine)"
+            else:
+                where = "closed — self-verified"
             note = store.add_home_chat(
                 "agent", f"✅ Card #{task['id']} done in {room['name']} — {where}",
                 ref_room_id=room["id"], task_id=task["id"])
