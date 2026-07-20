@@ -411,6 +411,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .lane.rec-on { color: #fff; background: var(--danger); border-color: var(--danger); animation: pulse 1.2s ease-in-out infinite; }
 
 .room-settings { width: min(560px, 92vw); height: auto; max-height: 80vh; }
+.room-settings .onboard-input { flex: none; }   /* it's a one-line name, not a flex-grown column */
 .icon-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px;
 }
