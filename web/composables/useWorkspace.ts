@@ -43,7 +43,7 @@ const state = reactive({
   notifOpen: false,
   reminders: [] as any[],
   agentName: 'Agent',
-  tool: null as null | 'reminders',
+  tool: null as null | 'reminders' | 'routines',
   toolsOpen: false,
   modal: null as null | { task: any; room: any; log: any[]; thread: any[] },
   showOnboarding: false,
@@ -335,11 +335,11 @@ const actions = {
       await api(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
     } catch (e: any) { t.status = prev; toast(e.message, true) }
   },
-  openTool(t: 'reminders') {
+  openTool(t: 'reminders' | 'routines') {
     state.tool = t
     state.current = null
     state.toolsOpen = false
-    actions.remindersApi.list()
+    if (t === 'reminders') actions.remindersApi.list()
   },
   remindersApi: {
     list: async () => { state.reminders = await api('/reminders') },

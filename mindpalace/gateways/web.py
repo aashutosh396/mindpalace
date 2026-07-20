@@ -402,6 +402,16 @@ def create_app():
         return t
 
     # ---- routines (rooms) ----
+    @app.get("/api/routines")
+    def routines_all():
+        rooms = {r["id"]: r for r in store.list_rooms(include_home=True)}
+        out = store.list_routines()
+        for rt in out:
+            room = rooms.get(rt["room_id"])
+            rt["room_name"] = room["name"] if room else "?"
+            rt["room_slug"] = room["slug"] if room else "?"
+        return out
+
     @app.get("/api/rooms/{rid}/routines")
     def routines_list(rid: int):
         return store.list_routines(rid)

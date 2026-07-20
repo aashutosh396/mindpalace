@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlarmClock } from 'lucide-vue-next'
+import { AlarmClock, Repeat } from 'lucide-vue-next'
 import { useWorkspace } from '../composables/useWorkspace'
 
 const { state, openTool } = useWorkspace()
@@ -16,7 +16,10 @@ const { state, openTool } = useWorkspace()
         <button class="tool-tile" @click="openTool('reminders')">
           <AlarmClock :size="20" :stroke-width="1.75" />
           <span class="tool-name">Reminders</span>
-          <span class="tool-sub">a ping at the right time</span>
+        </button>
+        <button class="tool-tile" @click="openTool('routines')">
+          <Repeat :size="20" :stroke-width="1.75" />
+          <span class="tool-name">Routines</span>
         </button>
       </div>
     </div>

@@ -26,8 +26,8 @@ const SLUGS: Record<string, string> = { repos: 'projects', assets: 'assets', rou
 
 async function applyHash() {
   const parts = location.hash.replace(/^#\/?/, '').split('/')
-  if (parts[0] === 'tools' && parts[1] === 'reminders') {
-    state.tool = 'reminders'
+  if (parts[0] === 'tools' && (parts[1] === 'reminders' || parts[1] === 'routines')) {
+    state.tool = parts[1]
     state.current = null
     return
   }
@@ -141,6 +141,13 @@ onUnmounted(() => {
           <h1 class="room-name">Reminders</h1>
         </div>
         <RemindersPage />
+      </template>
+
+      <template v-else-if="state.tool === 'routines'">
+        <div class="main-head">
+          <h1 class="room-name">Routines</h1>
+        </div>
+        <RoutinesTool />
       </template>
 
       <template v-else>

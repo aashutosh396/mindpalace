@@ -49,27 +49,73 @@ function onPick() {
 }
 
 // ---- voice ----
+// Dictation = the browser's Web Speech API (SpeechRecognition) — live interim
+// words land in the box as you speak. No SR support → record a voice note the
+// agent transcribes. The strip (dot + timer + level bars) runs off a parallel
+// mic stream so you SEE it listening either way.
 const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
 const recording = ref(false)
+const elapsed = ref(0)
+const levels = ref<number[]>(Array(24).fill(2))
 let recog: any = null
 let mediaRec: MediaRecorder | null = null
+let baseText = ''
+let clockTimer: ReturnType<typeof setInterval> | null = null
+let meterStream: MediaStream | null = null
+let meterCtx: AudioContext | null = null
+let meterRaf = 0
+
+const clock = () => `${String(Math.floor(elapsed.value / 60)).padStart(2, '0')}:${String(elapsed.value % 60).padStart(2, '0')}`
+
+async function startMeter() {
+  elapsed.value = 0
+  clockTimer = setInterval(() => { elapsed.value++ }, 1000)
+  try {
+    meterStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    meterCtx = new AudioContext()
+    const src = meterCtx.createMediaStreamSource(meterStream)
+    const an = meterCtx.createAnalyser()
+    an.fftSize = 256
+    src.connect(an)
+    const buf = new Uint8Array(an.frequencyBinCount)
+    const tick = () => {
+      an.getByteTimeDomainData(buf)
+      let sum = 0
+      for (const v of buf) sum += (v - 128) * (v - 128)
+      const rms = Math.sqrt(sum / buf.length)                    // 0..~40 speaking
+      levels.value = [...levels.value.slice(1), Math.max(2, Math.min(18, rms * 1.4))]
+      meterRaf = requestAnimationFrame(tick)
+    }
+    tick()
+  } catch { /* no meter — the dot + timer still show it's live */ }
+}
+
+function stopMeter() {
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
+  cancelAnimationFrame(meterRaf)
+  meterStream?.getTracks().forEach(t => t.stop())
+  meterStream = null
+  meterCtx?.close().catch(() => {})
+  meterCtx = null
+  levels.value = Array(24).fill(2)
+}
 
 async function toggleMic() {
   if (recording.value) { stopMic(); return }
   if (SR) {
+    baseText = text.value.trim()
     recog = new SR()
     recog.continuous = true
-    recog.interimResults = false
+    recog.interimResults = true
     recog.onresult = (ev: any) => {
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        if (ev.results[i].isFinal) {
-          text.value = (text.value + ' ' + ev.results[i][0].transcript).trimStart()
-        }
-      }
+      let fin = '', interim = ''
+      for (const r of ev.results) (r.isFinal ? (fin += r[0].transcript + ' ') : (interim += r[0].transcript))
+      text.value = [baseText, fin.trim(), interim.trim()].filter(Boolean).join(' ')
     }
     recog.onerror = () => stopMic()
     recog.start()
     recording.value = true
+    startMeter()
   } else {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -85,12 +131,14 @@ async function toggleMic() {
       }
       mediaRec.start()
       recording.value = true
+      startMeter()
     } catch { toast('microphone unavailable', true) }
   }
 }
 
 function stopMic() {
   recording.value = false
+  stopMeter()
   try { recog?.stop() } catch { /* already stopped */ }
   try { mediaRec?.state !== 'inactive' && mediaRec?.stop() } catch { /* already stopped */ }
   recog = null
@@ -126,9 +174,18 @@ function onKey(e: KeyboardEvent) {
       </span>
       <span v-if="uploading" class="attach-chip dim">uploading…</span>
     </div>
+    <div v-if="recording" class="rec-strip" role="status" aria-label="Recording">
+      <span class="rec-dot"></span>
+      <span class="rec-label">Listening</span>
+      <span class="rec-clock">{{ clock() }}</span>
+      <span class="rec-bars" aria-hidden="true">
+        <span v-for="(h, i) in levels" :key="i" class="rec-bar" :style="{ height: h + 'px' }"></span>
+      </span>
+      <span class="rec-hint">{{ SR ? 'your words land in the box' : 'voice note — sent for transcription' }}</span>
+    </div>
     <textarea
       v-model="text"
-      :placeholder="state.current ? 'How can I help in this room? (drop files here)' : 'Tell me anything — I\'ll route it to the right room'"
+      :placeholder="recording ? 'Listening — speak, words appear here…' : state.current ? 'How can I help in this room? (drop files here)' : 'Tell me anything — I\'ll route it to the right room'"
       aria-label="Instruction"
       @keydown="onKey"
       @paste="onPaste"></textarea>
