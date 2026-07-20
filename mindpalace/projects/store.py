@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS routine (
   id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES room(id),
   title TEXT NOT NULL, body TEXT DEFAULT '', schedule TEXT NOT NULL,
   enabled INTEGER DEFAULT 1, last_run REAL, next_run REAL, created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS routine_run ( -- one row per fire; cards only if the run files them
+  id INTEGER PRIMARY KEY, routine_id INTEGER NOT NULL REFERENCES routine(id),
+  room_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'running',
+  result TEXT DEFAULT '', created_at REAL NOT NULL, finished_at REAL);
 CREATE TABLE IF NOT EXISTS chat_message (
   id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES room(id),
   role TEXT NOT NULL, text TEXT NOT NULL, task_id INTEGER REFERENCES task(id),
@@ -533,18 +537,58 @@ def toggle_routine(rtid: int, enabled: bool) -> dict | None:
 
 
 def routine_runs(rtid: int, limit: int = 12) -> list[dict]:
-    """The cards a routine has spawned (matched by room+title — fires carry
-    the routine's title), newest first: its tick history."""
+    """A routine's tick history, newest first."""
+    with _lock:
+        rows = _db().execute(
+            "SELECT * FROM routine_run WHERE routine_id=? ORDER BY id DESC LIMIT ?",
+            (rtid, limit)).fetchall()
+    return _rows(rows)
+
+
+def add_routine_run(rtid: int, rid: int) -> dict:
     with _lock:
         db = _db()
-        rt = db.execute("SELECT * FROM routine WHERE id=?", (rtid,)).fetchone()
-        if not rt:
-            return []
-        rows = db.execute(
-            "SELECT id, status, result, created_at, closed_at FROM task "
-            "WHERE room_id=? AND created_by='routine' AND title=? "
-            "ORDER BY id DESC LIMIT ?", (rt["room_id"], rt["title"], limit)).fetchall()
+        cur = db.execute(
+            "INSERT INTO routine_run (routine_id, room_id, created_at) VALUES (?,?,?)",
+            (rtid, rid, time.time()))
+        db.commit()
+        return dict(db.execute("SELECT * FROM routine_run WHERE id=?", (cur.lastrowid,)).fetchone())
+
+
+def finish_routine_run(run_id: int, status: str, result: str) -> None:
+    with _lock:
+        db = _db()
+        db.execute("UPDATE routine_run SET status=?, result=?, finished_at=? WHERE id=?",
+                   (status, result[:2000], time.time(), run_id))
+        db.commit()
+
+
+def recent_routine_runs(limit: int = 10) -> list[dict]:
+    """Latest fires across all rooms — feeds the bottom-right activity ticker."""
+    with _lock:
+        rows = _db().execute(
+            """SELECT rr.*, rt.title, r.name AS room_name FROM routine_run rr
+               JOIN routine rt ON rt.id=rr.routine_id
+               JOIN room r ON r.id=rr.room_id
+               ORDER BY rr.id DESC LIMIT ?""", (limit,)).fetchall()
     return _rows(rows)
+
+
+def update_routine(rtid: int, title=None, body=None, schedule=None) -> dict | None:
+    with _lock:
+        db = _db()
+        r = db.execute("SELECT * FROM routine WHERE id=?", (rtid,)).fetchone()
+        if not r:
+            return None
+        if title is not None and title.strip():
+            db.execute("UPDATE routine SET title=? WHERE id=?", (title.strip()[:200], rtid))
+        if body is not None:
+            db.execute("UPDATE routine SET body=? WHERE id=?", (body, rtid))
+        if schedule is not None and schedule.strip():
+            db.execute("UPDATE routine SET schedule=?, next_run=? WHERE id=?",
+                       (schedule.strip(), _next_run(schedule.strip(), time.time()), rtid))
+        db.commit()
+        return dict(db.execute("SELECT * FROM routine WHERE id=?", (rtid,)).fetchone())
 
 
 def due_routines(now: float | None = None) -> list[dict]:
@@ -580,6 +624,20 @@ def list_reminders() -> list[dict]:
         rows = _db().execute(
             "SELECT * FROM reminder WHERE fired=0 ORDER BY due_at").fetchall()
     return _rows(rows)
+
+
+def update_reminder(rid: int, text=None, due_at=None) -> dict | None:
+    with _lock:
+        db = _db()
+        r = db.execute("SELECT * FROM reminder WHERE id=?", (rid,)).fetchone()
+        if not r:
+            return None
+        if text is not None and text.strip():
+            db.execute("UPDATE reminder SET text=? WHERE id=?", (text.strip(), rid))
+        if isinstance(due_at, (int, float)):
+            db.execute("UPDATE reminder SET due_at=? WHERE id=?", (float(due_at), rid))
+        db.commit()
+        return dict(db.execute("SELECT * FROM reminder WHERE id=?", (rid,)).fetchone())
 
 
 def delete_reminder(rid: int) -> bool:

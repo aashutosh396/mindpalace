@@ -16,14 +16,26 @@ async function toggleRuns(r: any) {
 }
 
 function tickOf(run: any) {
-  if (run.status === 'done') return run.result?.startsWith('(') ? '✗' : '✓'
-  if (run.status === 'review') return '◉'
-  return '…'
+  return run.status === 'ok' ? '✓' : run.status === 'failed' ? '✗' : '…'
 }
 
 function tickClass(run: any) {
-  if (run.status === 'done') return run.result?.startsWith('(') ? 'bad' : 'ok'
-  return run.status === 'review' ? 'eye' : 'run'
+  return run.status === 'ok' ? 'ok' : run.status === 'failed' ? 'bad' : 'run'
+}
+
+const editing = ref<any | null>(null)
+
+function startEdit(r: any) {
+  editing.value = { id: r.id, title: r.title, body: r.body, schedule: r.schedule }
+}
+
+async function saveEdit() {
+  if (!editing.value) return
+  await routinesApi.update(editing.value.id, {
+    title: editing.value.title, body: editing.value.body, schedule: editing.value.schedule
+  })
+  editing.value = null
+  await load()
 }
 
 function fmtRun(ts: number) {
@@ -94,20 +106,31 @@ async function remove(r: any) {
                 {{ fmtSchedule(r.schedule) }} · next: {{ fmtNext(r.next_run) }}
               </div>
             </div>
+            <button class="btn ghost" style="flex: none" @click.stop="startEdit(r)">Edit</button>
             <button class="btn ghost" style="flex: none" @click.stop="toggle(r)">
               {{ r.enabled ? 'Pause' : 'Resume' }}
             </button>
             <button class="row-x" style="margin-left: 4px" :title="`Delete routine: ${r.title}`" @click.stop="remove(r)">✕</button>
           </div>
+          <div v-if="editing?.id === r.id" class="routine-form" style="margin: 4px 0 6px" @click.stop>
+            <input v-model="editing.title" aria-label="Routine title" />
+            <textarea v-model="editing.body" rows="2" aria-label="Routine details"></textarea>
+            <div class="routine-when">
+              <input v-model="editing.schedule" style="width: 140px" aria-label="Schedule"
+                title="daily@HH:MM or every@N h/m — e.g. daily@09:00, every@4h" />
+              <button class="btn" @click="saveEdit">Save</button>
+              <button class="btn ghost" @click="editing = null">Cancel</button>
+            </div>
+          </div>
           <div v-if="expanded[r.id]" class="rt-runs">
               <div v-if="!(runs[r.id] || []).length" class="dim" style="margin: 0; font-size: 12px">
             No runs yet — first fire is at the next scheduled time.
             </div>
-            <button v-for="run in runs[r.id]" :key="run.id" class="rt-run" @click.stop="openTask(run.id)">
+            <div v-for="run in runs[r.id]" :key="run.id" class="rt-run" :title="run.result || 'still running'">
               <span class="rt-tick" :class="tickClass(run)">{{ tickOf(run) }}</span>
               <span>{{ fmtRun(run.created_at) }}</span>
-              <span class="dim" style="margin-left: auto">card #{{ run.id }}</span>
-            </button>
+              <span class="dim rt-result">{{ (run.result || '…').slice(0, 60) }}</span>
+            </div>
           </div>
         </div>
       </template>

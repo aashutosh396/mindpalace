@@ -166,7 +166,15 @@ onUnmounted(() => {
 
     <div class="foot foot-side"></div>
     <div class="foot foot-main"><Composer v-if="!state.tool" /></div>
-    <div v-show="state.railOpen && !state.tool" class="foot foot-rail"></div>
+    <div v-show="state.railOpen && !state.tool" class="foot foot-rail">
+      <div v-if="state.routineRuns.length" class="run-ticker" aria-label="Recent routine runs">
+        <div v-for="r in state.routineRuns.slice(0, 3)" :key="r.id" class="run-line" :title="r.result || ''">
+          <span class="rt-tick" :class="r.status === 'ok' ? 'ok' : r.status === 'failed' ? 'bad' : 'run'">{{ r.status === 'ok' ? '✓' : r.status === 'failed' ? '✗' : '↻' }}</span>
+          <span class="run-title">{{ r.title }}</span>
+          <span class="run-when">{{ new Date(r.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
+        </div>
+      </div>
+    </div>
 
     <div v-if="state.toast" class="toast" :class="{ error: state.toastError }" role="status">
       {{ state.toast }}

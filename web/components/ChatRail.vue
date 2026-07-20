@@ -11,6 +11,14 @@ function roomOf(m: any) {
   return state.rooms.find(r => r.id === m.ref_room_id)
 }
 
+function msgTime(ts: number) {
+  const d = new Date(ts * 1000)
+  const sameDay = new Date().toDateString() === d.toDateString()
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
 // The kitchen spinner from the Discord days: a cook-verb that rotates while
 // the agent works, plus how long it's been at it. Random start so every turn
 // opens on a different word.
@@ -70,7 +78,8 @@ async function onScroll() {
       </div>
       <div v-for="m in msgs" :key="m.id" class="msg"
         :class="m.role === 'user' ? 'user' : m.role === 'brief' ? 'brief' : 'agent'">
-        <div class="who">{{ m.role === 'user' ? 'You' : m.role === 'brief' ? 'The palace' : state.agentName }}</div>
+        <div class="who">{{ m.role === 'user' ? 'You' : m.role === 'brief' ? 'The palace' : state.agentName }}
+          <span class="when">{{ msgTime(m.created_at) }}</span></div>
         <div class="bubble">{{ m.text }}</div>
         <div v-if="m.task_id" class="ticket">
           → card #{{ m.task_id }}

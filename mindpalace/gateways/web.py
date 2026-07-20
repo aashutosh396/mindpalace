@@ -431,9 +431,17 @@ def create_app():
     def routine_runs(rtid: int):
         return store.routine_runs(rtid)
 
+    @app.get("/api/routine-runs")
+    def routine_runs_recent():
+        return store.recent_routine_runs()
+
     @app.patch("/api/routines/{rtid}")
-    def routines_toggle(rtid: int, body: dict):
-        r = store.toggle_routine(rtid, bool(body.get("enabled")))
+    def routines_patch(rtid: int, body: dict):
+        if "enabled" in body:
+            r = store.toggle_routine(rtid, bool(body.get("enabled")))
+        else:
+            r = store.update_routine(rtid, body.get("title"), body.get("body"),
+                                     body.get("schedule"))
         return r or _404("routine")
 
     @app.delete("/api/routines/{rtid}")
@@ -452,6 +460,14 @@ def create_app():
         if not text or not isinstance(due, (int, float)):
             return JSONResponse({"error": "need text + due_at (epoch seconds)"}, status_code=422)
         r = store.add_reminder(text, float(due))
+        await bus.broadcast("reminders.changed", {})
+        return r
+
+    @app.patch("/api/reminders/{rid}")
+    async def reminders_patch(rid: int, body: dict):
+        r = store.update_reminder(rid, body.get("text"), body.get("due_at"))
+        if not r:
+            return _404("reminder")
         await bus.broadcast("reminders.changed", {})
         return r
 

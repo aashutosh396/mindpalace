@@ -42,6 +42,7 @@ const state = reactive({
   notifs: [] as any[],                 // the top-bar notification feed
   notifOpen: false,
   reminders: [] as any[],
+  routineRuns: [] as any[],           // latest fires — the foot ticker
   agentName: 'Agent',
   tool: null as null | 'reminders' | 'routines',
   tab: 'chat' as 'chat' | 'repos' | 'assets' | 'routines',
@@ -176,6 +177,15 @@ function connect() {
     } else if (event === 'chat.message' && data.room_id === state.current?.id) {
       if (!state.chat.find((m: any) => m.id === data.id)) state.chat.push(data)
       if (data.role === 'agent') state.awaitingReply = false
+    } else if (event === 'routine.ran') {
+      const i = state.routineRuns.findIndex((x: any) => x.id === data.id)
+      if (i >= 0) state.routineRuns[i] = { ...state.routineRuns[i], ...data }
+      else state.routineRuns.unshift(data)
+      if (state.routineRuns.length > 10) state.routineRuns.length = 10
+      if (data.status === 'failed') {
+        notify(`Routine failed: “${data.title}”${data.room_name ? ' — ' + data.room_name : ''}`,
+          { kind: 'routine' })
+      }
     } else if (event === 'reminder.due') {
       notify(`Reminder: ${data.text}`, { kind: 'reminder' })
       toast(`Reminder: ${data.text}`)
@@ -201,6 +211,7 @@ const actions = {
     state.rooms = await api('/rooms')
     state.homeChat = await api('/home/chat')
     state.allTasks = await api('/tasks')
+    api('/routine-runs').then(rs => { state.routineRuns = rs }).catch(() => {})
     updateTitleBadge()
     const last = state.homeChat[state.homeChat.length - 1]
     state.awaitingReply = !!last && (last as any).role === 'user'
@@ -344,6 +355,7 @@ const actions = {
   remindersApi: {
     list: async () => { state.reminders = await api('/reminders') },
     add: (text: string, due_at: number) => api('/reminders', { method: 'POST', body: JSON.stringify({ text, due_at }) }),
+    update: (rid: number, body: any) => api(`/reminders/${rid}`, { method: 'PATCH', body: JSON.stringify(body) }),
     remove: (rid: number) => api(`/reminders/${rid}`, { method: 'DELETE' })
   },
   toggleRail() {
@@ -405,6 +417,7 @@ const actions = {
     list: (rid: number) => api(`/rooms/${rid}/routines`),
     add: (rid: number, r: any) => api(`/rooms/${rid}/routines`, { method: 'POST', body: JSON.stringify(r) }),
     toggle: (rtid: number, enabled: boolean) => api(`/routines/${rtid}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    update: (rtid: number, body: any) => api(`/routines/${rtid}`, { method: 'PATCH', body: JSON.stringify(body) }),
     remove: (rtid: number) => api(`/routines/${rtid}`, { method: 'DELETE' })
   },
   toast

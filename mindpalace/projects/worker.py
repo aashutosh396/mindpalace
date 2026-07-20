@@ -276,9 +276,52 @@ def recover() -> int:
     return n
 
 
+_ROUTINE_WRAP = (
+    "You are running the scheduled routine \"{title}\" in the room \"{room}\". "
+    "The owner is not watching — work autonomously, no questions.\n\n"
+    "INSTRUCTION:\n{body}\n\n"
+    "Do the work now, directly in this run. Create a CARD only if the instruction "
+    "itself asks to file/queue tracked work for later (e.g. 'post a blog task') — "
+    "then per card:\n"
+    "  curl -X POST http://127.0.0.1:{port}/api/rooms/{rid}/tasks "
+    "-H 'Content-Type: application/json' -d '{{\"title\": \"...\", \"body\": \"...\"}}'\n"
+    "For a routine check/chore that you complete right here, do NOT create any card.\n"
+    "When finished reply 2-3 short lines: what you did or found, simple English."
+)
+
+
+async def run_routine(r: dict, run_id: int, broadcast) -> None:
+    """A fire = a direct agent run, NOT a card. The run row carries the tick;
+    the agent files cards only when the instruction genuinely asks for them."""
+    from .. import config
+    ctx = _ctx_for({"room_id": r["room_id"]})
+    room = store.get_room(r["room_id"])
+    if ctx is None or room is None:
+        store.finish_routine_run(run_id, "failed", "(room was deleted)")
+        return
+    port = int(config.load_config().get("web", {}).get("port", 7777))
+    instruction = _ROUTINE_WRAP.format(
+        title=r["title"], room=room["name"], body=r["body"] or r["title"],
+        port=port, rid=r["room_id"])
+    try:
+        reply = await get_provider().run_task(instruction, ctx, None)
+    except Exception as e:
+        reply = f"({e})"
+    failed = reply.startswith("(")
+    store.finish_routine_run(run_id, "failed" if failed else "ok", reply)
+    run = {"id": run_id, "routine_id": r["id"], "room_id": r["room_id"],
+           "title": r["title"], "room_name": room["name"],
+           "status": "failed" if failed else "ok"}
+    await broadcast("routine.ran", run)
+    if failed:                                        # failures must reach the owner
+        msg = store.add_chat(r["room_id"], "agent",
+                             f"❌ Routine \"{r['title']}\" failed — {reply[:300]}")
+        await broadcast("chat.message", msg)
+
+
 async def routine_loop(broadcast, interval: int = 60):
-    """Recurring cards: when a routine is due, drop its card in 'todo' —
-    the ticket worker takes it from there like any other card."""
+    """When a routine is due, run it directly (no card) and record the tick;
+    reminders fire here too."""
     print("[worker] routine scheduler started")
     while True:
         try:
@@ -287,10 +330,10 @@ async def routine_loop(broadcast, interval: int = 60):
                 hmsg = store.add_home_chat("agent", f"⏰ Reminder: {rem['text']}")
                 await broadcast("home.message", hmsg)
             for r in store.due_routines():
-                task = store.create_task(r["room_id"], r["title"], r["body"],
-                                         created_by="routine")
                 store.mark_routine_run(r["id"], r["schedule"])
-                await broadcast("task.created", task)
+                run = store.add_routine_run(r["id"], r["room_id"])
+                await broadcast("routine.ran", {**run, "title": r["title"]})
+                asyncio.create_task(run_routine(r, run["id"], broadcast))
         except Exception as e:
             print(f"[routines] error: {e}")
         await asyncio.sleep(interval)
