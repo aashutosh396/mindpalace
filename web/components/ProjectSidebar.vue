@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
-import { Plus, LayoutGrid, RefreshCw, Landmark, Settings2, X, AlarmClock } from 'lucide-vue-next'
+import { Plus, LayoutGrid, RefreshCw, Landmark, Settings2, X, Wrench } from 'lucide-vue-next'
 import { useWorkspace } from '../composables/useWorkspace'
 import { roomIcon } from '../composables/icons'
 
-const { state, open, goHome, createRoom, deleteRoom, loadProjects, getUpdate, openTool } = useWorkspace()
+const { state, open, goHome, createRoom, deleteRoom, loadProjects, getUpdate } = useWorkspace()
 const creating = ref(false)
 const name = ref('')
 const nameInput = ref<HTMLInputElement>()
@@ -37,10 +37,8 @@ async function openProjects() {
 
 <template>
   <aside class="sidebar">
-    <div class="wordmark">mind<em>palace</em></div>
-
     <button class="menu-item primary" @click="startCreate">
-      <span class="mi-icon"><Plus :size="13" :stroke-width="2.25" /></span> New chatroom
+      <span class="mi-icon plain"><Plus :size="15" :stroke-width="2.25" /></span> New chatroom
     </button>
     <form v-if="creating" class="new-proj" @submit.prevent="create">
       <input
@@ -85,11 +83,9 @@ async function openProjects() {
       </p>
     </nav>
 
-    <div class="side-label">Tools</div>
-    <button class="menu-item dim" :class="{ active: state.tool === 'reminders' }" @click="openTool('reminders')">
-      <span class="mi-icon"><AlarmClock :size="15" :stroke-width="1.75" /></span> Reminders
+    <button class="menu-item dim" :class="{ active: !!state.tool }" @click="state.toolsOpen = true">
+      <span class="mi-icon"><Wrench :size="15" :stroke-width="1.75" /></span> Tools
     </button>
-
     <button class="menu-item dim" @click="openProjects">
       <span class="mi-icon"><LayoutGrid :size="15" :stroke-width="1.75" /></span> Projects
     </button>

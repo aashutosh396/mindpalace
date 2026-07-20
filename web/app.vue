@@ -57,7 +57,8 @@ function onKey(e: KeyboardEvent) {
     return
   }
   if (e.key === 'Escape') {
-    if (state.notifOpen) state.notifOpen = false
+    if (state.toolsOpen) state.toolsOpen = false
+    else if (state.notifOpen) state.notifOpen = false
     else if (state.roomSettings) state.roomSettings = null
     else if (state.searchOpen) { state.searchOpen = false; state.searchResults = null }
     else if (state.modal) state.modal = null
@@ -87,6 +88,7 @@ onUnmounted(() => {
     <code>curl -fsSL https://claude.ai/install.sh | bash</code>
   </div>
   <header v-if="booted" class="topbar">
+    <span class="tb-mark">mind<em>palace</em></span>
     <span class="tb-date">{{ today }}</span>
     <span class="bl-spacer"></span>
     <button v-if="state.update?.behind" class="tb-update" :disabled="state.updating" @click="getUpdate">
@@ -109,14 +111,13 @@ onUnmounted(() => {
   </header>
   <div v-if="!booted" class="boot-splash"><span class="star">✳</span></div>
   <div v-else class="shell" :class="{ 'rail-closed': !state.railOpen, dragging: state.railDragging }"
-    :style="{ gridTemplateColumns: `250px 1fr ${state.railOpen ? state.railW + 'px' : '0px'}` }">
+    :style="{ gridTemplateColumns: `250px 1fr ${state.railOpen && !state.tool ? state.railW + 'px' : '0px'}` }">
     <ProjectSidebar />
 
     <main class="main">
       <template v-if="state.current">
         <div class="main-head">
           <h1 class="room-name">{{ state.current.name }}</h1>
-          <span class="room-slug">{{ state.current.slug }}</span>
           <nav class="tabs">
             <button class="tab" :class="{ active: tab === 'chat' }" @click="tab = 'chat'">Chat</button>
             <button class="tab" :class="{ active: tab === 'repos' }" @click="tab = 'repos'">Projects</button>
@@ -138,7 +139,6 @@ onUnmounted(() => {
       <template v-else-if="state.tool === 'reminders'">
         <div class="main-head">
           <h1 class="room-name">Reminders</h1>
-          <span class="room-slug">a ping at the right time — no agent run</span>
         </div>
         <RemindersPage />
       </template>
@@ -146,7 +146,6 @@ onUnmounted(() => {
       <template v-else>
         <div class="main-head">
           <h1 class="room-name">Home</h1>
-          <span class="room-slug">the hall — speak, I'll route it</span>
           <nav class="tabs">
             <button class="tab" :title="state.railOpen ? 'Hide the board' : 'Show the board'"
               :aria-label="state.railOpen ? 'Hide the board' : 'Show the board'"
@@ -157,11 +156,11 @@ onUnmounted(() => {
       </template>
     </main>
 
-    <BoardRail v-show="state.railOpen" />
+    <BoardRail v-show="state.railOpen && !state.tool" />
 
     <div class="foot foot-side"></div>
     <div class="foot foot-main"><Composer v-if="!state.tool" /></div>
-    <div v-show="state.railOpen" class="foot foot-rail"></div>
+    <div v-show="state.railOpen && !state.tool" class="foot foot-rail"></div>
 
     <div v-if="state.toast" class="toast" :class="{ error: state.toastError }" role="status">
       {{ state.toast }}
@@ -171,6 +170,7 @@ onUnmounted(() => {
     <SearchOverlay v-if="state.searchOpen" />
     <ProjectsSheet v-if="state.projectsOpen" />
     <RoomSettingsModal v-if="state.roomSettings" :key="state.roomSettings.id" />
+    <ToolsModal v-if="state.toolsOpen" />
     <OnboardingOverlay v-if="state.showOnboarding" />
 
     <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">

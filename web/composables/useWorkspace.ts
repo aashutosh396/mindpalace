@@ -44,6 +44,7 @@ const state = reactive({
   reminders: [] as any[],
   agentName: 'Agent',
   tool: null as null | 'reminders',
+  toolsOpen: false,
   modal: null as null | { task: any; room: any; log: any[]; thread: any[] },
   showOnboarding: false,
   searchOpen: false,
@@ -337,6 +338,7 @@ const actions = {
   openTool(t: 'reminders') {
     state.tool = t
     state.current = null
+    state.toolsOpen = false
     actions.remindersApi.list()
   },
   remindersApi: {
