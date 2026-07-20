@@ -102,7 +102,11 @@ def _on_event_for(task: dict, broadcast):
 
 
 async def _finish(task: dict, reply: str, broadcast) -> None:
-    t = store.set_task_status(task["id"], "review", result=reply)
+    # routine cards that succeeded skip Review — at 100+ cards/day, Review must
+    # stay the "needs your eyes" queue; failures still stop there.
+    failed = reply.startswith("(")
+    status = "done" if task.get("created_by") == "routine" and not failed else "review"
+    t = store.set_task_status(task["id"], status, result=reply)
     room = store.get_room(task["room_id"])
     if room and room["slug"] == store.HOME_SLUG:
         # keeper cards: the hall IS their room — deliver the result there
@@ -112,8 +116,9 @@ async def _finish(task: dict, reply: str, broadcast) -> None:
         msg = store.add_chat(task["room_id"], "agent", reply, task_id=task["id"])
         await broadcast("chat.message", msg)
         if room:                                     # and announce delivery in the hall
+            where = "closed (routine)" if status == "done" else "waiting in Review"
             note = store.add_home_chat(
-                "agent", f"✅ Card #{task['id']} done in {room['name']} — waiting in Review",
+                "agent", f"✅ Card #{task['id']} done in {room['name']} — {where}",
                 ref_room_id=room["id"], task_id=task["id"])
             await broadcast("home.message", note)
     if t:
