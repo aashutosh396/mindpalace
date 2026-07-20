@@ -11,6 +11,32 @@ function roomOf(m: any) {
   return state.rooms.find(r => r.id === m.ref_room_id)
 }
 
+// The kitchen spinner from the Discord days: a cook-verb that rotates while
+// the agent works, plus how long it's been at it. Random start so every turn
+// opens on a different word.
+const COOK_VERBS = [
+  'Simmering', 'Fermenting', 'Marinating', 'Whisking', 'Kneading', 'Reducing',
+  'Proofing', 'Basting', 'Caramelizing', 'Plating', 'Seasoning', 'Sautéing',
+  'Folding', 'Searing', 'Glazing', 'Braising', 'Tasting', 'Stirring'
+]
+const waitSecs = ref(0)
+const verbOffset = ref(0)
+let waitTimer: ReturnType<typeof setInterval> | null = null
+
+const cookLine = computed(() => {
+  const verb = COOK_VERBS[(Math.floor(waitSecs.value / 4) + verbOffset.value) % COOK_VERBS.length]
+  return `${verb}… ${waitSecs.value}s`
+})
+
+watch(() => state.awaitingReply, (on) => {
+  if (waitTimer) { clearInterval(waitTimer); waitTimer = null }
+  if (on) {
+    waitSecs.value = 0
+    verbOffset.value = Math.floor(Math.random() * COOK_VERBS.length)
+    waitTimer = setInterval(() => { waitSecs.value++ }, 1000)
+  }
+}, { immediate: true })
+
 // Keyed on the LAST message id: new messages scroll to bottom, but prepending
 // an older page (scroll-up pagination) doesn't yank the view down.
 watch(() => [msgs.value[msgs.value.length - 1]?.id, state.awaitingReply, state.current?.id], async () => {
@@ -55,7 +81,9 @@ async function onScroll() {
       </div>
       <div v-if="state.awaitingReply" class="msg agent">
         <div class="who">{{ state.agentName }}</div>
-        <div class="bubble writing">…</div>
+        <div class="bubble writing cook">
+          <span class="cook-star">✳</span> {{ cookLine }}
+        </div>
       </div>
       </div>
     </div>

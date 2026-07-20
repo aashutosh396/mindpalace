@@ -307,6 +307,17 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .btn.ghost:hover { color: var(--text); border-color: var(--slate); }
 .btn.danger { color: var(--danger); border-color: var(--danger); }
 .btn.danger:hover { color: #fff; background: var(--danger); filter: none; }
+.bubble.cook { color: var(--text-dim); font-size: 13.5px; }
+.cook-star {
+  display: inline-block; color: var(--brass);
+  animation: cook-spin 2.4s ease-in-out infinite;
+}
+@keyframes cook-spin {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.15); }
+}
+@media (prefers-reduced-motion: reduce) { .cook-star { animation: none; } }
+
 .rec-strip {
   display: flex; align-items: center; gap: 9px;
   padding: 5px 4px 2px; font-size: 12px; color: var(--text-dim);

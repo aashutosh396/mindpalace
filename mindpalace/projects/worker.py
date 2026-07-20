@@ -101,6 +101,55 @@ def _on_event_for(task: dict, broadcast):
     return on_event
 
 
+_PROPOSE = (
+    "You are the owner's agent in the room \"{room}\". A card just finished:\n"
+    "  Card #{tid}: {title}\n  Result (tail): {result}\n\n"
+    "THE BOARD RIGHT NOW:\n{board}\n\n"
+    "RECENT ROOM CHAT:\n{chat}\n\n"
+    "Propose the ONE best next move for the owner — something concrete that keeps "
+    "the work flowing (a follow-up, the thing this unblocks, a merge/deploy/check). "
+    "Simple everyday English, a few words each. If nothing is genuinely worth "
+    "proposing, say so.\n"
+    "Answer STRICT JSON only: {{\"proposal\": \"<the move>\", \"reason\": \"<few words>\"}} "
+    "or {{\"proposal\": null}}"
+)
+
+
+async def _propose_next(task: dict, room: dict, broadcast) -> None:
+    """The Discord habit, kept: after work lands, offer the one best next move
+    ('Next I propose X. reason: … Start?'). A 'start' reply in the room files it."""
+    from ..core import brain
+    try:
+        board = "\n".join(
+            f"- #{t['id']} [{t['status']}] {t['title']}"
+            for t in store.list_tasks(task["room_id"]) if t["status"] != "done") or "(board is clear)"
+        chat = "\n".join(
+            f"{m['role']}: {m['text'][:120]}" for m in store.list_chat(task["room_id"], 6))
+        prompt = _PROPOSE.format(
+            room=room["name"], tid=task["id"], title=task["title"],
+            result=(task.get("result") or "")[-400:], board=board, chat=chat)
+        proc = await asyncio.create_subprocess_exec(
+            brain.claude_bin(), "-p", prompt, "--model", "sonnet",
+            env=brain._env(),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=90)
+        import json as _json
+        raw = out.decode(errors="replace").strip()
+        d = _json.loads(raw[raw.index("{"):raw.rindex("}") + 1])
+        if not d.get("proposal"):
+            return
+        reason = (d.get("reason") or "").strip()
+        line = f"Next I propose {d['proposal'].strip()}"
+        if reason:
+            line += f". reason: {reason}"
+        line += ". Start?"
+        store.set_proposal(room["id"], f"{d['proposal'].strip()}" + (f" — {reason}" if reason else ""))
+        msg = store.add_chat(task["room_id"], "agent", line)
+        await broadcast("chat.message", msg)
+    except Exception:
+        pass                                          # proposals are a bonus, never a failure
+
+
 async def _finish(task: dict, reply: str, broadcast) -> None:
     # routine cards that succeeded skip Review — at 100+ cards/day, Review must
     # stay the "needs your eyes" queue; failures still stop there.
@@ -121,6 +170,8 @@ async def _finish(task: dict, reply: str, broadcast) -> None:
                 "agent", f"✅ Card #{task['id']} done in {room['name']} — {where}",
                 ref_room_id=room["id"], task_id=task["id"])
             await broadcast("home.message", note)
+        if room and not failed and task.get("created_by") != "routine":
+            asyncio.create_task(_propose_next({**task, "result": reply}, room, broadcast))
     if t:
         await broadcast("task.updated", t)
 

@@ -500,6 +500,22 @@ def create_app():
         if not text:
             return JSONResponse({"error": "text required"}, status_code=422)
 
+        room = store.get_room(rid)
+        if re.match(r"(?i)^(yes[,! ]*)?(start|go|do it|start it|go ahead|yes)[.! ]*$", text) \
+                and room.get("pending_proposal"):
+            prop = room["pending_proposal"]
+            umsg = store.add_chat(rid, "user", text)
+            await bus.broadcast("chat.message", umsg)
+            title = prop.split(" — ")[0][:120]
+            task = store.create_task(rid, title, f"{prop}\n\n(accepted from my proposal)")
+            store.set_proposal(rid, None)
+            amsg = store.add_chat(rid, "agent",
+                                  f"🛠️ Queued — card #{task['id']}. I'll report here when done.",
+                                  task_id=task["id"])
+            await bus.broadcast("task.created", task)
+            await bus.broadcast("chat.message", amsg)
+            return {"message": umsg, "task": task}
+
         m = re.match(r"(?i)^close\s+(?:card|task|ticket)?\s*#?(\d+)$", text)
         if m:
             tid = int(m.group(1))

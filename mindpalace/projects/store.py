@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS repo (
 CREATE TABLE IF NOT EXISTS room (        -- the owner's channels
   id INTEGER PRIMARY KEY, slug TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
   icon TEXT DEFAULT 'hash',
+  pending_proposal TEXT,                 -- last 'Next I propose…' awaiting a 'start'
   created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS room_project (
   room_id INTEGER NOT NULL REFERENCES room(id),
@@ -86,6 +87,10 @@ def _db() -> sqlite3.Connection:
         _conn.executescript(_SCHEMA)
         try:                                          # migration: room icons
             _conn.execute("ALTER TABLE room ADD COLUMN icon TEXT DEFAULT 'hash'")
+        except sqlite3.OperationalError:
+            pass
+        try:                                          # migration: proposals
+            _conn.execute("ALTER TABLE room ADD COLUMN pending_proposal TEXT")
         except sqlite3.OperationalError:
             pass
         _conn.commit()
@@ -276,6 +281,13 @@ def delete_room(rid: int) -> bool:
         db.execute("DELETE FROM room WHERE id=?", (rid,))
         db.commit()
     return True
+
+
+def set_proposal(rid: int, text: str | None) -> None:
+    with _lock:
+        db = _db()
+        db.execute("UPDATE room SET pending_proposal=? WHERE id=?", (text, rid))
+        db.commit()
 
 
 # ---- room ↔ project connections ----
