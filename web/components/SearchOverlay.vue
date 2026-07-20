@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
+import { LayoutGrid } from 'lucide-vue-next'
+import { roomIcon } from '../composables/icons'
 import { useWorkspace } from '../composables/useWorkspace'
 
 const { state, doSearch, open, openTask, loadProjects } = useWorkspace()
@@ -59,13 +61,15 @@ function empty() {
         <template v-if="state.searchResults.rooms.length">
           <div class="tm-section">Rooms</div>
           <button v-for="r in state.searchResults.rooms" :key="'r' + r.id" class="search-hit" @click="goRoom(r)">
-            ● {{ r.name }} <span class="dim-inline">{{ r.slug }}</span>
+            <component :is="roomIcon(state.rooms.find(x => x.id === r.id)?.icon)" :size="13" :stroke-width="1.75" style="vertical-align: -2px" />
+            {{ r.name }} <span class="dim-inline">{{ r.slug }}</span>
           </button>
         </template>
         <template v-if="state.searchResults.projects.length">
           <div class="tm-section">Projects</div>
           <button v-for="p in state.searchResults.projects" :key="'p' + p.id" class="search-hit" @click="goProject()">
-            ▦ {{ p.name }} <span class="dim-inline">inventory</span>
+            <LayoutGrid :size="13" :stroke-width="1.75" style="vertical-align: -2px" />
+            {{ p.name }} <span class="dim-inline">inventory</span>
           </button>
         </template>
         <template v-if="state.searchResults.tasks.length">

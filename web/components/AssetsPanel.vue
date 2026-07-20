@@ -49,7 +49,7 @@ function fmtDate(ts: number) {
     </div>
 
     <div v-if="!state.assets.length" class="empty">
-      <span class="glyph">🗄</span>
+      <span class="glyph">—</span>
       <p>The shelf is empty. Drop briefs, designs, or exports above —
       the agent reads them while working this room's tickets.</p>
     </div>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { Moon, Sun } from 'lucide-vue-next'
 import { useWorkspace } from '../composables/useWorkspace'
 
 const { state } = useWorkspace()
@@ -32,7 +33,7 @@ function toggleTheme() {
         <template v-if="state.health"> · {{ state.health.commit.slice(0, 7) }}</template>
       </div>
     </div>
-    <button class="theme-toggle" :title="dark ? 'Switch to light' : 'Switch to dark'"
-      @click="toggleTheme">{{ dark ? '☀' : '☾' }}</button>
+    <button class="theme-toggle" :title="dark ? 'Switch to light' : 'Switch to dark'" aria-label="Toggle theme"
+      @click="toggleTheme"><Sun v-if="dark" :size="15" :stroke-width="1.75" /><Moon v-else :size="15" :stroke-width="1.75" /></button>
   </div>
 </template>

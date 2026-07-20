@@ -85,7 +85,7 @@ async function remove(r: any) {
     </div>
 
     <div v-if="!routines.length" class="empty">
-      <span class="glyph">↻</span>
+      <span class="glyph">—</span>
       <p>No routines in this room. A routine drops its card on the board on a
       schedule — the agent works it like any other card.</p>
     </div>

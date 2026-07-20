@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { Paperclip, Mic, Square, ArrowUp, Landmark, Sparkles, MessageCircle, Ticket, Target } from 'lucide-vue-next'
 import { useWorkspace } from '../composables/useWorkspace'
 
 const { state, sendChat, sendHomeChat, toast } = useWorkspace()
 const text = ref('')
 const filePick = ref<HTMLInputElement>()
 const LANES = [
-  { key: 'auto', label: 'Auto', hint: 'I decide: work becomes a card, talk gets an answer' },
-  { key: 'chat', label: '💬 Chat', hint: 'Just talk — never makes a card' },
-  { key: 'task', label: '🎫 Ticket', hint: 'Always make a card on the board' },
-  { key: 'goal', label: '🎯 Goal', hint: 'A card that iterates until the goal is truly done' }
+  { key: 'auto', label: 'Auto', icon: Sparkles, hint: 'I decide: work becomes a card, talk gets an answer' },
+  { key: 'chat', label: 'Chat', icon: MessageCircle, hint: 'Just talk — never makes a card' },
+  { key: 'task', label: 'Ticket', icon: Ticket, hint: 'Always make a card on the board' },
+  { key: 'goal', label: 'Goal', icon: Target, hint: 'A card that iterates until the goal is truly done' }
 ] as const
 const lane = ref<'auto' | 'chat' | 'task' | 'goal'>('auto')
 
@@ -119,7 +120,7 @@ function onKey(e: KeyboardEvent) {
     @dragover.prevent @drop.prevent="onDrop">
     <div v-if="pending.length || uploading" class="attach-row">
       <span v-for="(f, i) in pending" :key="f.path" class="attach-chip">
-        📎 {{ f.name }}
+        <Paperclip :size="11" :stroke-width="1.75" /> {{ f.name }}
         <button type="button" class="attach-x" :aria-label="`Remove ${f.name}`"
           @click="pending.splice(i, 1)">✕</button>
       </span>
@@ -133,20 +134,23 @@ function onKey(e: KeyboardEvent) {
       @paste="onPaste"></textarea>
     <div class="composer-controls" role="radiogroup" aria-label="Message lane">
       <input ref="filePick" type="file" multiple hidden aria-label="Attach files" @change="onPick" />
-      <button type="button" class="lane" title="Attach files or images" aria-label="Attach files"
-        @click="filePick?.click()">📎</button>
-      <button type="button" class="lane" :class="{ 'rec-on': recording }"
+      <button type="button" class="lane icon-lane" title="Attach files or images" aria-label="Attach files"
+        @click="filePick?.click()"><Paperclip :size="14" :stroke-width="1.75" /></button>
+      <button type="button" class="lane icon-lane" :class="{ 'rec-on': recording }"
         :title="recording ? 'Stop recording' : 'Dictate (or record a voice note)'"
-        aria-label="Voice input" @click="toggleMic">{{ recording ? '⏺ stop' : '🎤' }}</button>
+        aria-label="Voice input" @click="toggleMic">
+        <Square v-if="recording" :size="13" :stroke-width="1.75" />
+        <Mic v-else :size="14" :stroke-width="1.75" />
+      </button>
       <template v-if="state.current">
         <button
           v-for="l in LANES" :key="l.key" type="button"
           class="lane" :class="{ active: lane === l.key }"
           :title="l.hint" :aria-checked="lane === l.key" role="radio"
-          @click="lane = l.key">{{ l.label }}</button>
+          @click="lane = l.key"><component :is="l.icon" :size="13" :stroke-width="1.75" /> {{ l.label }}</button>
       </template>
-      <span v-else class="lane active" style="cursor: default" title="The concierge decides: answer, file into one of your rooms, or hand palace chores to the keeper">🏛 Concierge</span>
-      <button class="send" :disabled="(!text.trim() && !pending.length) || uploading" title="Send" aria-label="Send">↑</button>
+      <span v-else class="lane active" style="cursor: default" title="The concierge decides: answer, file into one of your rooms, or hand palace chores to the keeper"><Landmark :size="13" :stroke-width="1.75" /> Concierge</span>
+      <button class="send" :disabled="(!text.trim() && !pending.length) || uploading" title="Send" aria-label="Send"><ArrowUp :size="17" :stroke-width="2" /></button>
     </div>
   </form>
 </template>

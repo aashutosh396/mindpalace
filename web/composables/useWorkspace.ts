@@ -7,7 +7,7 @@ import { reactive } from 'vue'
 export const STATUSES = ['todo', 'in_progress', 'review', 'done'] as const
 export type Status = typeof STATUSES[number]
 
-export interface Room { id: number; slug: string; name: string; open_tasks?: number }
+export interface Room { id: number; slug: string; name: string; icon?: string; open_tasks?: number }
 export interface Task {
   id: number; room_id: number; title: string; body: string
   status: Status; created_by: string; kind?: string; iterations?: number; result: string; created_at: number
@@ -35,6 +35,9 @@ const state = reactive({
     Number(localStorage.getItem('railW')) || Math.round(window.innerWidth * 0.35)),
   railDragging: false,
   projectsOpen: false,               // the Projects sheet
+  roomSettings: null as null | Room,   // room settings modal
+  notifs: [] as any[],                 // the top-bar notification feed
+  notifOpen: false,
   modal: null as null | { task: any; room: any; log: any[]; thread: any[] },
   showOnboarding: false,
   searchOpen: false,
@@ -62,6 +65,11 @@ function updateTitleBadge() {
 function syncCount() {
   const row = state.rooms.find(r => r.id === state.current?.id)
   if (row) row.open_tasks = state.tasks.filter(t => t.status !== 'done').length
+}
+
+function notify(text: string, extra: any = {}) {
+  state.notifs.unshift({ id: Date.now() + Math.random(), text, ts: Date.now() / 1000, read: false, ...extra })
+  if (state.notifs.length > 50) state.notifs.length = 50
 }
 
 function toast(msg: string, error = false) {
@@ -111,6 +119,11 @@ function connect() {
     } else if (event === 'room.projects' && data.room_id === state.current?.id) {
       api(`/rooms/${data.room_id}/projects`).then(ps => { state.roomProjects = ps }).catch(() => {})
     } else if (event === 'task.created') {
+      if (data.created_by === 'routine') {
+        const room = state.rooms.find(r => r.id === data.room_id)
+        notify(`Routine fired: “${data.title}”${room ? ' — ' + room.name : ''}`,
+          { task_id: data.id, kind: 'routine' })
+      }
       if (!state.allTasks.find((t: any) => t.id === data.id)) {
         const room = state.rooms.find(r => r.id === data.room_id)
         state.allTasks.push({ ...data, room_slug: room?.slug, room_name: room?.name || 'Home' })
@@ -131,6 +144,8 @@ function connect() {
       if (j >= 0 && state.allTasks[j].status !== 'review' && data.status === 'review') {
         const room = state.rooms.find(r => r.id === data.room_id)
         toast(`Card #${data.id} ready for review${room ? ' — ' + room.name : ''}`)
+        notify(`Card #${data.id} ready for review${room ? ' — ' + room.name : ''}`,
+          { task_id: data.id, kind: 'review' })
       }
       const i = state.tasks.findIndex(t => t.id === data.id)
       if (i >= 0) state.tasks[i] = data
@@ -179,7 +194,12 @@ const actions = {
   },
   async checkHealth() {
     try { state.health = await api('/health') } catch { /* banner stays hidden */ }
-    try { state.update = await api('/update/check') } catch { /* button stays plain */ }
+    try {
+      state.update = await api('/update/check')
+      if (state.update?.behind && !state.notifs.find((n: any) => n.kind === 'update')) {
+        notify(`Update available — ${state.update.remote}`, { kind: 'update' })
+      }
+    } catch { /* button stays plain */ }
   },
   async getUpdate() {
     state.updating = true
@@ -217,6 +237,14 @@ const actions = {
       if (!state.rooms.find(x => x.id === r.id)) state.rooms.unshift(r)
       await actions.open(r)
       if (r.connected?.length) toast(`Connected project: ${r.connected.join(', ')}`)
+    } catch (e: any) { toast(e.message, true) }
+  },
+  async updateRoom(rid: number, body: { name?: string; icon?: string }) {
+    try {
+      const r = await api(`/rooms/${rid}`, { method: 'PATCH', body: JSON.stringify(body) })
+      const i = state.rooms.findIndex(x => x.id === rid)
+      if (i >= 0) state.rooms[i] = { ...state.rooms[i], ...r }
+      if (state.current?.id === rid) state.current = { ...state.current, ...r }
     } catch (e: any) { toast(e.message, true) }
   },
   async deleteRoom(r: Room) {

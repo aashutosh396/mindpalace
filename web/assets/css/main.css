@@ -92,6 +92,53 @@ button, input, textarea, select { font: inherit; color: inherit; }
   animation: pulse 1.2s ease-in-out infinite;
 }
 
+/* ---- topbar: the line cut across the top ---- */
+.topbar {
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  padding: 6px 16px;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--rule);
+  flex: none;
+  font-size: 12.5px; color: var(--text-dim);
+}
+.tb-date { font-family: var(--mono); font-size: 11.5px; }
+.tb-update {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--brass-soft); color: var(--brass);
+  border: 1px solid var(--brass); border-radius: 99px;
+  font-size: 12px; padding: 2px 12px; cursor: pointer;
+}
+.tb-bell {
+  position: relative;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); padding: 4px 6px; border-radius: 8px;
+  display: grid; place-items: center;
+}
+.tb-bell:hover { color: var(--text); background: var(--room-raised); }
+.tb-badge {
+  position: absolute; top: -2px; right: -2px;
+  background: var(--danger); color: #fff;
+  font-size: 9.5px; line-height: 14px; min-width: 14px;
+  border-radius: 99px; padding: 0 3px; text-align: center;
+}
+.notif-panel {
+  position: absolute; top: calc(100% + 6px); right: 10px; z-index: 70;
+  width: min(360px, 90vw); max-height: 60vh; overflow-y: auto;
+  background: var(--bg); border: 1px solid var(--edge); border-radius: 14px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .25);
+  padding: 6px;
+}
+.notif-empty { padding: 18px 14px; font-size: 13px; color: var(--text-dim); }
+.notif-row {
+  display: flex; gap: 10px; align-items: baseline; width: 100%;
+  background: none; border: none; text-align: left; cursor: pointer;
+  padding: 8px 10px; border-radius: 9px; font-size: 13px; color: var(--text);
+}
+.notif-row:hover { background: var(--room-raised); }
+.notif-text { flex: 1; min-width: 0; }
+.notif-time { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); }
+
 /* ---- first-run banner ---- */
 .setup-banner {
   background: var(--brass-soft); border-bottom: 1px solid var(--brass);
@@ -187,22 +234,24 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .proj-item:hover { background: var(--room-raised); color: var(--text); }
 .proj-item.active { color: var(--text); background: var(--room-raised); }
-.room-lead { font-size: 7px; color: var(--edge); flex: none; width: 10px; text-align: center; }
-.room-lead.on { color: var(--text-dim); }
+.room-ico { flex: none; display: grid; place-items: center; color: var(--text-dim); opacity: .75; }
+.room-ico.on { color: var(--brass); opacity: 1; }
 .proj-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .proj-item .count {
   margin-left: auto; flex: none; font-family: var(--mono); font-size: 11px;
   color: var(--text-dim); background: var(--room-raised);
   border-radius: 99px; padding: 0 7px; line-height: 18px;
 }
+.room-tools { display: none; margin-left: auto; flex: none; gap: 2px; align-items: center; }
+.proj-item:hover .room-tools { display: inline-flex; }
+.proj-item:hover .count { display: none; }   /* tools take the badge's spot on hover */
 .room-x {
-  display: none; margin-left: auto; flex: none;
-  color: var(--text-dim); font-size: 13px;
-  border-radius: 6px; padding: 0 5px; line-height: 20px;
+  display: grid; place-items: center;
+  color: var(--text-dim);
+  border-radius: 6px; padding: 3px;
+  cursor: pointer;
 }
 .room-x:hover { color: var(--danger); background: var(--bubble); }
-.proj-item:hover .room-x { display: block; }
-.proj-item:hover .count { display: none; }   /* ✕ takes the badge's spot on hover */
 .side-empty { font-size: 13.5px; color: var(--text-dim); padding: 4px 14px; }
 .new-proj { padding: 4px 8px 2px; display: flex; }
 .new-proj input {
@@ -212,10 +261,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .new-proj input::placeholder { color: var(--text-dim); }
 
-/* the account block (bottom band, sidebar cell) */
+/* the account block (top of the sidebar) */
 .side-user {
   display: flex; align-items: center; gap: 10px;
-  padding: 4px 4px;
+  padding: 2px 6px 12px;
+  border-bottom: 1px solid var(--edge);
+  margin-bottom: 8px;
 }
 .avatar {
   width: 34px; height: 34px; border-radius: 99px; flex: none;
@@ -358,6 +409,22 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .attach-x:hover { color: var(--danger); }
 .lane.rec-on { color: #fff; background: var(--danger); border-color: var(--danger); animation: pulse 1.2s ease-in-out infinite; }
+
+.room-settings { width: min(560px, 92vw); height: auto; max-height: 80vh; }
+.icon-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px;
+}
+.icon-cell {
+  display: grid; place-items: center;
+  height: 44px;
+  background: var(--card); border: 1px solid var(--edge); border-radius: 10px;
+  color: var(--text-dim); cursor: pointer;
+}
+.icon-cell:hover { color: var(--text); background: var(--room-raised); }
+.icon-cell.active { color: var(--brass); border-color: var(--brass); background: var(--brass-soft); }
+.lane { display: inline-flex; align-items: center; gap: 5px; }
+.lane.icon-lane { padding: 3px 9px; }
+.mi-icon svg { display: block; }
 
 /* ---- the board rail (compact, right) ---- */
 .board-rail {

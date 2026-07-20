@@ -281,8 +281,8 @@ def create_app():
         return {**r, "connected": connected}
 
     @app.patch("/api/rooms/{rid}")
-    async def room_rename(rid: int, body: dict):
-        r = store.rename_room(rid, body.get("name", ""))
+    async def room_update(rid: int, body: dict):
+        r = store.update_room(rid, name=body.get("name"), icon=body.get("icon"))
         if r:
             await bus.broadcast("room.updated", r)
         return r or _404("room")

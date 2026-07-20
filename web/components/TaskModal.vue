@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { X, Square, Target } from 'lucide-vue-next'
 import { useWorkspace, STATUSES, type Status } from '../composables/useWorkspace'
 
 const { state, moveTask, replyTask, stopTask } = useWorkspace()
@@ -42,10 +43,10 @@ watch(() => state.modal?.log.length, async () => {
     <div class="task-modal" role="dialog" :aria-label="`Card #${t.id}`">
       <div class="tm-head">
         <span class="status-pill" :style="{ '--c': COLORS[t.status] }">{{ LABELS[t.status] }}</span>
-        <span v-if="t.kind === 'goal'" class="room-tag">🎯 goal · iteration {{ t.iterations || 0 }}</span>
+        <span v-if="t.kind === 'goal'" class="room-tag"><Target :size="11" :stroke-width="1.75" /> goal · iteration {{ t.iterations || 0 }}</span>
         <span v-if="state.modal!.room" class="room-tag">{{ state.modal!.room.name }}</span>
         <span class="tm-id">#{{ t.id }}</span>
-        <button class="row-x" title="Close" aria-label="Close" @click="state.modal = null">✕</button>
+        <button class="row-x" title="Close" aria-label="Close" @click="state.modal = null"><X :size="15" :stroke-width="1.75" /></button>
       </div>
 
       <h2 class="tm-title">{{ t.title }}</h2>
@@ -78,7 +79,7 @@ watch(() => state.modal?.log.length, async () => {
 
           <div class="tm-actions">
             <button v-if="t.status === 'in_progress'" class="btn ghost stop-btn" @click="stopTask(t.id)">
-              ⏹ Stop
+              <Square :size="12" :stroke-width="2" /> Stop
             </button>
             <button v-if="nextOf(t.status)" class="btn ghost" @click="moveTask(t.id, nextOf(t.status)!)">
               → {{ LABELS[nextOf(t.status)!] }}

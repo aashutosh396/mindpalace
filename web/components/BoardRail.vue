@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
+import { Maximize2, Square, ArrowRight, Check } from 'lucide-vue-next'
 import { useWorkspace, STATUSES, type Status } from '../composables/useWorkspace'
 
 const { state, moveTask, openTask, stopTask, startRailDrag } = useWorkspace()
@@ -36,7 +37,7 @@ function nextOf(s: Status): Status | null {
     <div class="rail-head">
       <span class="rail-title">{{ state.current ? 'The board' : 'All rooms' }}</span>
       <button class="expand" title="Expand the board" aria-label="Expand the board"
-        @click="state.boardOpen = true">⛶</button>
+        @click="state.boardOpen = true"><Maximize2 :size="14" :stroke-width="1.75" /></button>
     </div>
 
     <div class="rail-body">
@@ -62,16 +63,16 @@ function nextOf(s: Status): Status | null {
             @click="openTask(t.id)"
             @keydown.enter="openTask(t.id)">
             <span class="title">{{ t.title }}</span>
-            <span v-if="t.kind === 'goal'" class="row-meta">🎯×{{ t.iterations || 0 }}</span>
+            <span v-if="t.kind === 'goal'" class="row-meta">◎×{{ t.iterations || 0 }}</span>
             <span v-if="!state.current && t.room_name" class="row-meta">{{ t.room_name }}</span>
             <span class="row-meta">#{{ t.id }}</span>
             <span class="row-actions">
-              <button v-if="t.status === 'in_progress'" title="Stop"
-                @click.stop="stopTask(t.id)">⏹</button>
-              <button v-if="nextOf(t.status) && t.status !== 'in_progress'" title="Advance"
-                @click.stop="moveTask(t.id, nextOf(t.status)!)">→</button>
-              <button v-if="t.status !== 'done'" title="Close"
-                @click.stop="moveTask(t.id, 'done')">✓</button>
+              <button v-if="t.status === 'in_progress'" title="Stop" aria-label="Stop"
+                @click.stop="stopTask(t.id)"><Square :size="10" :stroke-width="2" /></button>
+              <button v-if="nextOf(t.status) && t.status !== 'in_progress'" title="Advance" aria-label="Advance"
+                @click.stop="moveTask(t.id, nextOf(t.status)!)"><ArrowRight :size="11" :stroke-width="2" /></button>
+              <button v-if="t.status !== 'done'" title="Close" aria-label="Close card"
+                @click.stop="moveTask(t.id, 'done')"><Check :size="11" :stroke-width="2" /></button>
             </span>
           </article>
           <div v-if="byStatus[col.key].some((t: any) => t.status === 'in_progress' && state.progress[t.id])"

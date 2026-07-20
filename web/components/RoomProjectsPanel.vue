@@ -62,7 +62,7 @@ async function disconnect(p: any) {
     </div>
 
     <div v-if="!state.roomProjects.length" class="empty">
-      <span class="glyph">⌂</span>
+      <span class="glyph">—</span>
       <p>No projects connected. Connect one above — or just mention a project by
       name in the chat and it connects itself.</p>
     </div>

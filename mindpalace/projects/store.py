@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS repo (
   path TEXT NOT NULL, url TEXT, is_primary INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS room (        -- the owner's channels
   id INTEGER PRIMARY KEY, slug TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+  icon TEXT DEFAULT 'hash',
   created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS room_project (
   room_id INTEGER NOT NULL REFERENCES room(id),
@@ -80,6 +81,10 @@ def _db() -> sqlite3.Connection:
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA foreign_keys=ON")
         _conn.executescript(_SCHEMA)
+        try:                                          # migration: room icons
+            _conn.execute("ALTER TABLE room ADD COLUMN icon TEXT DEFAULT 'hash'")
+        except sqlite3.OperationalError:
+            pass
         _conn.commit()
     return _conn
 
@@ -238,10 +243,14 @@ def list_rooms(include_home: bool = False) -> list[dict]:
     return out
 
 
-def rename_room(rid: int, name: str) -> dict | None:
+def update_room(rid: int, name: str | None = None, icon: str | None = None) -> dict | None:
     with _lock:
-        _db().execute("UPDATE room SET name=? WHERE id=?", (name.strip(), rid))
-        _db().commit()
+        db = _db()
+        if name and name.strip():
+            db.execute("UPDATE room SET name=? WHERE id=?", (name.strip(), rid))
+        if icon:
+            db.execute("UPDATE room SET icon=? WHERE id=?", (icon.strip()[:40], rid))
+        db.commit()
     return get_room(rid)
 
 

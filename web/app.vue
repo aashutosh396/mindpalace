@@ -1,8 +1,22 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { Bell, PanelRightClose, PanelRightOpen, RefreshCw } from 'lucide-vue-next'
 import { useWorkspace } from './composables/useWorkspace'
 
-const { state, init, checkHealth, toggleRail, open, goHome } = useWorkspace()
+const { state, init, checkHealth, toggleRail, open, goHome, getUpdate, openTask } = useWorkspace()
+
+const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+
+function toggleNotifs() {
+  state.notifOpen = !state.notifOpen
+  if (state.notifOpen) state.notifs.forEach((n: any) => { n.read = true })
+}
+
+async function openNotif(n: any) {
+  state.notifOpen = false
+  if (n.kind === 'update') { await getUpdate(); return }
+  if (n.task_id) await openTask(n.task_id)
+}
 const tab = ref<'chat' | 'repos' | 'assets' | 'routines'>('chat')
 const booted = ref(false)
 
@@ -38,7 +52,9 @@ function onKey(e: KeyboardEvent) {
     return
   }
   if (e.key === 'Escape') {
-    if (state.searchOpen) { state.searchOpen = false; state.searchResults = null }
+    if (state.notifOpen) state.notifOpen = false
+    else if (state.roomSettings) state.roomSettings = null
+    else if (state.searchOpen) { state.searchOpen = false; state.searchResults = null }
     else if (state.modal) state.modal = null
     else if (state.projectsOpen) state.projectsOpen = false
     else state.boardOpen = false
@@ -65,6 +81,27 @@ onUnmounted(() => {
     <button class="btn ghost" @click="checkHealth">Check again</button>
     <code>curl -fsSL https://claude.ai/install.sh | bash</code>
   </div>
+  <header v-if="booted" class="topbar">
+    <span class="tb-date">{{ today }}</span>
+    <span class="bl-spacer"></span>
+    <button v-if="state.update?.behind" class="tb-update" :disabled="state.updating" @click="getUpdate">
+      <RefreshCw :size="12" :stroke-width="1.75" /> {{ state.updating ? 'Updating…' : 'Update available' }}
+    </button>
+    <button class="tb-bell" :aria-label="`Notifications (${state.notifs.filter(n => !n.read).length} unread)`"
+      @click="toggleNotifs">
+      <Bell :size="15" :stroke-width="1.75" />
+      <span v-if="state.notifs.filter(n => !n.read).length" class="tb-badge">
+        {{ state.notifs.filter(n => !n.read).length }}
+      </span>
+    </button>
+    <div v-if="state.notifOpen" class="notif-panel" role="dialog" aria-label="Notifications">
+      <div v-if="!state.notifs.length" class="notif-empty">Quiet so far — alerts, reminders and updates land here.</div>
+      <button v-for="n in state.notifs.slice(0, 20)" :key="n.id" class="notif-row" @click="openNotif(n)">
+        <span class="notif-text">{{ n.text }}</span>
+        <span class="notif-time">{{ new Date(n.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
+      </button>
+    </div>
+  </header>
   <div v-if="!booted" class="boot-splash"><span class="star">✳</span></div>
   <div v-else class="shell" :class="{ 'rail-closed': !state.railOpen, dragging: state.railDragging }"
     :style="{ gridTemplateColumns: `250px 1fr ${state.railOpen ? state.railW + 'px' : '0px'}` }">
@@ -81,7 +118,8 @@ onUnmounted(() => {
             <button class="tab" :class="{ active: tab === 'assets' }" @click="tab = 'assets'">Assets</button>
             <button class="tab" :class="{ active: tab === 'routines' }" @click="tab = 'routines'">Routines</button>
             <button class="tab" :title="state.railOpen ? 'Hide the board' : 'Show the board'"
-              @click="toggleRail">{{ state.railOpen ? '⟩' : '⟨' }}</button>
+              :aria-label="state.railOpen ? 'Hide the board' : 'Show the board'"
+              @click="toggleRail"><PanelRightClose v-if="state.railOpen" :size="15" :stroke-width="1.75" /><PanelRightOpen v-else :size="15" :stroke-width="1.75" /></button>
           </nav>
         </div>
         <ChatRail v-if="tab === 'chat'" class="center" />
@@ -98,7 +136,8 @@ onUnmounted(() => {
           <span class="room-slug">the hall — speak, I'll route it</span>
           <nav class="tabs">
             <button class="tab" :title="state.railOpen ? 'Hide the board' : 'Show the board'"
-              @click="toggleRail">{{ state.railOpen ? '⟩' : '⟨' }}</button>
+              :aria-label="state.railOpen ? 'Hide the board' : 'Show the board'"
+              @click="toggleRail"><PanelRightClose v-if="state.railOpen" :size="15" :stroke-width="1.75" /><PanelRightOpen v-else :size="15" :stroke-width="1.75" /></button>
           </nav>
         </div>
         <ChatRail class="center" />
@@ -107,7 +146,7 @@ onUnmounted(() => {
 
     <BoardRail v-show="state.railOpen" />
 
-    <div class="foot foot-side"><ProfileFoot /></div>
+    <div class="foot foot-side"></div>
     <div class="foot foot-main"><Composer /></div>
     <div v-show="state.railOpen" class="foot foot-rail"></div>
 
@@ -118,6 +157,7 @@ onUnmounted(() => {
     <TaskModal v-if="state.modal" />
     <SearchOverlay v-if="state.searchOpen" />
     <ProjectsSheet v-if="state.projectsOpen" />
+    <RoomSettingsModal v-if="state.roomSettings" :key="state.roomSettings.id" />
     <OnboardingOverlay v-if="state.showOnboarding" />
 
     <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">

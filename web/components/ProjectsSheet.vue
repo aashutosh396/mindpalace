@@ -82,7 +82,7 @@ async function detach(p: any, r: any) {
           </div>
         </div>
         <div v-if="!state.projects.length" class="empty">
-          <span class="glyph">▦</span>
+          <span class="glyph">—</span>
           <p>The inventory is empty. Tell the concierge to scan your vault, or add one above.</p>
         </div>
       </div>
