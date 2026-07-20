@@ -483,6 +483,64 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .tm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 .rail-card, .card { cursor: pointer; }
 
+/* ---- brief, threads, reply ---- */
+.msg.brief .bubble {
+  background: var(--brass-soft); border: 1px solid var(--brass);
+  border-radius: 14px; padding: 12px 16px;
+  white-space: pre-wrap; line-height: 1.7;
+}
+.tm-thread { display: flex; flex-direction: column; gap: 6px; max-height: 22vh; overflow-y: auto; }
+.tm-thread-msg {
+  font-size: 13.5px; padding: 7px 11px; border-radius: 10px;
+  background: var(--card); border: 1px solid var(--edge);
+  white-space: pre-wrap;
+}
+.tm-thread-msg.user { background: var(--bubble); border-color: transparent; }
+.tm-thread-msg .who { font-size: 11px; color: var(--text-dim); margin-right: 8px; }
+.tm-reply { display: flex; gap: 8px; margin-top: 12px; }
+.tm-reply input {
+  flex: 1; background: var(--card); border: 1px solid var(--edge);
+  border-radius: 10px; padding: 8px 12px;
+}
+
+/* ---- routines ---- */
+.routine-form {
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
+  padding: 14px; box-shadow: var(--shadow);
+}
+.routine-form input, .routine-form textarea, .routine-form select {
+  background: var(--bg); border: 1px solid var(--edge); border-radius: 10px;
+  padding: 8px 11px; color: var(--text); resize: vertical;
+}
+.routine-when { display: flex; gap: 8px; align-items: center; }
+.routine-main { min-width: 0; flex: 1; }
+.routine-title { font-weight: 500; }
+.panel-row.off { opacity: .55; }
+
+/* ---- palace search (⌘K) ---- */
+.search-box {
+  width: min(640px, 92vw); max-height: 70vh;
+  background: var(--bg); border: 1px solid var(--edge); border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
+  padding: 12px;
+  display: flex; flex-direction: column; min-height: 0;
+  align-self: start; margin-top: 12vh;
+}
+.search-box > input {
+  background: var(--card); border: 1px solid var(--edge); border-radius: 10px;
+  padding: 10px 14px; font-size: 15px;
+}
+.search-results { overflow-y: auto; min-height: 0; padding: 4px 2px; }
+.search-hit {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; border-radius: 9px;
+  padding: 7px 10px; cursor: pointer; font-size: 14px; color: var(--text);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.search-hit:hover { background: var(--room-raised); }
+.dim-inline { color: var(--text-dim); font-size: 12px; margin-left: 6px; }
+
 /* ---- panels (assets / repos) ---- */
 .panel { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
 .panel-row {

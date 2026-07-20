@@ -75,10 +75,11 @@ def create_app():
     @asynccontextmanager
     async def lifespan(app):
         wtask = asyncio.create_task(worker.watch_loop(bus.broadcast))
+        stask = asyncio.create_task(worker.routine_loop(bus.broadcast))
         rtask = asyncio.create_task(_recover_hall())
         yield
-        wtask.cancel()
-        rtask.cancel()
+        for t in (wtask, stask, rtask):
+            t.cancel()
 
     app = FastAPI(title="mindpalace", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.bus = bus
@@ -230,7 +231,59 @@ def create_app():
             return _404("task")
         p = store.get_project(t["project_id"])
         return {"task": t, "room": {"name": p["name"], "slug": p["slug"]} if p else None,
-                "log": store.list_task_log(tid)}
+                "log": store.list_task_log(tid), "thread": store.list_thread(tid)}
+
+    @app.post("/api/tasks/{tid}/reply")
+    async def task_reply(tid: int, body: dict):
+        t = store.get_task(tid)
+        if not t:
+            return _404("task")
+        text = (body.get("text") or "").strip()
+        if not text:
+            return JSONResponse({"error": "text required"}, status_code=422)
+        if t["status"] == "in_progress":
+            return JSONResponse({"error": "still working — wait for it to finish"},
+                                status_code=409)
+        msg = store.add_thread(tid, "user", text)
+        await bus.broadcast("task.thread", msg)
+        t2 = store.set_task_status(tid, "in_progress")
+        if t2:
+            await bus.broadcast("task.updated", t2)
+        asyncio.get_running_loop().create_task(worker.run_followup(t, text, bus.broadcast))
+        return {"ok": True, "message": msg}
+
+    # ---- routines (recurring cards) ----
+    @app.get("/api/projects/{pid}/routines")
+    def routines_list(pid: int):
+        return store.list_routines(pid)
+
+    @app.post("/api/projects/{pid}/routines")
+    async def routines_add(pid: int, body: dict):
+        if not store.get_project(pid):
+            return _404("project")
+        title = (body.get("title") or "").strip()
+        schedule = (body.get("schedule") or "").strip()
+        if not title or not re.match(r"^(daily@\d{1,2}:\d{2}|every@\d+[mh])$", schedule):
+            return JSONResponse(
+                {"error": "need title + schedule like daily@09:00 or every@4h"}, status_code=422)
+        return store.add_routine(pid, title, body.get("body", ""), schedule)
+
+    @app.patch("/api/routines/{rid}")
+    def routines_toggle(rid: int, body: dict):
+        r = store.toggle_routine(rid, bool(body.get("enabled")))
+        return r or _404("routine")
+
+    @app.delete("/api/routines/{rid}")
+    def routines_delete(rid: int):
+        return {"ok": True} if store.delete_routine(rid) else _404("routine")
+
+    # ---- palace search ----
+    @app.get("/api/search")
+    def palace_search(q: str = ""):
+        q = q.strip()
+        if len(q) < 2:
+            return {"rooms": [], "tasks": [], "chats": []}
+        return store.search(q)
 
     @app.patch("/api/tasks/{tid}")
     async def task_update(tid: int, body: dict):
@@ -246,7 +299,11 @@ def create_app():
 
     # ---- home (the hall): one chat that routes to every room ----
     @app.get("/api/home/chat")
-    def home_chat_list():
+    async def home_chat_list():
+        from ..projects import brief
+        row = brief.ensure_daily_brief()             # first hall open of the day
+        if row:
+            await bus.broadcast("home.message", row)
         return store.list_home_chat()
 
     @app.post("/api/home/chat")
@@ -302,12 +359,14 @@ def create_app():
                 worker.run_chat(pid, text, bus.broadcast))
             return {"message": msg, "task": None, "lane": "chat"}
 
-        task = store.create_task(pid, text.splitlines()[0][:120], text)
+        kind = "goal" if lane == "goal" else "task"
+        task = store.create_task(pid, text.splitlines()[0][:120], text, kind=kind,
+                                 promise=worker.DEFAULT_PROMISE if kind == "goal" else None)
         msg = store.add_chat(pid, "user", text, task_id=task["id"])
         await bus.broadcast("chat.message", msg)
         await bus.broadcast("task.created", task)
         # the ticket worker (projects/worker.py) claims it from 'todo' within ~2s
-        return {"message": msg, "task": task, "lane": "task"}
+        return {"message": msg, "task": task, "lane": kind}
 
     # ---- assets ----
     @app.get("/api/projects/{pid}/assets")

@@ -29,7 +29,9 @@ const state = reactive({
   toastError: false,
   connected: false,
   boardOpen: false,                // the board sheet (⛶) is expanded
-  modal: null as null | { task: any; room: any; log: any[] },   // open card detail
+  modal: null as null | { task: any; room: any; log: any[]; thread: any[] },   // open card detail
+  searchOpen: false,
+  searchResults: null as null | { rooms: any[]; tasks: any[]; chats: any[] },
   health: null as null | { version: string; commit: string; provider: string; provider_ok: boolean; provider_status: string },
   update: null as null | { behind: boolean; local: string; remote: string; installer: string | null },
   updating: false
@@ -43,6 +45,11 @@ async function api(path: string, opts: RequestInit = {}) {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `${res.status} on ${path}`)
   return data
+}
+
+function updateTitleBadge() {
+  const n = state.allTasks.filter((t: any) => t.status === 'review').length
+  document.title = (n ? `(${n}) ` : '') + 'mindpalace'
 }
 
 function syncCount() {
@@ -108,10 +115,16 @@ function connect() {
         if (row) row.open_tasks = (row.open_tasks || 0) + 1
       }
     } else if (event === 'task.updated') {
+      const j = state.allTasks.findIndex((t: any) => t.id === data.id)
+      // review is the owner's inbox — announce arrivals
+      if (j >= 0 && state.allTasks[j].status !== 'review' && data.status === 'review') {
+        const room = state.projects.find(p => p.id === data.project_id)
+        toast(`Card #${data.id} ready for review${room ? ' — ' + room.name : ''}`)
+      }
       const i = state.tasks.findIndex(t => t.id === data.id)
       if (i >= 0) state.tasks[i] = data
-      const j = state.allTasks.findIndex((t: any) => t.id === data.id)
       if (j >= 0) state.allTasks[j] = { ...state.allTasks[j], ...data }
+      updateTitleBadge()
       if (state.modal?.task.id === data.id) state.modal.task = { ...state.modal.task, ...data }
       if (data.status !== 'in_progress') delete state.progress[data.id]
       if (data.project_id === state.current?.id) syncCount()
@@ -131,6 +144,11 @@ function connect() {
     } else if (event === 'home.message') {
       if (!state.homeChat.find((m: any) => m.id === data.id)) state.homeChat.push(data)
       if (data.role === 'agent' && !state.current) state.awaitingReply = false
+    } else if (event === 'task.thread') {
+      if (state.modal?.task.id === data.task_id
+          && !state.modal.thread.find((m: any) => m.id === data.id)) {
+        state.modal.thread.push(data)
+      }
     }
   }
 }
@@ -142,6 +160,7 @@ const actions = {
     state.projects = await api('/projects')
     state.homeChat = await api('/home/chat')   // land in the hall
     state.allTasks = await api('/tasks')
+    updateTitleBadge()
     const last = state.homeChat[state.homeChat.length - 1]
     state.awaitingReply = !!last && (last as any).role === 'user'
   },
@@ -203,7 +222,7 @@ const actions = {
       await actions.open(p)
     } catch (e: any) { toast(e.message, true) }
   },
-  async sendChat(text: string, lane: 'auto' | 'chat' | 'task' = 'auto') {
+  async sendChat(text: string, lane: 'auto' | 'chat' | 'task' | 'goal' = 'auto') {
     if (!state.current) return
     try {
       const r = await api(`/projects/${state.current.id}/chat`, {
@@ -217,6 +236,21 @@ const actions = {
   async openTask(id: number) {
     try { state.modal = await api(`/tasks/${id}/log`) }
     catch (e: any) { toast(e.message, true) }
+  },
+  async replyTask(id: number, text: string) {
+    try {
+      await api(`/tasks/${id}/reply`, { method: 'POST', body: JSON.stringify({ text }) })
+    } catch (e: any) { toast(e.message, true) }
+  },
+  async doSearch(q: string) {
+    try { state.searchResults = await api(`/search?q=${encodeURIComponent(q)}`) }
+    catch { state.searchResults = null }
+  },
+  routinesApi: {
+    list: (pid: number) => api(`/projects/${pid}/routines`),
+    add: (pid: number, r: any) => api(`/projects/${pid}/routines`, { method: 'POST', body: JSON.stringify(r) }),
+    toggle: (rid: number, enabled: boolean) => api(`/routines/${rid}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    remove: (rid: number) => api(`/routines/${rid}`, { method: 'DELETE' })
   },
   async moveTask(id: number, status: Status) {
     const t = state.tasks.find(t => t.id === id) || state.allTasks.find((t: any) => t.id === id)

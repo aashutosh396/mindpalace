@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS chat_message (
 CREATE TABLE IF NOT EXISTS task_log (    -- the work trail: one row per agent step
   id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES task(id),
   text TEXT NOT NULL, created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS task_thread ( -- follow-up conversation on a card
+  id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES task(id),
+  role TEXT NOT NULL, text TEXT NOT NULL, created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS routine (     -- recurring cards
+  id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES project(id),
+  title TEXT NOT NULL, body TEXT DEFAULT '', schedule TEXT NOT NULL,
+  enabled INTEGER DEFAULT 1, last_run REAL, next_run REAL, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS home_chat (   -- the hall: routing conversation, no project
   id INTEGER PRIMARY KEY, role TEXT NOT NULL, text TEXT NOT NULL,
   ref_project_id INTEGER, task_id INTEGER, created_at REAL NOT NULL);
@@ -62,6 +69,14 @@ def _db() -> sqlite3.Connection:
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA foreign_keys=ON")
         _conn.executescript(_SCHEMA)
+        # migrations for DBs created before these columns existed
+        for col, ddl in (("kind", "TEXT DEFAULT 'task'"),
+                         ("promise", "TEXT"),
+                         ("iterations", "INTEGER DEFAULT 0")):
+            try:
+                _conn.execute(f"ALTER TABLE task ADD COLUMN {col} {ddl}")
+            except sqlite3.OperationalError:
+                pass                                 # already there
         _conn.commit()
     return _conn
 
@@ -233,15 +248,32 @@ def repo_paths_for(pid: int) -> list[str]:
 
 
 # ---- tasks (the kanban) ----
-def create_task(pid: int, title: str, body: str = "", created_by: str = "user") -> dict:
+def create_task(pid: int, title: str, body: str = "", created_by: str = "user",
+                kind: str = "task", promise: str | None = None) -> dict:
     with _lock:
         db = _db()
         cur = db.execute(
-            "INSERT INTO task (project_id, title, body, created_by, created_at) VALUES (?,?,?,?,?)",
-            (pid, title.strip()[:200], body, created_by, time.time()))
+            "INSERT INTO task (project_id, title, body, created_by, kind, promise, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (pid, title.strip()[:200], body, created_by, kind, promise, time.time()))
         db.commit()
         r = db.execute("SELECT * FROM task WHERE id=?", (cur.lastrowid,)).fetchone()
     return dict(r)
+
+
+def set_task_iterations(tid: int, n: int) -> dict | None:
+    with _lock:
+        db = _db()
+        db.execute("UPDATE task SET iterations=? WHERE id=?", (n, tid))
+        db.commit()
+    return get_task(tid)
+
+
+def set_task_result(tid: int, result: str) -> None:
+    with _lock:
+        db = _db()
+        db.execute("UPDATE task SET result=? WHERE id=?", (result, tid))
+        db.commit()
 
 
 def get_task(tid: int) -> dict | None:
@@ -314,6 +346,146 @@ def list_task_log(tid: int, limit: int = 300) -> list[dict]:
             "SELECT * FROM (SELECT * FROM task_log WHERE task_id=? "
             "ORDER BY created_at DESC LIMIT ?) ORDER BY created_at", (tid, limit)).fetchall()
     return _rows(rows)
+
+
+# ---- card threads (follow-ups) ----
+def add_thread(tid: int, role: str, text: str) -> dict:
+    with _lock:
+        db = _db()
+        cur = db.execute(
+            "INSERT INTO task_thread (task_id, role, text, created_at) VALUES (?,?,?,?)",
+            (tid, role, text, time.time()))
+        db.commit()
+        r = db.execute("SELECT * FROM task_thread WHERE id=?", (cur.lastrowid,)).fetchone()
+    return dict(r)
+
+
+def list_thread(tid: int) -> list[dict]:
+    with _lock:
+        rows = _db().execute("SELECT * FROM task_thread WHERE task_id=? ORDER BY created_at",
+                             (tid,)).fetchall()
+    return _rows(rows)
+
+
+# ---- routines (recurring cards) ----
+def _next_run(schedule: str, after: float) -> float:
+    """'daily@HH:MM' → next local occurrence; 'every@45m'/'every@4h' → after + interval."""
+    kind, _, arg = schedule.partition("@")
+    if kind == "every":
+        n, unit = int(arg[:-1] or 1), arg[-1]
+        return after + n * (3600 if unit == "h" else 60)
+    hh, mm = (int(x) for x in arg.split(":"))
+    lt = time.localtime(after)
+    candidate = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, hh, mm, 0,
+                             lt.tm_wday, lt.tm_yday, -1))
+    return candidate if candidate > after else candidate + 86400
+
+
+def add_routine(pid: int, title: str, body: str, schedule: str) -> dict:
+    now = time.time()
+    with _lock:
+        db = _db()
+        cur = db.execute(
+            "INSERT INTO routine (project_id, title, body, schedule, next_run, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (pid, title.strip()[:200], body, schedule, _next_run(schedule, now), now))
+        db.commit()
+        r = db.execute("SELECT * FROM routine WHERE id=?", (cur.lastrowid,)).fetchone()
+    return dict(r)
+
+
+def list_routines(pid: int | None = None) -> list[dict]:
+    with _lock:
+        q = "SELECT * FROM routine" + (" WHERE project_id=?" if pid else "") + " ORDER BY id"
+        rows = _db().execute(q, (pid,) if pid else ()).fetchall()
+    return _rows(rows)
+
+
+def delete_routine(rid: int) -> bool:
+    with _lock:
+        db = _db()
+        cur = db.execute("DELETE FROM routine WHERE id=?", (rid,))
+        db.commit()
+    return cur.rowcount > 0
+
+
+def toggle_routine(rid: int, enabled: bool) -> dict | None:
+    with _lock:
+        db = _db()
+        db.execute("UPDATE routine SET enabled=? WHERE id=?", (int(enabled), rid))
+        db.commit()
+        r = db.execute("SELECT * FROM routine WHERE id=?", (rid,)).fetchone()
+    return dict(r) if r else None
+
+
+def due_routines(now: float | None = None) -> list[dict]:
+    now = now or time.time()
+    with _lock:
+        rows = _db().execute(
+            "SELECT * FROM routine WHERE enabled=1 AND next_run <= ?", (now,)).fetchall()
+    return _rows(rows)
+
+
+def mark_routine_run(rid: int, schedule: str) -> None:
+    now = time.time()
+    with _lock:
+        db = _db()
+        db.execute("UPDATE routine SET last_run=?, next_run=? WHERE id=?",
+                   (now, _next_run(schedule, now), rid))
+        db.commit()
+
+
+# ---- search ----
+def search(q: str, limit: int = 8) -> dict:
+    like = f"%{q}%"
+    with _lock:
+        db = _db()
+        rooms = db.execute(
+            "SELECT * FROM project WHERE (name LIKE ? OR slug LIKE ?) AND slug != ? LIMIT ?",
+            (like, like, HOME_SLUG, limit)).fetchall()
+        tasks = db.execute(
+            """SELECT t.*, p.slug AS room_slug, p.name AS room_name FROM task t
+               JOIN project p ON p.id = t.project_id
+               WHERE t.title LIKE ? OR t.body LIKE ? ORDER BY t.created_at DESC LIMIT ?""",
+            (like, like, limit)).fetchall()
+        chats = db.execute(
+            """SELECT c.*, p.slug AS room_slug, p.name AS room_name FROM chat_message c
+               JOIN project p ON p.id = c.project_id
+               WHERE c.text LIKE ? ORDER BY c.created_at DESC LIMIT ?""",
+            (like, limit)).fetchall()
+    return {"rooms": _rows(rooms), "tasks": _rows(tasks), "chats": _rows(chats)}
+
+
+# ---- the morning brief ----
+def brief_stats(hours: float = 24) -> dict:
+    since = time.time() - hours * 3600
+    with _lock:
+        db = _db()
+        review = db.execute(
+            """SELECT t.id, t.title, t.result, p.name AS room FROM task t
+               JOIN project p ON p.id=t.project_id
+               WHERE t.status='review' ORDER BY t.created_at DESC""").fetchall()
+        done = db.execute(
+            """SELECT t.id, t.title, p.name AS room FROM task t
+               JOIN project p ON p.id=t.project_id
+               WHERE t.status='done' AND t.closed_at >= ? ORDER BY t.closed_at DESC""",
+            (since,)).fetchall()
+        created = db.execute(
+            "SELECT COUNT(*) AS n FROM task WHERE created_at >= ?", (since,)).fetchone()
+        working = db.execute(
+            """SELECT t.id, t.title, p.name AS room FROM task t
+               JOIN project p ON p.id=t.project_id WHERE t.status='in_progress'""").fetchall()
+    return {"review": _rows(review), "done": _rows(done),
+            "created": created["n"], "working": _rows(working)}
+
+
+def has_brief_today() -> bool:
+    lt = time.localtime()
+    midnight = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+    with _lock:
+        r = _db().execute("SELECT 1 FROM home_chat WHERE role='brief' AND created_at >= ? LIMIT 1",
+                          (midnight,)).fetchone()
+    return bool(r)
 
 
 # ---- chat ----

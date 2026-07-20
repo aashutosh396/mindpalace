@@ -3,11 +3,18 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { useWorkspace } from './composables/useWorkspace'
 
 const { state, init, checkHealth } = useWorkspace()
-const tab = ref<'chat' | 'repos' | 'assets'>('chat')
+const tab = ref<'chat' | 'repos' | 'assets' | 'routines'>('chat')
 
 function onKey(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    state.searchOpen = !state.searchOpen
+    if (!state.searchOpen) state.searchResults = null
+    return
+  }
   if (e.key === 'Escape') {
-    if (state.modal) state.modal = null
+    if (state.searchOpen) { state.searchOpen = false; state.searchResults = null }
+    else if (state.modal) state.modal = null
     else state.boardOpen = false
   }
 }
@@ -35,12 +42,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <button class="tab" :class="{ active: tab === 'chat' }" @click="tab = 'chat'">Chat</button>
             <button class="tab" :class="{ active: tab === 'repos' }" @click="tab = 'repos'">Files</button>
             <button class="tab" :class="{ active: tab === 'assets' }" @click="tab = 'assets'">Assets</button>
+            <button class="tab" :class="{ active: tab === 'routines' }" @click="tab = 'routines'">Routines</button>
           </nav>
         </div>
         <ChatRail v-if="tab === 'chat'" class="center" />
         <div v-else class="main-body">
           <ReposPanel v-if="tab === 'repos'" />
-          <AssetsPanel v-else />
+          <AssetsPanel v-else-if="tab === 'assets'" />
+          <RoutinesPanel v-else :key="state.current.id" />
         </div>
       </template>
 
@@ -60,6 +69,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     </div>
 
     <TaskModal v-if="state.modal" />
+    <SearchOverlay v-if="state.searchOpen" />
 
     <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">
       <div class="sheet" role="dialog" aria-label="Project board">

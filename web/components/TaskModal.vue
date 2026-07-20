@@ -2,8 +2,16 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useWorkspace, STATUSES, type Status } from '../composables/useWorkspace'
 
-const { state, moveTask } = useWorkspace()
+const { state, moveTask, replyTask } = useWorkspace()
 const trail = ref<HTMLElement>()
+const reply = ref('')
+
+async function sendReply() {
+  const t2 = reply.value.trim()
+  if (!t2) return
+  reply.value = ''
+  await replyTask(t.value.id, t2)
+}
 
 const LABELS: Record<string, string> = {
   todo: 'To do', in_progress: 'In progress', review: 'Review', done: 'Done'
@@ -34,6 +42,7 @@ watch(() => state.modal?.log.length, async () => {
     <div class="task-modal" role="dialog" :aria-label="`Card #${t.id}`">
       <div class="tm-head">
         <span class="status-pill" :style="{ '--c': COLORS[t.status] }">{{ LABELS[t.status] }}</span>
+        <span v-if="t.kind === 'goal'" class="room-tag">🎯 goal · iteration {{ t.iterations || 0 }}</span>
         <span v-if="state.modal!.room" class="room-tag">{{ state.modal!.room.name }}</span>
         <span class="tm-id">#{{ t.id }}</span>
         <button class="row-x" title="Close" aria-label="Close" @click="state.modal = null">✕</button>
@@ -57,6 +66,24 @@ watch(() => state.modal?.log.length, async () => {
         <div class="tm-section">Result</div>
         <div class="tm-result">{{ t.result }}</div>
       </template>
+
+      <template v-if="state.modal!.thread.length">
+        <div class="tm-section">Follow-ups</div>
+        <div class="tm-thread">
+          <div v-for="m in state.modal!.thread" :key="m.id" class="tm-thread-msg" :class="m.role">
+            <span class="who">{{ m.role === 'user' ? 'You' : 'Agent' }}</span>{{ m.text }}
+          </div>
+        </div>
+      </template>
+
+      <form class="tm-reply" @submit.prevent="sendReply">
+        <input
+          v-model="reply"
+          :placeholder="t.status === 'in_progress' ? 'Working — wait for it to finish…' : 'Reply on this card — the agent continues the work'"
+          :disabled="t.status === 'in_progress'"
+          aria-label="Reply on card" />
+        <button class="btn" :disabled="!reply.trim() || t.status === 'in_progress'">Send</button>
+      </form>
 
       <div class="tm-actions">
         <button v-if="nextOf(t.status)" class="btn ghost" @click="moveTask(t.id, nextOf(t.status)!)">

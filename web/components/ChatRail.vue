@@ -8,9 +8,10 @@ const log = ref<HTMLElement>()
 const LANES = [
   { key: 'auto', label: 'Auto', hint: 'I decide: work becomes a card, talk gets an answer' },
   { key: 'chat', label: '💬 Chat', hint: 'Just talk — never makes a card' },
-  { key: 'task', label: '🎫 Ticket', hint: 'Always make a card on the board' }
+  { key: 'task', label: '🎫 Ticket', hint: 'Always make a card on the board' },
+  { key: 'goal', label: '🎯 Goal', hint: 'A card that iterates until the goal is truly done' }
 ] as const
-const lane = ref<'auto' | 'chat' | 'task'>('auto')
+const lane = ref<'auto' | 'chat' | 'task' | 'goal'>('auto')
 
 const msgs = computed<any[]>(() => state.current ? state.chat : state.homeChat)
 
@@ -53,8 +54,9 @@ watch(() => [msgs.value.length, state.awaitingReply, state.current?.id], async (
           <template v-else>Just talk — I'll file work in the right room, or make a new one</template>
         </div>
       </div>
-      <div v-for="m in msgs" :key="m.id" class="msg" :class="m.role === 'user' ? 'user' : 'agent'">
-        <div class="who">{{ m.role === 'user' ? 'You' : 'Agent' }}</div>
+      <div v-for="m in msgs" :key="m.id" class="msg"
+        :class="m.role === 'user' ? 'user' : m.role === 'brief' ? 'brief' : 'agent'">
+        <div class="who">{{ m.role === 'user' ? 'You' : m.role === 'brief' ? 'The palace' : 'Agent' }}</div>
         <div class="bubble">{{ m.text }}</div>
         <div v-if="m.task_id" class="ticket">
           → card #{{ m.task_id }}

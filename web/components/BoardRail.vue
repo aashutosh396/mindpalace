@@ -44,6 +44,7 @@ function nextOf(s: Status): Status | null {
           @click="openTask(t.id)"
           @keydown.enter="openTask(t.id)">
           <span v-if="!state.current && t.room_name" class="room-tag">{{ t.room_name }}</span>
+          <span v-if="t.kind === 'goal'" class="room-tag">🎯 ×{{ t.iterations || 0 }}</span>
           <div class="rail-card-title">{{ t.title }}</div>
           <div v-if="t.status === 'in_progress' && state.progress[t.id]" class="card-progress">
             {{ state.progress[t.id] }}
