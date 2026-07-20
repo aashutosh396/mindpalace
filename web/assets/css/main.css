@@ -261,12 +261,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .new-proj input::placeholder { color: var(--text-dim); }
 
-/* the account block (top of the sidebar) */
+/* the account block (sidebar bottom, under Check for updates) */
 .side-user {
   display: flex; align-items: center; gap: 10px;
-  padding: 2px 6px 12px;
-  border-bottom: 1px solid var(--edge);
-  margin-bottom: 8px;
+  padding: 10px 6px 2px;
+  border-top: 1px solid var(--edge);
+  margin-top: 8px;
 }
 .avatar {
   width: 34px; height: 34px; border-radius: 99px; flex: none;

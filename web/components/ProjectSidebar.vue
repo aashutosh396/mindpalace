@@ -38,7 +38,6 @@ async function openProjects() {
 <template>
   <aside class="sidebar">
     <div class="wordmark">mind<em>palace</em></div>
-    <ProfileFoot class="side-profile" />
 
     <button class="menu-item primary" @click="startCreate">
       <span class="mi-icon"><Plus :size="13" :stroke-width="2.25" /></span> New chatroom
@@ -93,5 +92,6 @@ async function openProjects() {
       <span class="mi-icon"><RefreshCw :size="15" :stroke-width="1.75" /></span>
       {{ state.updating ? 'Checking…' : state.update?.behind ? 'Get update' : 'Check for updates' }}
     </button>
+    <ProfileFoot />
   </aside>
 </template>
