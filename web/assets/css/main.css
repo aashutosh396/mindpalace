@@ -351,6 +351,21 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .md-li { color: var(--text-dim); }
 .md-link { color: var(--brass); }
 
+.attach-item { position: relative; display: inline-flex; }
+.attach-item.thumb { padding: 0; }
+.attach-img {
+  width: 58px; height: 58px; object-fit: cover;
+  border-radius: 9px; border: 1px solid var(--edge); display: block;
+}
+.attach-del {
+  position: absolute; top: -7px; right: -7px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--danger); color: #fff; border: 2px solid var(--content);
+  font-size: 10px; line-height: 1; cursor: pointer;
+  display: grid; place-items: center; padding: 0;
+}
+.attach-del:hover { filter: brightness(1.15); }
+
 .rem-add { display: flex; gap: 6px; }
 .rem-add.page { margin-bottom: 4px; }
 .rem-add.page input { padding: 7px 11px; font-size: 13.5px; }
@@ -834,7 +849,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .tm-thread-msg.user { background: var(--bubble); border-color: transparent; }
 .tm-thread-msg .who { font-size: 11px; color: var(--text-dim); margin-right: 8px; }
-.tm-reply { display: flex; gap: 8px; margin-top: 12px; }
+.tm-reply { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 7px; margin-top: 12px; }
+.tm-reply textarea {
+  flex: 1 1 100%; min-height: 64px; resize: vertical;
+  background: var(--bg); border: 1px solid var(--edge); border-radius: 10px;
+  padding: 8px 11px; color: var(--text); font-size: 13.5px; line-height: 1.5;
+}
+.tm-reply .btn { margin-left: auto; }
 .tm-reply input {
   flex: 1; background: var(--card); border: 1px solid var(--edge);
   border-radius: 10px; padding: 8px 12px;

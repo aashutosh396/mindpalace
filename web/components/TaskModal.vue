@@ -9,7 +9,7 @@ const trail = ref<HTMLElement>()
 const reply = ref('')
 
 // ---- follow-up attachments: drop, paste, pick (same as the composer) ----
-const pending = ref<{ name: string; path: string }[]>([])
+const pending = ref<{ name: string; path: string; url?: string }[]>([])
 const uploading = ref(false)
 const filePick = ref<HTMLInputElement>()
 
@@ -22,7 +22,10 @@ async function uploadFiles(files: FileList | File[]) {
       const res = await fetch(`/api/rooms/${t.value.room_id}/assets`, { method: 'POST', body: form })
       const a = await res.json()
       if (!res.ok) throw new Error(a.error || 'upload failed')
-      pending.value.push({ name: a.filename, path: a.path })
+      pending.value.push({
+        name: a.filename, path: a.path,
+        url: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
+      })
     } catch (e: any) { toast(e.message, true) }
   }
   uploading.value = false
@@ -39,18 +42,29 @@ const recording = ref(false)
 let recog: any = null
 let mediaRec: MediaRecorder | null = null
 let baseReply = ''
+let finalAcc = ''
 
 async function toggleMic() {
   if (recording.value) { stopMic(); return }
   if (SR) {
     baseReply = reply.value.trim()
+    finalAcc = ''
     recog = new SR()
     recog.continuous = true
     recog.interimResults = true
     recog.onresult = (ev: any) => {
-      let fin = '', interim = ''
-      for (const r of ev.results) (r.isFinal ? (fin += r[0].transcript + ' ') : (interim += r[0].transcript))
-      reply.value = [baseReply, fin.trim(), interim.trim()].filter(Boolean).join(' ')
+      // ACCUMULATE finals — the browser resets its result list when it
+      // restarts after a silence, so rebuilding from ev.results loses text
+      let interim = ''
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i]
+        if (r.isFinal) finalAcc += r[0].transcript + ' '
+        else interim += r[0].transcript
+      }
+      reply.value = [baseReply, finalAcc.trim(), interim.trim()].filter(Boolean).join(' ')
+    }
+    recog.onend = () => {                            // silence timeout — keep listening
+      if (recording.value && recog) { try { recog.start() } catch { /* stopping */ } }
     }
     recog.onerror = () => stopMic()
     recog.start()
@@ -148,9 +162,11 @@ watch(() => state.modal?.log.length, async () => {
           </template>
 
           <div v-if="pending.length || uploading" class="attach-row">
-            <span v-for="(f, i) in pending" :key="f.path" class="attach-chip">
-              <Paperclip :size="11" :stroke-width="1.75" /> {{ f.name }}
-              <button type="button" class="attach-x" :aria-label="`Remove ${f.name}`"
+            <span v-for="(f, i) in pending" :key="f.path"
+              class="attach-item" :class="{ thumb: f.url }">
+              <img v-if="f.url" :src="f.url" :alt="f.name" class="attach-img" />
+              <span v-else class="attach-chip"><Paperclip :size="11" :stroke-width="1.75" /> {{ f.name }}</span>
+              <button type="button" class="attach-del" :aria-label="`Remove ${f.name}`" :title="`Remove ${f.name}`"
                 @click="pending.splice(i, 1)">✕</button>
             </span>
             <span v-if="uploading" class="attach-chip dim">uploading…</span>
@@ -168,12 +184,13 @@ watch(() => state.modal?.log.length, async () => {
               <Square v-if="recording" :size="13" :stroke-width="1.75" />
               <Mic v-else :size="14" :stroke-width="1.75" />
             </button>
-            <input
-              v-model="reply"
+            <textarea
+              v-model="reply" rows="3"
               :placeholder="t.status === 'in_progress' ? 'Working — wait for it to finish…' : recording ? 'Listening — speak, words appear here…' : 'Reply on this card — text, files, images, voice'"
               :disabled="t.status === 'in_progress'"
               aria-label="Reply on card"
-              @paste="onPaste" />
+              @paste="onPaste"
+              @keydown.enter.exact.prevent="sendReply"></textarea>
             <button class="btn" :disabled="(!reply.trim() && !pending.length) || uploading || t.status === 'in_progress'">Send</button>
           </form>
 

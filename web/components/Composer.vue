@@ -43,6 +43,7 @@ const levels = ref<number[]>(Array(24).fill(2))
 let recog: any = null
 let mediaRec: MediaRecorder | null = null
 let baseText = ''
+let finalAcc = ''
 let clockTimer: ReturnType<typeof setInterval> | null = null
 let meterStream: MediaStream | null = null
 let meterCtx: AudioContext | null = null
@@ -87,13 +88,23 @@ async function toggleMic() {
   if (recording.value) { stopMic(); return }
   if (SR) {
     baseText = text.value.trim()
+    finalAcc = ''
     recog = new SR()
     recog.continuous = true
     recog.interimResults = true
     recog.onresult = (ev: any) => {
-      let fin = '', interim = ''
-      for (const r of ev.results) (r.isFinal ? (fin += r[0].transcript + ' ') : (interim += r[0].transcript))
-      text.value = [baseText, fin.trim(), interim.trim()].filter(Boolean).join(' ')
+      // ACCUMULATE finals — the browser resets its result list when it
+      // restarts after a silence, so rebuilding from ev.results loses text
+      let interim = ''
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i]
+        if (r.isFinal) finalAcc += r[0].transcript + ' '
+        else interim += r[0].transcript
+      }
+      text.value = [baseText, finalAcc.trim(), interim.trim()].filter(Boolean).join(' ')
+    }
+    recog.onend = () => {                            // silence timeout — keep listening
+      if (recording.value && recog) { try { recog.start() } catch { /* stopping */ } }
     }
     recog.onerror = () => stopMic()
     recog.start()
@@ -150,9 +161,11 @@ function onKey(e: KeyboardEvent) {
   <form class="composer" @submit.prevent="send"
     @dragover.prevent @drop.prevent="onDrop">
     <div v-if="state.pendingFiles.length || state.uploadingFiles" class="attach-row">
-      <span v-for="(f, i) in state.pendingFiles" :key="f.path" class="attach-chip">
-        <Paperclip :size="11" :stroke-width="1.75" /> {{ f.name }}
-        <button type="button" class="attach-x" :aria-label="`Remove ${f.name}`"
+      <span v-for="(f, i) in state.pendingFiles" :key="f.path"
+        class="attach-item" :class="{ thumb: f.url }">
+        <img v-if="f.url" :src="f.url" :alt="f.name" class="attach-img" />
+        <span v-else class="attach-chip"><Paperclip :size="11" :stroke-width="1.75" /> {{ f.name }}</span>
+        <button type="button" class="attach-del" :aria-label="`Remove ${f.name}`" :title="`Remove ${f.name}`"
           @click="state.pendingFiles.splice(i, 1)">✕</button>
       </span>
       <span v-if="state.uploadingFiles" class="attach-chip dim">uploading…</span>

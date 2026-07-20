@@ -45,7 +45,7 @@ const state = reactive({
   routineRuns: [] as any[],           // latest fires — the foot ticker
   runsFor: null as null | any,        // routine whose run history fills the right rail
   reminderAlerts: [] as any[],        // due reminders — full-screen announcements
-  pendingFiles: [] as { name: string; path: string }[],   // attachments staged for the next message
+  pendingFiles: [] as { name: string; path: string; url?: string }[],   // staged attachments (url = image preview)
   uploadingFiles: false,
   dragOver: false,
   agentName: 'Agent',
@@ -363,7 +363,10 @@ const actions = {
         const res = await fetch(url, { method: 'POST', body: form })
         const a = await res.json()
         if (!res.ok) throw new Error(a.error || 'upload failed')
-        state.pendingFiles.push({ name: a.filename, path: a.path })
+        state.pendingFiles.push({
+          name: a.filename, path: a.path,
+          url: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
+        })
       } catch (e: any) { toast(e.message, true) }
     }
     state.uploadingFiles = false
