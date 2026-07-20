@@ -90,7 +90,7 @@ onUnmounted(() => {
     <code>curl -fsSL https://claude.ai/install.sh | bash</code>
   </div>
   <header v-if="booted" class="topbar">
-    <span class="tb-mark">mind<em>palace</em></span>
+    <span class="tb-mark"><Logo :size="15" class="tb-logo" /> mind<em>palace</em></span>
     <span class="tb-date">{{ today }}</span>
     <span class="bl-spacer"></span>
     <button v-if="state.update?.behind" class="tb-update" :disabled="state.updating" @click="getUpdate">
@@ -111,7 +111,7 @@ onUnmounted(() => {
       </button>
     </div>
   </header>
-  <div v-if="!booted" class="boot-splash"><span class="star">✳</span></div>
+  <div v-if="!booted" class="boot-splash"><span class="star"><Logo :size="42" /></span></div>
   <div v-else class="shell" :class="{ 'rail-closed': !state.railOpen, dragging: state.railDragging }"
     :style="{ gridTemplateColumns: `250px 1fr ${state.runsFor || (state.railOpen && !state.tool) ? state.railW + 'px' : '0px'}` }">
     <ProjectSidebar />

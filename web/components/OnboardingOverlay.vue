@@ -85,7 +85,7 @@ async function finish() {
 
       <!-- 0 · the gate -->
       <template v-if="step === 'gate'">
-        <div class="onboard-hello"><span class="star">✳</span>Welcome to mindpalace</div>
+        <div class="onboard-hello"><span class="star"><Logo :size="21" /></span>Welcome to mindpalace</div>
         <p class="onboard-sub">Your projects, chatrooms, and an agent that works the tickets.</p>
         <div class="onboard-card">
           <p><strong>One thing to set up:</strong> the palace thinks with Claude.
@@ -102,7 +102,7 @@ async function finish() {
 
       <!-- 1 · name -->
       <template v-else-if="step === 'name'">
-        <div class="onboard-hello"><span class="star">✳</span>Claude is connected.</div>
+        <div class="onboard-hello"><span class="star"><Logo :size="21" /></span>Claude is connected.</div>
         <p class="onboard-sub">What should the palace call you?</p>
         <form class="onboard-card" @submit.prevent="saveName">
           <input v-model="name" class="onboard-input" placeholder="Your name" aria-label="Your name" autofocus />
@@ -117,7 +117,7 @@ async function finish() {
       <!-- 2 · vault detected → say so; else workspace question + optional scan -->
       <template v-else-if="step === 'seed'">
         <template v-if="vaultPresent">
-          <div class="onboard-hello"><span class="star">✳</span>.mindpalace detected</div>
+          <div class="onboard-hello"><span class="star"><Logo :size="21" /></span>.mindpalace detected</div>
           <p class="onboard-sub">Found your vault — importing its tracked projects into the inventory now.</p>
           <div class="onboard-card">
             <p class="dim-note" style="margin:0">
@@ -130,7 +130,7 @@ async function finish() {
           </div>
         </template>
         <template v-else>
-          <div class="onboard-hello"><span class="star">✳</span>No .mindpalace vault found.</div>
+          <div class="onboard-hello"><span class="star"><Logo :size="21" /></span>No .mindpalace vault found.</div>
           <p class="onboard-sub">Where should your workspace be? New projects are born there.</p>
           <div class="onboard-card">
             <p><strong>Create a workspace</strong> — pick a folder:</p>

@@ -24,7 +24,7 @@ function toggleTheme() {
 
 <template>
   <div class="side-user">
-    <div class="avatar">m</div>
+    <div class="avatar"><Logo :size="15" /></div>
     <div class="side-user-meta">
       <div class="name">mindpalace</div>
       <div class="plan">

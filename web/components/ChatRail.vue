@@ -69,7 +69,7 @@ async function onScroll() {
       <div class="chat-inner">
       <div v-if="state.chatOlderLoading" class="chat-older">loading earlier…</div>
       <div v-if="!msgs.length" class="chat-hello">
-        <span class="star">✳</span><template v-if="state.current">What shall we build?</template>
+        <span class="star"><Logo :size="30" /></span><template v-if="state.current">What shall we build?</template>
         <template v-else>What's on your mind?</template>
         <div class="chat-hello-sub">
           <template v-if="state.current">Work becomes a card on the board · questions just get an answer</template>
@@ -91,7 +91,7 @@ async function onScroll() {
       <div v-if="state.awaitingReply" class="msg agent">
         <div class="who">{{ state.agentName }}</div>
         <div class="bubble writing cook">
-          <span class="cook-star">✳</span> {{ cookLine }}
+          <span class="cook-star"><Logo :size="13" /></span> {{ cookLine }}
         </div>
       </div>
       </div>

@@ -13,7 +13,7 @@ export default defineNuxtConfig({
       meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }],
       link: [{
         rel: 'icon',
-        href: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏛️</text></svg>'
+        href: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23151517%22 stroke-width=%221.8%22 stroke-linecap=%22round%22><path d=%22M4.5 20v-8.5a7.5 7.5 0 0 1 15 0V20%22/><path d=%22M9.5 20v-5a2.5 2.5 0 0 1 5 0v5%22/><path d=%22M2.5 20h19%22/></svg>'
       }]
     }
   },
