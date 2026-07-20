@@ -20,6 +20,7 @@ watch(() => [msgs.value.length, state.awaitingReply, state.current?.id], async (
 <template>
   <aside class="corridor">
     <div ref="log" class="chat-log">
+      <div class="chat-inner">
       <div v-if="!msgs.length" class="chat-hello">
         <span class="star">✳</span><template v-if="state.current">What shall we build?</template>
         <template v-else>What's on your mind?</template>
@@ -42,6 +43,7 @@ watch(() => [msgs.value.length, state.awaitingReply, state.current?.id], async (
       <div v-if="state.awaitingReply" class="msg agent">
         <div class="who">Agent</div>
         <div class="bubble writing">…</div>
+      </div>
       </div>
     </div>
   </aside>

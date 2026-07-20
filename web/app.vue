@@ -1,9 +1,33 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useWorkspace } from './composables/useWorkspace'
 
-const { state, init, checkHealth, toggleRail } = useWorkspace()
+const { state, init, checkHealth, toggleRail, open, goHome } = useWorkspace()
 const tab = ref<'chat' | 'repos' | 'assets' | 'routines'>('chat')
+
+// ---- hash routes: #/home · #/room/<slug>[/projects|assets|routines] ----
+const TABS: Record<string, typeof tab.value> = { projects: 'repos', assets: 'assets', routines: 'routines' }
+const SLUGS: Record<string, string> = { repos: 'projects', assets: 'assets', routines: 'routines' }
+
+async function applyHash() {
+  const parts = location.hash.replace(/^#\/?/, '').split('/')
+  if (parts[0] === 'room' && parts[1]) {
+    const r = state.rooms.find(x => x.slug === decodeURIComponent(parts[1]))
+    if (r) {
+      if (state.current?.id !== r.id) await open(r)
+      tab.value = TABS[parts[2]] || 'chat'
+      return
+    }
+  }
+  if (state.current) await goHome()
+}
+
+watch([() => state.current?.slug, tab], () => {
+  const h = state.current
+    ? `#/room/${state.current.slug}` + (tab.value !== 'chat' ? '/' + SLUGS[tab.value] : '')
+    : '#/home'
+  if (location.hash !== h) history.replaceState(null, '', h)
+})
 
 function onKey(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -20,8 +44,16 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => { init(); window.addEventListener('keydown', onKey) })
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onMounted(async () => {
+  window.addEventListener('keydown', onKey)
+  window.addEventListener('hashchange', applyHash)
+  await init()
+  await applyHash()
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  window.removeEventListener('hashchange', applyHash)
+})
 </script>
 
 <template>
