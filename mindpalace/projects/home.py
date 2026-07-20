@@ -107,6 +107,22 @@ def _match_room(slug_or_name: str) -> dict | None:
     return None
 
 
+def _scaffold_workspace(p: dict) -> None:
+    """A brand-new project gets a real home: <workspace>/<slug>, git-initialized
+    and tracked as the room's primary folder — so its very first ticket already
+    runs grounded there instead of drifting into the vault."""
+    import subprocess
+
+    from .. import config
+    try:
+        folder = config.workspace_dir() / p["slug"]
+        folder.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "-q", str(folder)], timeout=10, capture_output=True)
+        store.add_repo(p["id"], str(folder), is_primary=True)
+    except Exception as e:
+        print(f"[home] workspace scaffold failed for {p['slug']}: {e}")
+
+
 async def handle(text: str, broadcast) -> None:
     """One hall turn: decide → execute → reply. The user message is already stored."""
     d = await _decide(text)
@@ -128,6 +144,8 @@ async def handle(text: str, broadcast) -> None:
         if action == "create":
             p = store.create_project(d.get("room_name") or d.get("room") or title[:40])
             await broadcast("project.created", p)
+            _scaffold_workspace(p)                   # new project = real folder from birth
+            await broadcast("repos.changed", {"project_id": p["id"]})
         ref_pid = p["id"]
         task = store.create_task(ref_pid, title, body)
         task_id = task["id"]
