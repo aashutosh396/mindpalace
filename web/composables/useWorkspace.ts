@@ -213,6 +213,7 @@ const actions = {
       const r = await api('/rooms', { method: 'POST', body: JSON.stringify({ name }) })
       if (!state.rooms.find(x => x.id === r.id)) state.rooms.unshift(r)
       await actions.open(r)
+      if (r.connected?.length) toast(`Connected project: ${r.connected.join(', ')}`)
     } catch (e: any) { toast(e.message, true) }
   },
   async deleteRoom(r: Room) {
@@ -247,6 +248,12 @@ const actions = {
   async openTask(id: number) {
     try { state.modal = await api(`/tasks/${id}/log`) }
     catch (e: any) { toast(e.message, true) }
+  },
+  async stopTask(id: number) {
+    try {
+      await api(`/tasks/${id}/stop`, { method: 'POST' })
+      toast(`Stopped card #${id}`)
+    } catch (e: any) { toast(e.message, true) }
   },
   async replyTask(id: number, text: string) {
     try {

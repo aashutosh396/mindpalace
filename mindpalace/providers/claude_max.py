@@ -100,6 +100,12 @@ class ClaudeMaxProvider(Provider):
                 await asyncio.wait_for(_drain(), timeout=tmo)
                 err = (await proc.stderr.read()).decode(errors="replace")
                 await proc.wait()
+        except asyncio.CancelledError:               # owner hit stop — kill the engine
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            raise
         except asyncio.TimeoutError:
             try:
                 proc.kill()

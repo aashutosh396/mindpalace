@@ -241,12 +241,50 @@ async def routine_loop(broadcast, interval: int = 60):
         await asyncio.sleep(interval)
 
 
+RUNNING: dict[int, asyncio.Task] = {}     # live runs, stoppable by card id
+
+
+def _register(tid: int, atask: asyncio.Task) -> None:
+    RUNNING[tid] = atask
+    atask.add_done_callback(lambda _f: RUNNING.pop(tid, None))
+
+
+def cancel_task(tid: int) -> bool:
+    """Stop a running card mid-flight. The guarded runner parks it in Review."""
+    atask = RUNNING.get(tid)
+    if not atask:
+        return False
+    atask.cancel()
+    return True
+
+
+async def _stopped(task: dict, broadcast) -> None:
+    t = store.set_task_status(task["id"], "review", result="(stopped by you)")
+    if t:
+        await broadcast("task.updated", t)
+    store.add_task_log(task["id"], "⏹ stopped by the owner")
+
+
 async def _run_guarded(task: dict, broadcast) -> None:
     try:
         await run_one(task, broadcast)
+    except asyncio.CancelledError:
+        await _stopped(task, broadcast)
     except Exception as e:
         print(f"[worker] card #{task['id']} crashed: {e}")
         store.set_task_status(task["id"], "review", result=f"(worker error: {str(e)[:200]})")
+
+
+def spawn_followup(task: dict, reply_text: str, broadcast) -> None:
+    async def _guarded():
+        try:
+            await run_followup(task, reply_text, broadcast)
+        except asyncio.CancelledError:
+            await _stopped(task, broadcast)
+        except Exception as e:
+            print(f"[worker] follow-up on #{task['id']} crashed: {e}")
+            store.set_task_status(task["id"], "review", result=f"(worker error: {str(e)[:200]})")
+    _register(task["id"], asyncio.create_task(_guarded()))
 
 
 async def watch_loop(broadcast, interval: int = 2):
@@ -267,6 +305,7 @@ async def watch_loop(broadcast, interval: int = 2):
                 running.add(task["id"])
                 t = asyncio.create_task(_run_guarded(task, broadcast))
                 t.add_done_callback(lambda _f, tid=task["id"]: running.discard(tid))
+                _register(task["id"], t)
         except Exception as e:
             print(f"[worker] error: {e}")
         await asyncio.sleep(interval)

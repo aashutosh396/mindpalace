@@ -308,6 +308,22 @@ def room_paths(rid: int) -> list[str]:
     return paths
 
 
+def match_projects_in_text(text: str, exclude_room: int | None = None) -> list[dict]:
+    """Inventory projects mentioned (whole-word) in a message — for auto-connect."""
+    txt = text.lower()
+    already = {p["id"] for p in projects_for_room(exclude_room)} if exclude_room else set()
+    out = []
+    for p in list_projects():
+        if p["id"] in already:
+            continue
+        for token in {p["name"].lower(), p["slug"]}:
+            if len(token) >= 3 and re.search(
+                    r"(?<![a-z0-9])" + re.escape(token) + r"(?![a-z0-9])", txt):
+                out.append(p)
+                break
+    return out
+
+
 def rooms_index() -> list[dict]:
     """What the concierge sees: every room with its projects + board state."""
     out = []

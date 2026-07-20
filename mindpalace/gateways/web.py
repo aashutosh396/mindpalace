@@ -263,8 +263,22 @@ def create_app():
         if not name:
             return JSONResponse({"error": "name required"}, status_code=422)
         r = store.create_room(name)
+        # a room named like an inventory project connects to it automatically
+        import difflib
+        projs = store.list_projects()
+        by_name = {p["name"].lower(): p for p in projs}
+        by_slug = {p["slug"]: p for p in projs}
+        cand = by_slug.get(store.slugify(name)) or by_name.get(name.lower())
+        if not cand:
+            close = difflib.get_close_matches(name.lower(), list(by_name), n=1, cutoff=0.75)
+            cand = by_name[close[0]] if close else None
+        connected = []
+        if cand:
+            store.connect_project(r["id"], cand["id"])
+            connected.append(cand["name"])
+            await bus.broadcast("room.projects", {"room_id": r["id"]})
         await bus.broadcast("room.created", r)
-        return r
+        return {**r, "connected": connected}
 
     @app.patch("/api/rooms/{rid}")
     async def room_rename(rid: int, body: dict):
@@ -354,8 +368,20 @@ def create_app():
         t2 = store.set_task_status(tid, "in_progress")
         if t2:
             await bus.broadcast("task.updated", t2)
-        asyncio.get_running_loop().create_task(worker.run_followup(t, text, bus.broadcast))
+        worker.spawn_followup(t, text, bus.broadcast)
         return {"ok": True, "message": msg}
+
+    @app.post("/api/tasks/{tid}/stop")
+    async def task_stop(tid: int):
+        t = store.get_task(tid)
+        if not t:
+            return _404("task")
+        if not worker.cancel_task(tid) and t["status"] == "in_progress":
+            # not in this process's registry (orphan from a restart) — just park it
+            t2 = store.set_task_status(tid, "review", result="(stopped)")
+            if t2:
+                await bus.broadcast("task.updated", t2)
+        return {"ok": True}
 
     @app.patch("/api/tasks/{tid}")
     async def task_update(tid: int, body: dict):
@@ -449,6 +475,20 @@ def create_app():
             amsg = store.add_chat(rid, "agent", reply, task_id=tid if t else None)
             await bus.broadcast("chat.message", amsg)
             return {"message": umsg, "task": None}
+
+        # projects mentioned in the message connect themselves to the room
+        r = store.get_room(rid)
+        if r and r["slug"] != store.HOME_SLUG:
+            hits = store.match_projects_in_text(text, exclude_room=rid)[:3]
+            if hits:
+                for p in hits:
+                    store.connect_project(rid, p["id"])
+                await bus.broadcast("room.projects", {"room_id": rid})
+                note = store.add_chat(
+                    rid, "agent",
+                    "🔗 Connected project" + ("s" if len(hits) > 1 else "")
+                    + " to this room: " + ", ".join(p["name"] for p in hits))
+                await bus.broadcast("chat.message", note)
 
         lane = body.get("lane") or "auto"
         if lane == "auto":

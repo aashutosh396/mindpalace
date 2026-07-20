@@ -543,6 +543,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   padding: 10px 14px; font-size: 14px; white-space: pre-wrap;
 }
 .tm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex: none; }
+.stop-btn { color: var(--danger); border-color: var(--danger); margin-right: auto; }
+.stop-btn:hover { color: #fff; background: var(--danger); }
 .rail-card, .card { cursor: pointer; }
 
 /* ---- brief, threads, reply ---- */

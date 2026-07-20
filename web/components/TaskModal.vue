@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useWorkspace, STATUSES, type Status } from '../composables/useWorkspace'
 
-const { state, moveTask, replyTask } = useWorkspace()
+const { state, moveTask, replyTask, stopTask } = useWorkspace()
 const trail = ref<HTMLElement>()
 const reply = ref('')
 
@@ -77,6 +77,9 @@ watch(() => state.modal?.log.length, async () => {
           </form>
 
           <div class="tm-actions">
+            <button v-if="t.status === 'in_progress'" class="btn ghost stop-btn" @click="stopTask(t.id)">
+              ⏹ Stop
+            </button>
             <button v-if="nextOf(t.status)" class="btn ghost" @click="moveTask(t.id, nextOf(t.status)!)">
               → {{ LABELS[nextOf(t.status)!] }}
             </button>

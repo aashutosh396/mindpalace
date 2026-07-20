@@ -2,7 +2,7 @@
 import { computed, reactive } from 'vue'
 import { useWorkspace, STATUSES, type Status } from '../composables/useWorkspace'
 
-const { state, moveTask, openTask } = useWorkspace()
+const { state, moveTask, openTask, stopTask } = useWorkspace()
 
 const COLS: { key: Status; label: string; color: string }[] = [
   { key: 'review', label: 'Review', color: 'var(--lilac)' },      // your inbox first
@@ -60,7 +60,9 @@ function nextOf(s: Status): Status | null {
             <span v-if="!state.current && t.room_name" class="row-meta">{{ t.room_name }}</span>
             <span class="row-meta">#{{ t.id }}</span>
             <span class="row-actions">
-              <button v-if="nextOf(t.status)" title="Advance"
+              <button v-if="t.status === 'in_progress'" title="Stop"
+                @click.stop="stopTask(t.id)">⏹</button>
+              <button v-if="nextOf(t.status) && t.status !== 'in_progress'" title="Advance"
                 @click.stop="moveTask(t.id, nextOf(t.status)!)">→</button>
               <button v-if="t.status !== 'done'" title="Close"
                 @click.stop="moveTask(t.id, 'done')">✓</button>
