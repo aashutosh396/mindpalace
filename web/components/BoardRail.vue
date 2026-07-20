@@ -41,11 +41,16 @@ function nextOf(s: Status): Status | null {
     <div class="rail-body">
       <section v-for="col in COLS" :key="col.key" class="rail-group">
         <header class="rail-group-head clickable" role="button" tabindex="0"
+          :aria-expanded="!collapsed[col.key]"
           @click="toggle(col.key)" @keydown.enter="toggle(col.key)">
+          <svg class="caret" :class="{ open: !collapsed[col.key] }" width="14" height="14"
+            viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" fill="none"
+              stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
           <span class="dot" :style="{ background: col.color }"></span>
           {{ col.label }}
           <span class="n">{{ byStatus[col.key].length }}</span>
-          <span class="caret">{{ collapsed[col.key] ? '▸' : '▾' }}</span>
         </header>
         <template v-if="!collapsed[col.key]">
           <article
