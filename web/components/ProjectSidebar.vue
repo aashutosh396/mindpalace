@@ -57,17 +57,17 @@ async function openProjects() {
       <span class="mi-icon plain">🏛</span> Home
     </button>
     <button class="menu-item primary" @click="startCreate">
-      <span class="mi-icon">+</span> New room
+      <span class="mi-icon">+</span> New chatroom
     </button>
     <form v-if="creating" class="new-proj" @submit.prevent="create">
       <input
-        ref="nameInput" v-model="name" placeholder="Room name…"
-        aria-label="New room name"
+        ref="nameInput" v-model="name" placeholder="Chatroom name…"
+        aria-label="New chatroom name"
         @blur="!name.trim() && (creating = false)"
         @keydown.esc="creating = false; name = ''" />
     </form>
 
-    <div class="side-label">Rooms</div>
+    <div class="side-label">Chatrooms</div>
     <nav class="rooms">
       <button
         v-for="r in state.rooms" :key="r.id"
@@ -83,7 +83,7 @@ async function openProjects() {
           @keydown.enter.stop="confirmDelete(r)">✕</span>
       </button>
       <p v-if="!state.rooms.length" class="side-empty">
-        No rooms yet — rooms are your channels; make one.
+        No chatrooms yet — they are your channels; make one.
       </p>
     </nav>
 
