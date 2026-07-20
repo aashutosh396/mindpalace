@@ -2,7 +2,7 @@
 import { computed, reactive } from 'vue'
 import { useWorkspace, STATUSES, type Status } from '../composables/useWorkspace'
 
-const { state, moveTask, openTask, stopTask } = useWorkspace()
+const { state, moveTask, openTask, stopTask, startRailDrag } = useWorkspace()
 
 const COLS: { key: Status; label: string; color: string }[] = [
   { key: 'review', label: 'Review', color: 'var(--lilac)' },      // your inbox first
@@ -32,6 +32,7 @@ function nextOf(s: Status): Status | null {
 
 <template>
   <aside class="board-rail">
+    <div class="rail-resizer" title="Drag to resize" @mousedown="startRailDrag"></div>
     <div class="rail-head">
       <span class="rail-title">{{ state.current ? 'The board' : 'All rooms' }}</span>
       <button class="expand" title="Expand the board" aria-label="Expand the board"

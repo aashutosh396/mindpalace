@@ -31,7 +31,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     <button class="btn ghost" @click="checkHealth">Check again</button>
     <code>curl -fsSL https://claude.ai/install.sh | bash</code>
   </div>
-  <div class="shell" :class="{ 'rail-closed': !state.railOpen }">
+  <div class="shell" :class="{ 'rail-closed': !state.railOpen, dragging: state.railDragging }"
+    :style="{ gridTemplateColumns: `250px 1fr ${state.railOpen ? state.railW + 'px' : '0px'}` }">
     <ProjectSidebar />
 
     <main class="main">

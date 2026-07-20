@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
 
 const { state, projectsApi, loadProjects } = useWorkspace()
 const pick = ref<number | ''>('')
+const open = reactive<Record<number, boolean>>({})
 
 onMounted(loadProjects)
 
@@ -37,12 +38,20 @@ async function disconnect(p: any) {
     </form>
 
     <div v-for="p in state.roomProjects" :key="p.id" class="proj-entry">
-      <div class="proj-entry-head" style="cursor: default">
+      <button class="proj-entry-head" :aria-expanded="!!open[p.id]"
+        @click="open[p.id] = !open[p.id]">
+        <svg class="caret" :class="{ open: open[p.id] }" width="14" height="14"
+          viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" fill="none"
+            stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
         <span class="proj-entry-name">{{ p.name }}</span>
-        <button class="row-x" style="margin-left: auto" :title="`Disconnect ${p.name}`"
-          @click="disconnect(p)">✕</button>
-      </div>
-      <div class="proj-entry-body">
+        <span class="dim-inline">{{ p.repos.length }} folder{{ p.repos.length === 1 ? '' : 's' }}</span>
+        <span class="row-x" role="button" tabindex="0" style="margin-left: auto; display: block"
+          :title="`Disconnect ${p.name}`"
+          @click.stop="disconnect(p)" @keydown.enter.stop="disconnect(p)">✕</span>
+      </button>
+      <div v-if="open[p.id]" class="proj-entry-body">
         <div v-for="r in p.repos" :key="r.id" class="panel-row">
           <span class="path">{{ r.path }}</span>
           <span v-if="r.is_git" class="tag git">git</span>
@@ -54,9 +63,8 @@ async function disconnect(p: any) {
 
     <div v-if="!state.roomProjects.length" class="empty">
       <span class="glyph">⌂</span>
-      <p>No projects connected. Connect one above — the room's agent works inside
-      the folders of its connected projects. Manage the inventory itself from the
-      sidebar's Projects button.</p>
+      <p>No projects connected. Connect one above — or just mention a project by
+      name in the chat and it connects itself.</p>
     </div>
   </div>
 </template>

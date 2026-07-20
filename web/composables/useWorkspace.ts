@@ -31,6 +31,8 @@ const state = reactive({
   connected: false,
   boardOpen: false,
   railOpen: localStorage.getItem('railOpen') !== '0',   // the right sidebar slides
+  railW: Number(localStorage.getItem('railW')) || Math.round(window.innerWidth * 0.35),
+  railDragging: false,
   projectsOpen: false,               // the Projects sheet
   modal: null as null | { task: any; room: any; log: any[]; thread: any[] },
   showOnboarding: false,
@@ -272,6 +274,22 @@ const actions = {
   toggleRail() {
     state.railOpen = !state.railOpen
     localStorage.setItem('railOpen', state.railOpen ? '1' : '0')
+  },
+  startRailDrag(e: MouseEvent) {
+    e.preventDefault()
+    state.railDragging = true
+    const move = (ev: MouseEvent) => {
+      const w = window.innerWidth - ev.clientX
+      state.railW = Math.min(Math.round(window.innerWidth * 0.6), Math.max(240, w))
+    }
+    const up = () => {
+      state.railDragging = false
+      localStorage.setItem('railW', String(state.railW))
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
   },
   async doSearch(q: string) {
     try { state.searchResults = await api(`/search?q=${encodeURIComponent(q)}`) }
