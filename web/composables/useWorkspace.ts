@@ -45,6 +45,9 @@ const state = reactive({
   routineRuns: [] as any[],           // latest fires — the foot ticker
   runsFor: null as null | any,        // routine whose run history fills the right rail
   reminderAlerts: [] as any[],        // due reminders — full-screen announcements
+  pendingFiles: [] as { name: string; path: string }[],   // attachments staged for the next message
+  uploadingFiles: false,
+  dragOver: false,
   agentName: 'Agent',
   tool: null as null | 'reminders' | 'routines',
   tab: 'chat' as 'chat' | 'repos' | 'assets' | 'routines',
@@ -349,6 +352,21 @@ const actions = {
     try {
       await api(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
     } catch (e: any) { t.status = prev; toast(e.message, true) }
+  },
+  async uploadFiles(files: FileList | File[]) {
+    state.uploadingFiles = true
+    const url = state.current ? `/api/rooms/${state.current.id}/assets` : '/api/home/upload'
+    for (const f of Array.from(files)) {
+      const form = new FormData()
+      form.append('file', f)
+      try {
+        const res = await fetch(url, { method: 'POST', body: form })
+        const a = await res.json()
+        if (!res.ok) throw new Error(a.error || 'upload failed')
+        state.pendingFiles.push({ name: a.filename, path: a.path })
+      } catch (e: any) { toast(e.message, true) }
+    }
+    state.uploadingFiles = false
   },
   openTool(t: 'reminders' | 'routines') {
     state.tool = t

@@ -1,15 +1,94 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { X, Square, Target } from 'lucide-vue-next'
+import { X, Square, Target, Paperclip, Mic } from 'lucide-vue-next'
 import { useWorkspace, STATUSES, type Status } from '../composables/useWorkspace'
+import { md } from '../composables/md'
 
-const { state, moveTask, replyTask, stopTask } = useWorkspace()
+const { state, moveTask, replyTask, stopTask, toast } = useWorkspace()
 const trail = ref<HTMLElement>()
 const reply = ref('')
 
+// ---- follow-up attachments: drop, paste, pick (same as the composer) ----
+const pending = ref<{ name: string; path: string }[]>([])
+const uploading = ref(false)
+const filePick = ref<HTMLInputElement>()
+
+async function uploadFiles(files: FileList | File[]) {
+  uploading.value = true
+  for (const f of Array.from(files)) {
+    const form = new FormData()
+    form.append('file', f)
+    try {
+      const res = await fetch(`/api/rooms/${t.value.room_id}/assets`, { method: 'POST', body: form })
+      const a = await res.json()
+      if (!res.ok) throw new Error(a.error || 'upload failed')
+      pending.value.push({ name: a.filename, path: a.path })
+    } catch (e: any) { toast(e.message, true) }
+  }
+  uploading.value = false
+}
+
+function onPaste(e: ClipboardEvent) {
+  const files = Array.from(e.clipboardData?.files || [])
+  if (files.length) { e.preventDefault(); uploadFiles(files) }
+}
+
+// ---- voice: dictate into the reply (or record a voice note) ----
+const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+const recording = ref(false)
+let recog: any = null
+let mediaRec: MediaRecorder | null = null
+let baseReply = ''
+
+async function toggleMic() {
+  if (recording.value) { stopMic(); return }
+  if (SR) {
+    baseReply = reply.value.trim()
+    recog = new SR()
+    recog.continuous = true
+    recog.interimResults = true
+    recog.onresult = (ev: any) => {
+      let fin = '', interim = ''
+      for (const r of ev.results) (r.isFinal ? (fin += r[0].transcript + ' ') : (interim += r[0].transcript))
+      reply.value = [baseReply, fin.trim(), interim.trim()].filter(Boolean).join(' ')
+    }
+    recog.onerror = () => stopMic()
+    recog.start()
+    recording.value = true
+  } else {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const chunks: Blob[] = []
+      mediaRec = new MediaRecorder(stream)
+      mediaRec.ondataavailable = (e) => chunks.push(e.data)
+      mediaRec.onstop = async () => {
+        stream.getTracks().forEach(x => x.stop())
+        const blob = new Blob(chunks, { type: mediaRec?.mimeType || 'audio/webm' })
+        await uploadFiles([new File([blob], `voice-${Date.now()}.webm`, { type: blob.type })])
+        if (!reply.value.trim()) reply.value = 'Transcribe the attached voice note and treat it as my reply.'
+      }
+      mediaRec.start()
+      recording.value = true
+    } catch { toast('microphone unavailable', true) }
+  }
+}
+
+function stopMic() {
+  recording.value = false
+  try { recog?.stop() } catch { /* already stopped */ }
+  try { mediaRec?.state !== 'inactive' && mediaRec?.stop() } catch { /* already stopped */ }
+  recog = null
+}
+
 async function sendReply() {
-  const t2 = reply.value.trim()
-  if (!t2) return
+  let t2 = reply.value.trim()
+  if (recording.value) stopMic()
+  if (!t2 && !pending.value.length) return
+  if (pending.value.length) {
+    t2 += '\n\n[Attached files — read them as part of this reply]:\n'
+      + pending.value.map(f => `- ${f.path}`).join('\n')
+    pending.value = []
+  }
   reply.value = ''
   await replyTask(t.value.id, t2)
 }
@@ -68,13 +147,34 @@ watch(() => state.modal?.log.length, async () => {
             </div>
           </template>
 
-          <form class="tm-reply" @submit.prevent="sendReply">
+          <div v-if="pending.length || uploading" class="attach-row">
+            <span v-for="(f, i) in pending" :key="f.path" class="attach-chip">
+              <Paperclip :size="11" :stroke-width="1.75" /> {{ f.name }}
+              <button type="button" class="attach-x" :aria-label="`Remove ${f.name}`"
+                @click="pending.splice(i, 1)">✕</button>
+            </span>
+            <span v-if="uploading" class="attach-chip dim">uploading…</span>
+          </div>
+          <form class="tm-reply" @submit.prevent="sendReply"
+            @dragover.prevent @drop.prevent="($event.dataTransfer?.files.length && t.status !== 'in_progress') && uploadFiles($event.dataTransfer.files)">
+            <input ref="filePick" type="file" multiple hidden aria-label="Attach files to reply"
+              @change="filePick?.files?.length && uploadFiles(filePick.files); filePick && (filePick.value = '')" />
+            <button type="button" class="lane icon-lane" title="Attach files or images" aria-label="Attach files"
+              :disabled="t.status === 'in_progress'" @click="filePick?.click()"><Paperclip :size="14" :stroke-width="1.75" /></button>
+            <button type="button" class="lane icon-lane" :class="{ 'rec-on': recording }"
+              :title="recording ? 'Stop recording' : 'Dictate (or record a voice note)'"
+              :disabled="t.status === 'in_progress'"
+              aria-label="Voice reply" @click="toggleMic">
+              <Square v-if="recording" :size="13" :stroke-width="1.75" />
+              <Mic v-else :size="14" :stroke-width="1.75" />
+            </button>
             <input
               v-model="reply"
-              :placeholder="t.status === 'in_progress' ? 'Working — wait for it to finish…' : 'Reply on this card — the agent continues the work'"
+              :placeholder="t.status === 'in_progress' ? 'Working — wait for it to finish…' : recording ? 'Listening — speak, words appear here…' : 'Reply on this card — text, files, images, voice'"
               :disabled="t.status === 'in_progress'"
-              aria-label="Reply on card" />
-            <button class="btn" :disabled="!reply.trim() || t.status === 'in_progress'">Send</button>
+              aria-label="Reply on card"
+              @paste="onPaste" />
+            <button class="btn" :disabled="(!reply.trim() && !pending.length) || uploading || t.status === 'in_progress'">Send</button>
           </form>
 
           <div class="tm-actions">

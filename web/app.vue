@@ -3,7 +3,25 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { Bell, PanelRightClose, PanelRightOpen, RefreshCw } from 'lucide-vue-next'
 import { useWorkspace } from './composables/useWorkspace'
 
-const { state, init, checkHealth, toggleRail, open, goHome, getUpdate, openTask } = useWorkspace()
+const { state, init, checkHealth, toggleRail, open, goHome, getUpdate, openTask, uploadFiles } = useWorkspace()
+
+// the whole middle chat area is a drop zone (like Discord), not just the box
+let dragDepth = 0
+function onDragEnter(e: DragEvent) {
+  if (state.tool || !e.dataTransfer?.types.includes('Files')) return
+  dragDepth++
+  state.dragOver = true
+}
+function onDragLeave() {
+  if (dragDepth > 0) dragDepth--
+  if (dragDepth === 0) state.dragOver = false
+}
+function onAreaDrop(e: DragEvent) {
+  dragDepth = 0
+  state.dragOver = false
+  if (state.tool) return
+  if (e.dataTransfer?.files.length) uploadFiles(e.dataTransfer.files)
+}
 
 const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
 
@@ -121,7 +139,11 @@ onUnmounted(() => {
     :style="{ gridTemplateColumns: `250px 1fr ${state.runsFor || (state.railOpen && !state.tool) ? state.railW + 'px' : '0px'}` }">
     <ProjectSidebar />
 
-    <main class="main">
+    <main class="main" @dragenter.prevent="onDragEnter" @dragover.prevent
+      @dragleave="onDragLeave" @drop.prevent="onAreaDrop">
+      <div v-if="state.dragOver" class="drop-veil" aria-hidden="true">
+        <div class="drop-veil-card"><Logo :size="26" /> Drop files — they attach to your message</div>
+      </div>
       <template v-if="state.current">
         <div class="main-head">
           <h1 class="room-name">{{ state.current.name }}</h1>

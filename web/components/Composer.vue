@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { Paperclip, Mic, Square, ArrowUp, Landmark, Sparkles, MessageCircle, Ticket, Target } from 'lucide-vue-next'
 import { useWorkspace } from '../composables/useWorkspace'
 
-const { state, sendChat, sendHomeChat, toast } = useWorkspace()
+const { state, sendChat, sendHomeChat, toast, uploadFiles } = useWorkspace()
 const text = ref('')
 const filePick = ref<HTMLInputElement>()
 const LANES = [
@@ -14,25 +14,8 @@ const LANES = [
 ] as const
 const lane = ref<'auto' | 'chat' | 'task' | 'goal'>('auto')
 
-// ---- attachments: drop, paste, pick ----
-const pending = ref<{ name: string; path: string }[]>([])
-const uploading = ref(false)
-
-async function uploadFiles(files: FileList | File[]) {
-  uploading.value = true
-  const url = state.current ? `/api/rooms/${state.current.id}/assets` : '/api/home/upload'
-  for (const f of Array.from(files)) {
-    const form = new FormData()
-    form.append('file', f)
-    try {
-      const res = await fetch(url, { method: 'POST', body: form })
-      const a = await res.json()
-      if (!res.ok) throw new Error(a.error || 'upload failed')
-      pending.value.push({ name: a.filename, path: a.path })
-    } catch (e: any) { toast(e.message, true) }
-  }
-  uploading.value = false
-}
+// attachments live in shared state (useWorkspace.uploadFiles) so the whole
+// chat area is a drop zone, not just this box
 
 function onDrop(e: DragEvent) {
   if (e.dataTransfer?.files.length) uploadFiles(e.dataTransfer.files)
@@ -147,11 +130,11 @@ function stopMic() {
 async function send() {
   let t = text.value.trim()
   if (recording.value) stopMic()
-  if (!t && !pending.value.length) return
-  if (pending.value.length) {
+  if (!t && !state.pendingFiles.length) return
+  if (state.pendingFiles.length) {
     t += '\n\n[Attached files — read them as part of this message]:\n'
-      + pending.value.map(f => `- ${f.path}`).join('\n')
-    pending.value = []
+      + state.pendingFiles.map(f => `- ${f.path}`).join('\n')
+    state.pendingFiles = []
   }
   text.value = ''
   if (state.current) await sendChat(t, lane.value)
@@ -166,13 +149,13 @@ function onKey(e: KeyboardEvent) {
 <template>
   <form class="composer" @submit.prevent="send"
     @dragover.prevent @drop.prevent="onDrop">
-    <div v-if="pending.length || uploading" class="attach-row">
-      <span v-for="(f, i) in pending" :key="f.path" class="attach-chip">
+    <div v-if="state.pendingFiles.length || state.uploadingFiles" class="attach-row">
+      <span v-for="(f, i) in state.pendingFiles" :key="f.path" class="attach-chip">
         <Paperclip :size="11" :stroke-width="1.75" /> {{ f.name }}
         <button type="button" class="attach-x" :aria-label="`Remove ${f.name}`"
-          @click="pending.splice(i, 1)">✕</button>
+          @click="state.pendingFiles.splice(i, 1)">✕</button>
       </span>
-      <span v-if="uploading" class="attach-chip dim">uploading…</span>
+      <span v-if="state.uploadingFiles" class="attach-chip dim">uploading…</span>
     </div>
     <div v-if="recording" class="rec-strip" role="status" aria-label="Recording">
       <span class="rec-dot"></span>
@@ -207,7 +190,7 @@ function onKey(e: KeyboardEvent) {
           @click="lane = l.key"><component :is="l.icon" :size="13" :stroke-width="1.75" /> {{ l.label }}</button>
       </template>
       <span v-else class="lane active" style="cursor: default" title="The concierge decides: answer, file into one of your rooms, or hand palace chores to the keeper"><Landmark :size="13" :stroke-width="1.75" /> Concierge</span>
-      <button class="send" :disabled="(!text.trim() && !pending.length) || uploading" title="Send" aria-label="Send"><ArrowUp :size="17" :stroke-width="2" /></button>
+      <button class="send" :disabled="(!text.trim() && !state.pendingFiles.length) || state.uploadingFiles" title="Send" aria-label="Send"><ArrowUp :size="17" :stroke-width="2" /></button>
     </div>
   </form>
 </template>
