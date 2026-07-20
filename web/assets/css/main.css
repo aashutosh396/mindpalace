@@ -607,6 +607,44 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .empty { color: var(--text-dim); padding: 40px 20px; text-align: center; }
 .empty .glyph { font-family: var(--serif); font-size: 34px; color: var(--brass); display: block; margin-bottom: 8px; }
 
+/* ---- onboarding ---- */
+.onboard-backdrop { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.onboard {
+  width: min(560px, 92vw); max-height: 90vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 14px;
+  position: relative; padding: 10px;
+}
+.onboard-skip {
+  position: absolute; top: 0; right: 0;
+  background: none; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 13px; padding: 6px 10px;
+}
+.onboard-skip:hover { color: var(--text); }
+.onboard-hello {
+  font-family: var(--serif); font-size: 28px; text-align: center; margin-top: 8px;
+}
+.onboard-hello .star { color: var(--brass); margin-right: 10px; }
+.onboard-sub { text-align: center; color: var(--text-dim); font-size: 14.5px; }
+.onboard-card {
+  background: var(--card); border: 1px solid var(--edge); border-radius: 16px;
+  box-shadow: var(--shadow); padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.onboard-code {
+  font-family: var(--mono); font-size: 12.5px; background: var(--bg-deep);
+  border: 1px solid var(--edge); border-radius: 8px; padding: 8px 12px;
+  user-select: all; overflow-x: auto; white-space: nowrap;
+}
+.onboard-input {
+  flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--edge);
+  border-radius: 10px; padding: 9px 12px; font-size: 15px;
+}
+.onboard-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.onboard-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.onboard-sparks { gap: 8px; }
+.onboard-sparks .btn { text-align: left; }
+.onboard-tips { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+
 /* ---- toasts ---- */
 .toast {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);

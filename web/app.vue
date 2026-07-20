@@ -72,6 +72,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     <TaskModal v-if="state.modal" />
     <SearchOverlay v-if="state.searchOpen" />
     <ProjectsSheet v-if="state.projectsOpen" />
+    <OnboardingOverlay v-if="state.showOnboarding" />
 
     <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">
       <div class="sheet" role="dialog" aria-label="Project board">

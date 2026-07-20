@@ -94,6 +94,54 @@ def create_app():
         return {"version": __version__, "commit": updates.local_commit()[:12],
                 "provider": p.name, "provider_ok": ok, "provider_status": why}
 
+    # ---- first-run onboarding ----
+    @app.get("/api/onboarding")
+    def onboarding_get():
+        cfg = config.load_config()
+        web = cfg.get("web", {})
+        return {"onboarded": bool(web.get("onboarded")),
+                "name": web.get("owner_name", ""),
+                "workspace": str(config.workspace_dir())}
+
+    @app.post("/api/onboarding")
+    def onboarding_set(body: dict):
+        cfg = config.load_config()
+        web = cfg.setdefault("web", {})
+        if "name" in body:
+            web["owner_name"] = str(body["name"]).strip()[:60]
+        if body.get("onboarded"):
+            web["onboarded"] = True
+        config.save_config(cfg)
+        return {"ok": True}
+
+    @app.post("/api/onboarding/seed")
+    async def onboarding_seed(body: dict):
+        """Seed the inventory: a deterministic general card for the keeper."""
+        mode = body.get("mode")
+        if mode == "folder":
+            path = (body.get("path") or "").strip()
+            root = Path(path).expanduser()
+            if not root.is_dir():
+                return JSONResponse({"error": f"not a folder: {path}"}, status_code=422)
+            task_body = (
+                f"Scan {root} for the owner's projects (each subfolder that looks like a "
+                "real project — has code, a git repo, or a README). For each one, create a "
+                "PROJECT in the inventory and attach its main folder. Do NOT create rooms. "
+                "Report how many projects you loaded.")
+            title = f"Load projects from {root.name}"
+        elif mode == "vault":
+            task_body = (
+                "Read the mindpalace vault's project pointer files and load every tracked "
+                "project into the inventory: create a PROJECT per pointer and attach its "
+                "folder(s) from the pointer's paths. Do NOT create rooms. Report the count.")
+            title = "Load projects from the mindpalace vault"
+        else:
+            return JSONResponse({"error": "mode must be folder or vault"}, status_code=422)
+        room = store.ensure_home_room()
+        task = store.create_task(room["id"], title, task_body)
+        await bus.broadcast("task.created", task)
+        return {"task": task}
+
     # ---- dev-channel updates ----
     @app.get("/api/update/check")
     async def update_check():

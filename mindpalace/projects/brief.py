@@ -15,8 +15,10 @@ def ensure_daily_brief() -> dict | None:
         return None
     if not store.list_rooms() and not store.all_tasks():
         return None                                  # empty palace — nothing to say
+    from .. import config
+    name = config.load_config().get("web", {}).get("owner_name", "")
     s = store.brief_stats()
-    lines = ["🌅 Morning brief"]
+    lines = [f"🌅 Morning brief{' — ' + name if name else ''}"]
 
     if s["review"]:
         lines.append(f"Waiting for your review ({len(s['review'])}):")

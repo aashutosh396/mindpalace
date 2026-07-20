@@ -32,6 +32,7 @@ const state = reactive({
   boardOpen: false,
   projectsOpen: false,               // the Projects sheet
   modal: null as null | { task: any; room: any; log: any[]; thread: any[] },
+  showOnboarding: false,
   searchOpen: false,
   searchResults: null as null | { rooms: any[]; projects: any[]; tasks: any[]; chats: any[] },
   health: null as null | { version: string; commit: string; provider: string; provider_ok: boolean; provider_status: string },
@@ -160,7 +161,11 @@ function connect() {
 const actions = {
   async init() {
     connect()
-    actions.checkHealth()
+    await actions.checkHealth()
+    try {
+      const ob = await api('/onboarding')
+      state.showOnboarding = !ob.onboarded
+    } catch { /* backend older than onboarding — skip */ }
     state.rooms = await api('/rooms')
     state.homeChat = await api('/home/chat')
     state.allTasks = await api('/tasks')
