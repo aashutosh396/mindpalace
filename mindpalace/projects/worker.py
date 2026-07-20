@@ -213,6 +213,63 @@ async def _propose_next(task: dict, room: dict, broadcast) -> None:
         pass                                          # proposals are a bonus, never a failure
 
 
+def _title_words(t: str) -> set:
+    import re as _re
+    stop = {"the", "and", "for", "with", "from", "this", "that", "please", "make",
+            "add", "run", "check", "update", "into", "over"}
+    return {w for w in _re.findall(r"[a-z0-9]{3,}", (t or "").lower()) if w not in stop}
+
+
+def _skill_exists_for(title: str) -> bool:
+    from .. import config
+    d = config.home() / "skills"
+    if not d.is_dir():
+        return False
+    words = _title_words(title)
+    for f in list(d.glob("*.md")) + list(d.glob("*/SKILL.md")):
+        stem = f.stem if f.name != "SKILL.md" else f.parent.name
+        if len(words & set(stem.lower().split("-"))) >= 2:
+            return True
+    return False
+
+
+async def _maybe_propose_skill(task: dict, room: dict, broadcast) -> bool:
+    """v2's skill automation, kanban-shaped: the SAME kind of card done 3+
+    times in a room → propose distilling it into ~/.mindpalace/skills.
+    'start' files the skill-writing card through the normal accept flow."""
+    import difflib
+    if room.get("pending_proposal") or task.get("kind") == "goal":
+        return False
+    if _skill_exists_for(task["title"]):
+        return False
+    base = task["title"].lower()
+    similar = [t for t in store.list_tasks(task["room_id"])
+               if t["status"] == "done" and t["id"] != task["id"]
+               and t.get("created_by") == "user"
+               and difflib.SequenceMatcher(None, base, t["title"].lower()).ratio() >= 0.72]
+    n = len(similar) + 1
+    if n < 3:
+        return False
+    from .. import config
+    slug = store.slugify(task["title"])[:60]
+    examples = "\n".join(f"  - card #{t['id']}: {t['title'][:90]} → {(t.get('result') or '')[:160]}"
+                          for t in ([task] + similar)[:5])
+    prop = (f"Write the palace skill '{slug}' — I have done this kind of task {n} times. "
+            f"Create {config.home() / 'skills' / (slug + '.md')} with YAML frontmatter "
+            f"(name: {slug}; description: one clear line; derived_from: cards; created: today; "
+            f"use_count: {n}) followed by the distilled, step-by-step repeatable procedure "
+            f"(commands, files, gotchas — everything needed to do it the same way every time). "
+            f"Base it on these runs:\n{examples}\n"
+            f"End by confirming the file exists. This is a chore — verify it yourself.")
+    store.set_proposal(room["id"], prop)
+    msg = store.add_chat(
+        task["room_id"], "agent",
+        f"📚 That's {n} times I've done “{task['title'][:70]}”. "
+        f"Next I propose saving it as a palace skill so every engine repeats it exactly. Start?")
+    await broadcast("chat.message", msg)
+    return True
+
+
 async def _finish(task: dict, reply: str, broadcast) -> None:
     # Review = the "needs your eyes" queue ONLY. The agent ends each run with a
     # verdict: self-verified work closes straight to done; anything visual,
@@ -251,8 +308,11 @@ async def _finish(task: dict, reply: str, broadcast) -> None:
                 "agent", f"✅ Card #{task['id']} done in {room['name']} — {where}",
                 ref_room_id=room["id"], task_id=task["id"])
             await broadcast("home.message", note)
+        if room and task.get("created_by") != "routine":
+            _vault_log(room, task, reply, status)
         if room and not failed and task.get("created_by") != "routine":
-            asyncio.create_task(_propose_next({**task, "result": reply}, room, broadcast))
+            if not await _maybe_propose_skill(task, room, broadcast):
+                asyncio.create_task(_propose_next({**task, "result": reply}, room, broadcast))
     if t:
         await broadcast("task.updated", t)
 
@@ -291,9 +351,43 @@ async def _run_one_locked(task: dict, ctx, on_event, broadcast) -> None:
         return
 
     instruction = _WRAP.format(tid=task["id"], task=task["body"] or task["title"])
+    instruction = _with_recall(instruction, task["title"], task["body"])
     reply = await get_provider().run_task(instruction, ctx, on_event)
     _remember_session(task["room_id"], ctx)
     await _finish(task, reply, broadcast)
+
+
+def _with_recall(instruction: str, *texts: str) -> str:
+    """v2's long-term memory, unchanged: cheap keyword recall over MEMORY.md +
+    the vault, prepended so the agent starts every run knowing what the palace
+    already knows about this topic."""
+    try:
+        from ..memory.store import _recall_longterm
+        hits = _recall_longterm(" ".join(t for t in texts if t)[:400])
+    except Exception:
+        hits = ""
+    if not hits:
+        return instruction
+    return ("RECALLED FROM LONG-TERM MEMORY (auto-matched to this task — open the "
+            "named file for full detail):\n" + hits + "\n\n" + instruction)
+
+
+def _vault_log(room: dict, task: dict, reply: str, status: str) -> None:
+    """The palace timeline keeps growing exactly like v2: one line per finished
+    card, appended to the vault's LOG.md."""
+    try:
+        from .. import config
+        log = config.vault_dir() / "LOG.md"
+        if not log.parent.is_dir():
+            return
+        import time as _t
+        first = next((ln.strip() for ln in reply.splitlines() if ln.strip()), "")[:140]
+        line = (f"- {_t.strftime('%Y-%m-%d %H:%M')} [gui:{room['slug']}] "
+                f"card #{task['id']} \"{task['title'][:80]}\" → {status}: {first}\n")
+        with open(log, "a") as f:
+            f.write(line)
+    except Exception:
+        pass
 
 
 def _remember_session(rid: int, ctx) -> None:
@@ -318,6 +412,7 @@ async def run_followup(task: dict, reply_text: str, broadcast) -> None:
         tid=task["id"], task=task["body"] or task["title"],
         result=(task.get("result") or "(none)")[:1500],
         thread=thread_txt, reply=reply_text)
+    instruction = _with_recall(instruction, task["title"], reply_text)
     async with _room_lock(task["room_id"]):
         reply = await get_provider().run_task(instruction, ctx, _on_event_for(task, broadcast))
     _remember_session(task["room_id"], ctx)
@@ -399,6 +494,7 @@ async def run_routine(r: dict, run_id: int, broadcast) -> None:
     instruction = _ROUTINE_WRAP.format(
         title=r["title"], room=room["name"], body=r["body"] or r["title"],
         port=port, rid=r["room_id"])
+    instruction = _with_recall(instruction, r["title"], r["body"])
     try:
         async with _room_lock(r["room_id"]):
             reply = await get_provider().run_task(instruction, ctx, None)
