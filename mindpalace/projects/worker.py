@@ -214,18 +214,32 @@ async def routine_loop(broadcast, interval: int = 60):
         await asyncio.sleep(interval)
 
 
+async def _run_guarded(task: dict, broadcast) -> None:
+    try:
+        await run_one(task, broadcast)
+    except Exception as e:
+        print(f"[worker] card #{task['id']} crashed: {e}")
+        store.set_task_status(task["id"], "review", result=f"(worker error: {str(e)[:200]})")
+
+
 async def watch_loop(broadcast, interval: int = 2):
     n = recover()
     if n:
         print(f"[worker] requeued {n} card(s) orphaned by a restart")
-    print("[worker] ticket watcher started")
+    from .. import config
+    cap = max(1, min(4, config.concurrency()))   # cards run in parallel, bounded;
+    running: set[int] = set()                    # brain's semaphore caps claude procs anyway
+    print(f"[worker] ticket watcher started (up to {cap} cards in parallel)")
     while True:
         try:
-            task = store.claim_next_todo()
-            if task:
+            while len(running) < cap:
+                task = store.claim_next_todo()
+                if not task:
+                    break
                 await broadcast("task.updated", task)   # card slides to In progress live
-                await run_one(task, broadcast)
-                continue                                # drain the queue before sleeping
+                running.add(task["id"])
+                t = asyncio.create_task(_run_guarded(task, broadcast))
+                t.add_done_callback(lambda _f, tid=task["id"]: running.discard(tid))
         except Exception as e:
             print(f"[worker] error: {e}")
         await asyncio.sleep(interval)
