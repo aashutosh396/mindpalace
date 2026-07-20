@@ -56,7 +56,9 @@ function onKey(e: KeyboardEvent) {
     return
   }
   if (e.key === 'Escape') {
-    if (state.toolsOpen) state.toolsOpen = false
+    if (state.reminderAlerts.length) state.reminderAlerts.shift()
+    else if (state.runsFor) state.runsFor = null
+    else if (state.toolsOpen) state.toolsOpen = false
     else if (state.notifOpen) state.notifOpen = false
     else if (state.roomSettings) state.roomSettings = null
     else if (state.searchOpen) { state.searchOpen = false; state.searchResults = null }
@@ -110,7 +112,7 @@ onUnmounted(() => {
   </header>
   <div v-if="!booted" class="boot-splash"><span class="star">✳</span></div>
   <div v-else class="shell" :class="{ 'rail-closed': !state.railOpen, dragging: state.railDragging }"
-    :style="{ gridTemplateColumns: `250px 1fr ${state.railOpen && !state.tool ? state.railW + 'px' : '0px'}` }">
+    :style="{ gridTemplateColumns: `250px 1fr ${state.runsFor || (state.railOpen && !state.tool) ? state.railW + 'px' : '0px'}` }">
     <ProjectSidebar />
 
     <main class="main">
@@ -162,11 +164,12 @@ onUnmounted(() => {
       </template>
     </main>
 
-    <BoardRail v-show="state.railOpen && !state.tool" />
+    <RunsRail v-if="state.runsFor" />
+    <BoardRail v-show="!state.runsFor && state.railOpen && !state.tool" />
 
     <div class="foot foot-side"></div>
     <div class="foot foot-main"><Composer v-if="!state.tool" /></div>
-    <div v-show="state.railOpen && !state.tool" class="foot foot-rail">
+    <div v-show="state.runsFor || (state.railOpen && !state.tool)" class="foot foot-rail">
       <div v-if="state.routineRuns.length" class="run-ticker" aria-label="Recent routine runs">
         <div v-for="r in state.routineRuns.slice(0, 3)" :key="r.id" class="run-line" :title="r.result || ''">
           <span class="rt-tick" :class="r.status === 'ok' ? 'ok' : r.status === 'failed' ? 'bad' : 'run'">{{ r.status === 'ok' ? '✓' : r.status === 'failed' ? '✗' : '↻' }}</span>
@@ -178,6 +181,17 @@ onUnmounted(() => {
 
     <div v-if="state.toast" class="toast" :class="{ error: state.toastError }" role="status">
       {{ state.toast }}
+    </div>
+
+    <div v-if="state.reminderAlerts.length" class="sheet-backdrop announce-backdrop">
+      <div class="announce" role="alertdialog" aria-label="Reminder">
+        <div class="announce-bell">⏰</div>
+        <div class="announce-text">{{ state.reminderAlerts[0].text }}</div>
+        <div class="announce-when">
+          {{ new Date(state.reminderAlerts[0].due_at * 1000).toLocaleString([], { weekday: 'long', hour: '2-digit', minute: '2-digit' }) }}
+        </div>
+        <button class="btn announce-btn" @click="state.reminderAlerts.shift()">Dismiss</button>
+      </div>
     </div>
 
     <TaskModal v-if="state.modal" />

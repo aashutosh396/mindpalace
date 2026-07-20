@@ -3,24 +3,6 @@ import { onMounted, ref } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
 
 const { state, routinesApi, openTask } = useWorkspace()
-const runs = ref<Record<number, any[]>>({})
-const expanded = ref<Record<number, boolean>>({})
-
-async function toggleRuns(r: any) {
-  expanded.value[r.id] = !expanded.value[r.id]
-  if (expanded.value[r.id] && !runs.value[r.id]) {
-    const res = await fetch(`/api/routines/${r.id}/runs`)
-    runs.value[r.id] = await res.json()
-  }
-}
-
-function tickOf(run: any) {
-  return run.status === 'ok' ? '✓' : run.status === 'failed' ? '✗' : '…'
-}
-
-function tickClass(run: any) {
-  return run.status === 'ok' ? 'ok' : run.status === 'failed' ? 'bad' : 'run'
-}
 
 const editing = ref<any | null>(null)
 
@@ -37,9 +19,6 @@ async function saveEdit() {
   await load()
 }
 
-function fmtRun(ts: number) {
-  return new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
 
 const routines = ref<any[]>([])
 const title = ref('')
@@ -111,8 +90,8 @@ async function remove(r: any) {
 
     <div v-for="r in routines" :key="r.id" class="panel-col" :class="{ off: !r.enabled }">
       <div class="panel-row rt-clickable" role="button" tabindex="0"
-        :aria-expanded="!!expanded[r.id]" :aria-label="`Run history for ${r.title}`"
-        @click="toggleRuns(r)" @keydown.enter="toggleRuns(r)">
+        :aria-label="`Run history for ${r.title}`"
+        @click="state.runsFor = r" @keydown.enter="state.runsFor = r">
         <div class="routine-main">
           <div class="routine-title">{{ r.title }}</div>
           <div class="dim" style="margin-left: 0">
@@ -135,16 +114,6 @@ async function remove(r: any) {
               <button class="btn ghost" @click="editing = null">Cancel</button>
             </div>
           </div>
-        <div v-if="expanded[r.id]" class="rt-runs">
-          <div v-if="!(runs[r.id] || []).length" class="dim" style="margin: 0; font-size: 12px">
-            No runs yet — first fire is at the next scheduled time.
-          </div>
-          <div v-for="run in runs[r.id]" :key="run.id" class="rt-run" :title="run.result || 'still running'">
-            <span class="rt-tick" :class="tickClass(run)">{{ tickOf(run) }}</span>
-            <span>{{ fmtRun(run.created_at) }}</span>
-            <span class="dim rt-result">{{ (run.result || '…').slice(0, 60) }}</span>
-          </div>
-        </div>
     </div>
 
     <div v-if="!routines.length" class="empty">

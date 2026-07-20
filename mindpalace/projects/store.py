@@ -279,6 +279,7 @@ def delete_room(rid: int) -> bool:
         db.execute("DELETE FROM task_log WHERE task_id IN "
                    "(SELECT id FROM task WHERE room_id=?)", (rid,))
         db.execute("DELETE FROM task WHERE room_id=?", (rid,))
+        db.execute("DELETE FROM routine_run WHERE room_id=?", (rid,))
         db.execute("DELETE FROM routine WHERE room_id=?", (rid,))
         db.execute("DELETE FROM asset WHERE room_id=?", (rid,))
         db.execute("DELETE FROM room_project WHERE room_id=?", (rid,))
@@ -536,7 +537,7 @@ def toggle_routine(rtid: int, enabled: bool) -> dict | None:
     return dict(r) if r else None
 
 
-def routine_runs(rtid: int, limit: int = 12) -> list[dict]:
+def routine_runs(rtid: int, limit: int = 50) -> list[dict]:
     """A routine's tick history, newest first."""
     with _lock:
         rows = _db().execute(

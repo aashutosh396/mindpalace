@@ -428,8 +428,8 @@ def create_app():
         return store.add_routine(rid, title, body.get("body", ""), schedule)
 
     @app.get("/api/routines/{rtid}/runs")
-    def routine_runs(rtid: int):
-        return store.routine_runs(rtid)
+    def routine_runs(rtid: int, limit: int = 50):
+        return store.routine_runs(rtid, min(limit, 200))
 
     @app.get("/api/routine-runs")
     def routine_runs_recent():

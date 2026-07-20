@@ -43,6 +43,8 @@ const state = reactive({
   notifOpen: false,
   reminders: [] as any[],
   routineRuns: [] as any[],           // latest fires — the foot ticker
+  runsFor: null as null | any,        // routine whose run history fills the right rail
+  reminderAlerts: [] as any[],        // due reminders — full-screen announcements
   agentName: 'Agent',
   tool: null as null | 'reminders' | 'routines',
   tab: 'chat' as 'chat' | 'repos' | 'assets' | 'routines',
@@ -188,7 +190,7 @@ function connect() {
       }
     } else if (event === 'reminder.due') {
       notify(`Reminder: ${data.text}`, { kind: 'reminder' })
-      toast(`Reminder: ${data.text}`)
+      state.reminderAlerts.push(data)
       state.reminders = state.reminders.filter((r: any) => r.id !== data.id)
     } else if (event === 'reminders.changed') {
       api('/reminders').then(rs => { state.reminders = rs }).catch(() => {})
