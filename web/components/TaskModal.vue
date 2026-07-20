@@ -39,6 +39,47 @@ function onPaste(e: ClipboardEvent) {
 // ---- voice: dictate into the reply (or record a voice note) ----
 const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
 const recording = ref(false)
+const elapsed = ref(0)
+const levels = ref<number[]>(Array(24).fill(2))
+let clockTimer: ReturnType<typeof setInterval> | null = null
+let meterStream: MediaStream | null = null
+let meterCtx: AudioContext | null = null
+let meterRaf = 0
+
+const clock = () => `${String(Math.floor(elapsed.value / 60)).padStart(2, '0')}:${String(elapsed.value % 60).padStart(2, '0')}`
+
+async function startMeter() {
+  elapsed.value = 0
+  clockTimer = setInterval(() => { elapsed.value++ }, 1000)
+  try {
+    meterStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    meterCtx = new AudioContext()
+    const src = meterCtx.createMediaStreamSource(meterStream)
+    const an = meterCtx.createAnalyser()
+    an.fftSize = 256
+    src.connect(an)
+    const buf = new Uint8Array(an.frequencyBinCount)
+    const tick = () => {
+      an.getByteTimeDomainData(buf)
+      let sum = 0
+      for (const v of buf) sum += (v - 128) * (v - 128)
+      levels.value = [...levels.value.slice(1), Math.max(2, Math.min(18, Math.sqrt(sum / buf.length) * 1.4))]
+      meterRaf = requestAnimationFrame(tick)
+    }
+    tick()
+  } catch { /* no meter — the dot + timer still show it's live */ }
+}
+
+function stopMeter() {
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
+  cancelAnimationFrame(meterRaf)
+  meterStream?.getTracks().forEach(x => x.stop())
+  meterStream = null
+  meterCtx?.close().catch(() => {})
+  meterCtx = null
+  levels.value = Array(24).fill(2)
+}
+
 let recog: any = null
 let mediaRec: MediaRecorder | null = null
 let baseReply = ''
@@ -69,6 +110,7 @@ async function toggleMic() {
     recog.onerror = () => stopMic()
     recog.start()
     recording.value = true
+    startMeter()
   } else {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -83,12 +125,14 @@ async function toggleMic() {
       }
       mediaRec.start()
       recording.value = true
+      startMeter()
     } catch { toast('microphone unavailable', true) }
   }
 }
 
 function stopMic() {
   recording.value = false
+  stopMeter()
   try { recog?.stop() } catch { /* already stopped */ }
   try { mediaRec?.state !== 'inactive' && mediaRec?.stop() } catch { /* already stopped */ }
   recog = null
@@ -170,6 +214,15 @@ watch(() => state.modal?.log.length, async () => {
                 @click="pending.splice(i, 1)">✕</button>
             </span>
             <span v-if="uploading" class="attach-chip dim">uploading…</span>
+          </div>
+          <div v-if="recording" class="rec-strip" role="status" aria-label="Recording">
+            <span class="rec-dot"></span>
+            <span class="rec-label">Listening</span>
+            <span class="rec-clock">{{ clock() }}</span>
+            <span class="rec-bars" aria-hidden="true">
+              <span v-for="(h, i) in levels" :key="i" class="rec-bar" :style="{ height: h + 'px' }"></span>
+            </span>
+            <span class="rec-hint">{{ SR ? 'your words land in the box' : 'voice note — sent for transcription' }}</span>
           </div>
           <form class="tm-reply" @submit.prevent="sendReply"
             @dragover.prevent @drop.prevent="($event.dataTransfer?.files.length && t.status !== 'in_progress') && uploadFiles($event.dataTransfer.files)">

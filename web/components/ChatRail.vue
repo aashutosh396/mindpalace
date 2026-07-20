@@ -53,14 +53,26 @@ watch(() => [msgs.value[msgs.value.length - 1]?.id, state.awaitingReply, state.c
   log.value?.scrollTo({ top: log.value.scrollHeight })
 }, { immediate: true })
 
+const holdOlder = ref(false)                     // keeps the badge up through the hold
+
 async function onScroll() {
   const el = log.value
-  if (!el || el.scrollTop > 60 || state.chatOlderLoading) return
-  const prevHeight = el.scrollHeight
-  const added = await loadOlderChat()
-  if (!added) return
-  await nextTick()
-  el.scrollTop += el.scrollHeight - prevHeight   // keep the view anchored
+  if (!el || el.scrollTop > 60 || state.chatOlderLoading || holdOlder.value) return
+  if (state.current ? state.chatDone : state.homeChatDone) return   // no older pages
+  const anchorId = msgs.value[0]?.id               // the message the reader is at
+  if (!anchorId) return
+  holdOlder.value = true
+  // small deliberate hold so the badge reads and the page settles before more scrolling
+  const [added] = await Promise.all([loadOlderChat(), new Promise(r => setTimeout(r, 2000))])
+  if (added) {
+    await nextTick()
+    const anchor = el.querySelector(`[data-mid="${anchorId}"]`) as HTMLElement | null
+    if (anchor) {                                  // pin the exact message — no jumping
+      el.scrollTop = anchor.getBoundingClientRect().top - el.getBoundingClientRect().top
+        + el.scrollTop - 54
+    }
+  }
+  holdOlder.value = false
 }
 </script>
 
@@ -68,7 +80,9 @@ async function onScroll() {
   <aside class="corridor">
     <div ref="log" class="chat-log" @scroll.passive="onScroll">
       <div class="chat-inner">
-      <div v-if="state.chatOlderLoading" class="chat-older">loading earlier…</div>
+      <div v-if="state.chatOlderLoading || holdOlder" class="chat-older">
+        <span class="chat-older-badge"><span class="chat-older-dot"></span> loading earlier…</span>
+      </div>
       <div v-if="!msgs.length" class="chat-hello">
         <span class="star"><Logo :size="30" /></span><template v-if="state.current">What shall we build?</template>
         <template v-else>What's on your mind?</template>
@@ -77,7 +91,7 @@ async function onScroll() {
           <template v-else>Just talk — I'll answer, or file work into your rooms (I never make rooms; those are yours)</template>
         </div>
       </div>
-      <div v-for="m in msgs" :key="m.id" class="msg"
+      <div v-for="m in msgs" :key="m.id" :data-mid="m.id" class="msg"
         :class="m.role === 'user' ? 'user' : m.role === 'brief' ? 'brief' : 'agent'">
         <div class="who">{{ m.role === 'user' ? 'You' : m.role === 'brief' ? 'The palace' : state.agentName }}
           <span class="when">{{ msgTime(m.created_at) }}</span></div>
