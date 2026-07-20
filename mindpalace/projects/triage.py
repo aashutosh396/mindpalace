@@ -56,10 +56,11 @@ async def classify(text: str) -> str:
         return lane
     from ..core import brain
     try:
+        from .home import _neutral_cwd
         proc = await asyncio.create_subprocess_exec(
             brain.claude_bin(), "-p", _PROMPT.format(text=text.strip()[:600]),
             "--model", "haiku",
-            env=brain._env(),
+            env=brain._env(), cwd=_neutral_cwd(),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
         return "chat" if "CHAT" in out.decode(errors="replace").upper() else "task"

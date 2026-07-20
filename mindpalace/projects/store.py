@@ -377,12 +377,15 @@ def rooms_index() -> list[dict]:
     for r in list_rooms():
         tasks = list_tasks(r["id"])
         open_cards = [t for t in tasks if t["status"] != "done"]
+        done_cards = sorted((t for t in tasks if t["status"] == "done"),
+                            key=lambda t: t["id"], reverse=True)
         out.append({
             "slug": r["slug"], "name": r["name"], "id": r["id"],
             "context": r.get("context") or "",
             "projects": [p["name"] for p in projects_for_room(r["id"])],
             "counts": {s: sum(1 for t in tasks if t["status"] == s) for s in STATUSES},
             "open_titles": [t["title"] for t in open_cards[:3]],
+            "recent_done": [t["title"] for t in done_cards[:3]],
         })
     return out
 

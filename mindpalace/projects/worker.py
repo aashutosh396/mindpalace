@@ -135,9 +135,10 @@ async def _propose_next(task: dict, room: dict, broadcast) -> None:
         prompt = _PROPOSE.format(
             room=room["name"], tid=task["id"], title=task["title"],
             result=(task.get("result") or "")[-400:], board=board, chat=chat)
+        from .home import _neutral_cwd
         proc = await asyncio.create_subprocess_exec(
             brain.claude_bin(), "-p", prompt, "--model", "sonnet",
-            env=brain._env(),
+            env=brain._env(), cwd=_neutral_cwd(),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=90)
         import json as _json

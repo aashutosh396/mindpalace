@@ -25,6 +25,11 @@ _PROMPT = (
     "THE ROOMS RIGHT NOW:\n{rooms}\n\n"
     "RECENT HALL CONVERSATION:\n{hist}\n\n"
     "IT IS NOW: {now}\n\nTHE OWNER JUST SAID:\n{text}\n\n"
+    "You have NO tools, NO filesystem, NO commands — answer ONLY from the data "
+    "in this prompt. Facts about a room's work come ONLY from THE ROOMS RIGHT "
+    "NOW block (its cards); the hall conversation is just talk — never present "
+    "it as a room's work. If the data can't answer, say so plainly or file a "
+    "card to the right room to find out.\n"
     "Decide what this is and answer with STRICT JSON only (no prose, no fences):\n"
     '  {{"action":"chat","reply":"..."}}\n'
     '      conversation, questions, status checks — answer from the data above. '
@@ -56,7 +61,8 @@ def _rooms_block() -> str:
             + (f" — {r['context']}" if r.get("context") else "")
             + f" — projects: {', '.join(r['projects']) or 'none'}; "
             f"todo {c['todo']}, doing {c['in_progress']}, review {c['review']}, done {c['done']}"
-            + (f"; open: {'; '.join(r['open_titles'])}" if r["open_titles"] else ""))
+            + (f"; open: {'; '.join(r['open_titles'])}" if r["open_titles"] else "")
+            + (f"; recently done: {'; '.join(r['recent_done'])}" if r.get("recent_done") else ""))
     return "\n".join(lines)
 
 
@@ -69,6 +75,15 @@ def _parse(raw: str) -> dict | None:
         return json.loads(s[start:s.rindex("}") + 1])
     except (ValueError, json.JSONDecodeError):
         return None
+
+
+def _neutral_cwd() -> str:
+    """Decision calls must not inherit the daemon's cwd (the mindpalace repo!)
+    — a curious model would read OUR git log and present it as the answer."""
+    from .. import config
+    d = config.home() / "tmp" / "neutral"
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
 
 
 async def _decide(text: str) -> dict:
@@ -86,7 +101,7 @@ async def _decide(text: str) -> dict:
     try:
         proc = await asyncio.create_subprocess_exec(
             brain.claude_bin(), "-p", prompt, "--model", "sonnet",
-            env=brain._env(),
+            env=brain._env(), cwd=_neutral_cwd(),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=90)
         d = _parse(out.decode(errors="replace"))
