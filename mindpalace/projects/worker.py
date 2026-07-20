@@ -103,8 +103,19 @@ def _on_event_for(task: dict, broadcast):
 
 async def _finish(task: dict, reply: str, broadcast) -> None:
     t = store.set_task_status(task["id"], "review", result=reply)
-    msg = store.add_chat(task["room_id"], "agent", reply, task_id=task["id"])
-    await broadcast("chat.message", msg)
+    room = store.get_room(task["room_id"])
+    if room and room["slug"] == store.HOME_SLUG:
+        # keeper cards: the hall IS their room — deliver the result there
+        hmsg = store.add_home_chat("agent", reply, ref_room_id=room["id"], task_id=task["id"])
+        await broadcast("home.message", hmsg)
+    else:
+        msg = store.add_chat(task["room_id"], "agent", reply, task_id=task["id"])
+        await broadcast("chat.message", msg)
+        if room:                                     # and announce delivery in the hall
+            note = store.add_home_chat(
+                "agent", f"✅ Card #{task['id']} done in {room['name']} — waiting in Review",
+                ref_room_id=room["id"], task_id=task["id"])
+            await broadcast("home.message", note)
     if t:
         await broadcast("task.updated", t)
 
@@ -160,6 +171,12 @@ async def run_followup(task: dict, reply_text: str, broadcast) -> None:
     t = store.set_task_status(task["id"], "review", result=reply)
     if t:
         await broadcast("task.updated", t)
+    room = store.get_room(task["room_id"])
+    if room and room["slug"] != store.HOME_SLUG:
+        note = store.add_home_chat(
+            "agent", f"✅ Follow-up on card #{task['id']} done in {room['name']} — back in Review",
+            ref_room_id=room["id"], task_id=task["id"])
+        await broadcast("home.message", note)
 
 
 _CHAT_WRAP = (
