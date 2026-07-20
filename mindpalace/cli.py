@@ -142,6 +142,35 @@ def main(argv=None):
         from .gateways import web
         web.run(port=port, open_browser=open_browser, dev=dev); return
 
+    if cmd == "bridge":                         # v3 GUI <-> Discord bridge (own bot token)
+        sub = argv[1] if len(argv) > 1 else "status"
+        cfg = config.load_config()
+        web_cfg = cfg.setdefault("web", {})
+        br = web_cfg.setdefault("discord_bridge", {})
+        if sub == "token" and len(argv) > 2:
+            config.write_secret("bridge_discord.token", argv[2].strip())
+            print("✓ bridge token saved. Next: mindpalace bridge on  (then restart the daemon)")
+        elif sub == "on":
+            br["enabled"] = True; config.save_config(cfg)
+            print("✓ bridge enabled — restart the daemon (mindpalace serve) to connect")
+        elif sub == "off":
+            br["enabled"] = False; config.save_config(cfg)
+            print("✓ bridge disabled — restart the daemon to disconnect")
+        elif sub == "hall" and len(argv) > 2 and argv[2].isdigit():
+            br["hall_channel_id"] = int(argv[2]); config.save_config(cfg)
+            print(f"✓ hall channel = {argv[2]} — restart the daemon to apply")
+        else:
+            tok = bool(config.read_secret("bridge_discord.token"))
+            print("palace bridge — a SECOND Discord bot that mirrors the GUI:")
+            print(f"  enabled: {bool(br.get('enabled'))}   token: {'set' if tok else 'MISSING'}"
+                  f"   hall channel: {br.get('hall_channel_id') or '(auto: #palace/#home)'}")
+            print("  setup: discord.com/developers → New Application → Bot → enable")
+            print("         MESSAGE CONTENT intent → copy token → invite to your server")
+            print("  then:  mindpalace bridge token <tok>  ·  mindpalace bridge on")
+            print("         mindpalace bridge hall <channel_id>   (optional)")
+            print("  channels named like your rooms ARE those rooms; #palace or #home = the hall")
+        return
+
     if cmd in ("add-bot", "addbot"):
         from . import bots
         bots.add_bot_interactive(); return

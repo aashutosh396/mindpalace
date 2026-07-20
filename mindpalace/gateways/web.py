@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from .. import config
-from ..projects import home, store, triage, worker
+from ..projects import home, inbox, store, triage, worker
 
 DEFAULT_PORT = 7777
 
@@ -45,8 +45,14 @@ def _require_fastapi():
 class Bus:
     def __init__(self):
         self.clients: set = set()
+        self.listeners: list = []         # async fn(kind, data) — e.g. the Discord bridge
 
     async def broadcast(self, kind: str, data: dict):
+        for fn in list(self.listeners):
+            try:
+                await fn(kind, data)
+            except Exception:
+                pass
         msg = json.dumps({"event": kind, "data": data})
         dead = []
         for ws in self.clients:
@@ -71,11 +77,14 @@ def create_app():
 
     @asynccontextmanager
     async def lifespan(app):
-        wtask = asyncio.create_task(worker.watch_loop(bus.broadcast))
-        stask = asyncio.create_task(worker.routine_loop(bus.broadcast))
-        rtask = asyncio.create_task(_recover_hall())
+        tasks = [asyncio.create_task(worker.watch_loop(bus.broadcast)),
+                 asyncio.create_task(worker.routine_loop(bus.broadcast)),
+                 asyncio.create_task(_recover_hall())]
+        from . import discord_bridge
+        if discord_bridge.enabled():
+            tasks.append(asyncio.create_task(discord_bridge.start(bus)))
         yield
-        for t in (wtask, stask, rtask):
+        for t in tasks:
             t.cancel()
 
     app = FastAPI(title="mindpalace", docs_url=None, redoc_url=None, lifespan=lifespan)
@@ -522,71 +531,8 @@ def create_app():
         text = (body.get("text") or "").strip()
         if not text:
             return JSONResponse({"error": "text required"}, status_code=422)
-
-        room = store.get_room(rid)
-        if re.match(r"(?i)^(yes[,! ]*)?(start|go|do it|start it|go ahead|yes)[.! ]*$", text) \
-                and room.get("pending_proposal"):
-            prop = room["pending_proposal"]
-            umsg = store.add_chat(rid, "user", text)
-            await bus.broadcast("chat.message", umsg)
-            title = prop.split(" — ")[0][:120]
-            task = store.create_task(rid, title, f"{prop}\n\n(accepted from my proposal)")
-            store.set_proposal(rid, None)
-            amsg = store.add_chat(rid, "agent",
-                                  f"🛠️ Queued — card #{task['id']}. I'll report here when done.",
-                                  task_id=task["id"])
-            await bus.broadcast("task.created", task)
-            await bus.broadcast("chat.message", amsg)
-            return {"message": umsg, "task": task}
-
-        m = re.match(r"(?i)^close\s+(?:card|task|ticket)?\s*#?(\d+)$", text)
-        if m:
-            tid = int(m.group(1))
-            umsg = store.add_chat(rid, "user", text)
-            await bus.broadcast("chat.message", umsg)
-            t = store.get_task(tid)
-            if t and t["room_id"] == rid:
-                t = store.set_task_status(tid, "done")
-                reply = f"Closed card #{tid} — {t['title']}"
-                await bus.broadcast("task.updated", t)
-            else:
-                reply = f"No card #{tid} in this room."
-            amsg = store.add_chat(rid, "agent", reply, task_id=tid if t else None)
-            await bus.broadcast("chat.message", amsg)
-            return {"message": umsg, "task": None}
-
-        # projects mentioned in the message connect themselves to the room
-        r = store.get_room(rid)
-        if r and r["slug"] != store.HOME_SLUG:
-            hits = store.match_projects_in_text(text, exclude_room=rid)[:3]
-            if hits:
-                for p in hits:
-                    store.connect_project(rid, p["id"])
-                await bus.broadcast("room.projects", {"room_id": rid})
-                note = store.add_chat(
-                    rid, "agent",
-                    "🔗 Connected project" + ("s" if len(hits) > 1 else "")
-                    + " to this room: " + ", ".join(p["name"] for p in hits))
-                await bus.broadcast("chat.message", note)
-
-        lane = body.get("lane") or "auto"
-        if lane == "auto":
-            lane = await triage.classify(text)
-
-        if lane == "chat":
-            msg = store.add_chat(rid, "user", text)
-            await bus.broadcast("chat.message", msg)
-            asyncio.get_running_loop().create_task(
-                worker.run_chat(rid, text, bus.broadcast))
-            return {"message": msg, "task": None, "lane": "chat"}
-
-        kind = "goal" if lane == "goal" else "task"
-        task = store.create_task(rid, text.splitlines()[0][:120], text, kind=kind,
-                                 promise=worker.DEFAULT_PROMISE if kind == "goal" else None)
-        msg = store.add_chat(rid, "user", text, task_id=task["id"])
-        await bus.broadcast("chat.message", msg)
-        await bus.broadcast("task.created", task)
-        return {"message": msg, "task": task, "lane": kind}
+        return await inbox.handle_room_message(rid, text, bus.broadcast,
+                                               body.get("lane") or "auto")
 
     # ---- assets (rooms) ----
     @app.get("/api/rooms/{rid}/assets")
