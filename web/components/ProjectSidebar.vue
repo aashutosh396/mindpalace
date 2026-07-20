@@ -1,29 +1,9 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
 import { Plus, LayoutGrid, RefreshCw, Landmark, Settings2, X, Wrench } from 'lucide-vue-next'
 import { useWorkspace } from '../composables/useWorkspace'
 import { roomIcon } from '../composables/icons'
 
-const { state, open, goHome, createRoom, deleteRoom, loadProjects, getUpdate } = useWorkspace()
-const creating = ref(false)
-const name = ref('')
-const context = ref('')
-const nameInput = ref<HTMLInputElement>()
-
-async function startCreate() {
-  creating.value = true
-  await nextTick()
-  nameInput.value?.focus()
-}
-
-async function create() {
-  const n = name.value.trim()
-  if (!n) { creating.value = false; return }
-  const c = context.value.trim()
-  name.value = ''; context.value = ''
-  creating.value = false
-  await createRoom(n, c)
-}
+const { state, open, goHome, deleteRoom, loadProjects, getUpdate } = useWorkspace()
 
 function confirmDelete(r: any) {
   if (window.confirm(`Delete room "${r.name}"? Its cards and chat go with it (projects and asset files stay).`)) {
@@ -39,24 +19,9 @@ async function openProjects() {
 
 <template>
   <aside class="sidebar">
-    <button class="menu-item primary" @click="startCreate">
+    <button class="menu-item primary" @click="state.createRoomOpen = true">
       <span class="mi-icon plain"><Plus :size="15" :stroke-width="2.25" /></span> New chatroom
     </button>
-    <form v-if="creating" class="new-proj col" @submit.prevent="create">
-      <input
-        ref="nameInput" v-model="name" placeholder="Chatroom name…"
-        aria-label="New chatroom name"
-        @keydown.esc="creating = false; name = ''; context = ''" />
-      <textarea
-        v-model="context" rows="3" maxlength="250"
-        placeholder="What is this room for? (~250 chars — helps the agent know what to do here)"
-        aria-label="Room context"
-        @keydown.esc="creating = false; name = ''; context = ''"></textarea>
-      <div class="new-proj-actions">
-        <button class="btn" type="submit" :disabled="!name.trim()">Create</button>
-        <button class="btn ghost" type="button" @click="creating = false; name = ''; context = ''">Cancel</button>
-      </div>
-    </form>
 
     <div class="side-label">Chatrooms</div>
     <nav class="rooms">

@@ -35,7 +35,7 @@ function nextOf(s: Status): Status | null {
   <aside class="board-rail">
     <div class="rail-resizer" title="Drag to resize" @mousedown="startRailDrag"></div>
     <div class="rail-head">
-      <span class="rail-title">{{ state.current ? 'The board' : 'All rooms' }}</span>
+      <span class="rail-title">{{ state.current ? 'Kanban board' : 'Kanban board — all rooms' }}</span>
       <button class="expand" title="Expand the board" aria-label="Expand the board"
         @click="state.boardOpen = true"><Maximize2 :size="14" :stroke-width="1.75" /></button>
     </div>

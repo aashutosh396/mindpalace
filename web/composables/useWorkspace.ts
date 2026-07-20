@@ -49,6 +49,7 @@ const state = reactive({
   tool: null as null | 'reminders' | 'routines',
   tab: 'chat' as 'chat' | 'repos' | 'assets' | 'routines',
   toolsOpen: false,
+  createRoomOpen: false,
   modal: null as null | { task: any; room: any; log: any[]; thread: any[] },
   showOnboarding: false,
   searchOpen: false,

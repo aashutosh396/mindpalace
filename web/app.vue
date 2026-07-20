@@ -57,6 +57,7 @@ function onKey(e: KeyboardEvent) {
   }
   if (e.key === 'Escape') {
     if (state.reminderAlerts.length) state.reminderAlerts.shift()
+    else if (state.createRoomOpen) state.createRoomOpen = false
     else if (state.runsFor) state.runsFor = null
     else if (state.toolsOpen) state.toolsOpen = false
     else if (state.notifOpen) state.notifOpen = false
@@ -124,8 +125,8 @@ onUnmounted(() => {
             <button class="tab" :class="{ active: state.tab === 'repos' }" @click="state.tab = 'repos'">Projects</button>
             <button class="tab" :class="{ active: state.tab === 'assets' }" @click="state.tab = 'assets'">Assets</button>
             <button class="tab" :class="{ active: state.tab === 'routines' }" @click="state.tab = 'routines'">Routines</button>
-            <button class="tab" :title="state.railOpen ? 'Hide the board' : 'Show the board'"
-              :aria-label="state.railOpen ? 'Hide the board' : 'Show the board'"
+            <button class="tab" :title="state.railOpen ? 'Hide the kanban board' : 'Show the kanban board'"
+              :aria-label="state.railOpen ? 'Hide the kanban board' : 'Show the kanban board'"
               @click="toggleRail"><PanelRightClose v-if="state.railOpen" :size="15" :stroke-width="1.75" /><PanelRightOpen v-else :size="15" :stroke-width="1.75" /></button>
           </nav>
         </div>
@@ -155,8 +156,8 @@ onUnmounted(() => {
         <div class="main-head">
           <h1 class="room-name">Home</h1>
           <nav class="tabs">
-            <button class="tab" :title="state.railOpen ? 'Hide the board' : 'Show the board'"
-              :aria-label="state.railOpen ? 'Hide the board' : 'Show the board'"
+            <button class="tab" :title="state.railOpen ? 'Hide the kanban board' : 'Show the kanban board'"
+              :aria-label="state.railOpen ? 'Hide the kanban board' : 'Show the kanban board'"
               @click="toggleRail"><PanelRightClose v-if="state.railOpen" :size="15" :stroke-width="1.75" /><PanelRightOpen v-else :size="15" :stroke-width="1.75" /></button>
           </nav>
         </div>
@@ -199,12 +200,13 @@ onUnmounted(() => {
     <ProjectsSheet v-if="state.projectsOpen" />
     <RoomSettingsModal v-if="state.roomSettings" :key="state.roomSettings.id" />
     <ToolsModal v-if="state.toolsOpen" />
+    <NewRoomModal v-if="state.createRoomOpen" />
     <OnboardingOverlay v-if="state.showOnboarding" />
 
     <div v-if="state.boardOpen" class="sheet-backdrop" @click.self="state.boardOpen = false">
-      <div class="sheet" role="dialog" aria-label="Project board">
+      <div class="sheet" role="dialog" aria-label="Kanban board">
         <div class="sheet-head">
-          <span class="rail-title">{{ state.current ? `The board — ${state.current.name}` : 'The board — all rooms' }}</span>
+          <span class="rail-title">{{ state.current ? `Kanban board — ${state.current.name}` : 'Kanban board — all rooms' }}</span>
           <button class="row-x" title="Close" aria-label="Close the board" @click="state.boardOpen = false">✕</button>
         </div>
         <KanbanBoard />
