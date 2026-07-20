@@ -474,6 +474,12 @@ def create_app():
     def assets_list(rid: int):
         return store.list_assets(rid)
 
+    @app.post("/api/home/upload")
+    async def home_upload(file: UploadFile):
+        """Attachments sent from the hall land in the Home workroom's shelf."""
+        room = store.ensure_home_room()
+        return await assets_upload(room["id"], file)
+
     @app.post("/api/rooms/{rid}/assets")
     async def assets_upload(rid: int, file: UploadFile):
         r = store.get_room(rid)

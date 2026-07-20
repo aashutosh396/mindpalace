@@ -315,6 +315,22 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .send:hover { filter: brightness(1.06); }
 .send:disabled { opacity: .35; cursor: default; }
 
+/* ---- composer attachments + voice ---- */
+.attach-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 8px 0; }
+.attach-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; background: var(--room-raised);
+  border-radius: 99px; padding: 3px 10px;
+  max-width: 240px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.attach-chip.dim { color: var(--text-dim); }
+.attach-x {
+  background: none; border: none; cursor: pointer; color: var(--text-dim);
+  padding: 0 2px; font-size: 11px;
+}
+.attach-x:hover { color: var(--danger); }
+.lane.rec-on { color: #fff; background: var(--danger); border-color: var(--danger); animation: pulse 1.2s ease-in-out infinite; }
+
 /* ---- the board rail (compact, right) ---- */
 .board-rail {
   background: var(--bg-deep);
