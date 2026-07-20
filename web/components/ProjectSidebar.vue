@@ -53,9 +53,6 @@ async function openProjects() {
   <aside class="sidebar">
     <div class="wordmark">mind<em>palace</em></div>
 
-    <button class="menu-item" :class="{ here: !state.current }" @click="goHome">
-      <span class="mi-icon plain">🏛</span> Home
-    </button>
     <button class="menu-item primary" @click="startCreate">
       <span class="mi-icon">+</span> New chatroom
     </button>
@@ -69,6 +66,12 @@ async function openProjects() {
 
     <div class="side-label">Chatrooms</div>
     <nav class="rooms">
+      <button
+        class="proj-item" :class="{ active: !state.current }"
+        @click="goHome">
+        <span class="room-lead" :class="{ on: !state.current }">●</span>
+        <span class="proj-name">🏛 Home</span>
+      </button>
       <button
         v-for="r in state.rooms" :key="r.id"
         class="proj-item" :class="{ active: state.current?.id === r.id }"

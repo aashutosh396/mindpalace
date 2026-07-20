@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useWorkspace } from '../composables/useWorkspace'
 
-const { state, checkHealth, createRoom, loadProjects, projectsApi, sendChat, toast } = useWorkspace()
+const { state, checkHealth, createRoom, goHome, loadProjects, projectsApi, sendHomeChat, toast } = useWorkspace()
 
 const step = ref<'gate' | 'name' | 'seed' | 'room' | 'spark' | 'tips'>('gate')
 const name = ref('')
@@ -10,6 +10,7 @@ const seedPath = ref('')
 const seeding = ref(false)
 const roomName = ref('')
 const madeRoom = ref(false)
+const lastRoom = ref('')
 
 async function api(path: string, body?: any) {
   const res = await fetch(`/api${path}`, body === undefined ? {} : {
@@ -19,9 +20,18 @@ async function api(path: string, body?: any) {
 }
 
 const providerOk = computed(() => !!state.health?.provider_ok)
+const vaultPresent = ref(false)
+const workspace = ref('')
+
+async function loadInfo() {
+  const info = await api('/onboarding')
+  vaultPresent.value = !!info.vault_present
+  workspace.value = info.workspace || ''
+}
 
 let gateTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
+  loadInfo()
   if (providerOk.value) step.value = 'name'
   else gateTimer = setInterval(async () => {
     await checkHealth()
@@ -35,7 +45,15 @@ onUnmounted(() => { if (gateTimer) clearInterval(gateTimer) })
 
 async function saveName() {
   if (name.value.trim()) await api('/onboarding', { name: name.value })
+  if (vaultPresent.value) {
+    await api('/onboarding/seed', { mode: 'vault' })   // no question — the vault IS the answer
+  }
   step.value = 'seed'
+}
+
+async function saveWorkspace() {
+  if (workspace.value.trim()) await api('/onboarding', { workspace: workspace.value })
+  // stay on the seed card — the owner may also scan a folder, or continue
 }
 
 async function seed(mode: 'folder' | 'vault') {
@@ -46,7 +64,7 @@ async function seed(mode: 'folder' | 'vault') {
   seeding.value = false
   if (r.error) { toast(r.error, true); return }
   toast('The keeper is scanning — projects will appear as they load')
-  step.value = 'room'
+  startRoomStep()
 }
 
 // suggestion chips fill in live as the keeper loads the inventory
@@ -67,11 +85,13 @@ async function makeRoom(n?: string) {
     p.name.toLowerCase() === nm.toLowerCase() || p.slug === nm.toLowerCase())
   if (match && state.current) await projectsApi.connect(state.current.id, match.id)
   madeRoom.value = true
+  lastRoom.value = nm
+  await goHome()                     // Home is the default room — you start there
   step.value = 'spark'
 }
 
-async function spark(text: string, lane: 'chat' | 'task') {
-  await sendChat(text, lane)
+async function spark(text: string) {
+  await sendHomeChat(text)           // the hall routes it — that's the lesson
   step.value = 'tips'
 }
 
@@ -115,26 +135,42 @@ async function finish() {
         </form>
       </template>
 
-      <!-- 2 · seed the palace -->
+      <!-- 2 · vault detected → say so; else workspace question + optional scan -->
       <template v-else-if="step === 'seed'">
-        <div class="onboard-hello"><span class="star">✳</span>Let's fill the inventory.</div>
-        <p class="onboard-sub">Projects are what I manage: names + folders on disk. Pick a way in:</p>
-        <div class="onboard-card">
-          <p><strong>Scan a folder</strong> — I'll find every project inside it.</p>
-          <div style="display:flex; gap:8px">
-            <input v-model="seedPath" class="onboard-input" placeholder="/Users/you/code" aria-label="Folder to scan" />
-            <button class="btn" :disabled="!seedPath.trim() || seeding" @click="seed('folder')">Scan</button>
+        <template v-if="vaultPresent">
+          <div class="onboard-hello"><span class="star">✳</span>.mindpalace detected</div>
+          <p class="onboard-sub">Found your vault — importing its tracked projects into the inventory now.</p>
+          <div class="onboard-card">
+            <p class="dim-note" style="margin:0">
+              The keeper is reading your vault's project pointers. Projects appear as they
+              load — you can continue right away.
+            </p>
+            <div class="onboard-actions">
+              <button class="btn" @click="startRoomStep">Continue →</button>
+            </div>
           </div>
-        </div>
-        <div class="onboard-card">
-          <p><strong>Import a mindpalace vault</strong> — for existing vault users.</p>
-          <div class="onboard-actions">
-            <button class="btn ghost" :disabled="seeding" @click="seed('vault')">Import from vault</button>
+        </template>
+        <template v-else>
+          <div class="onboard-hello"><span class="star">✳</span>No .mindpalace vault found.</div>
+          <p class="onboard-sub">Where should your workspace be? New projects are born there.</p>
+          <div class="onboard-card">
+            <p><strong>Create a workspace</strong> — pick a folder:</p>
+            <div style="display:flex; gap:8px">
+              <input v-model="workspace" class="onboard-input" aria-label="Workspace folder" />
+              <button class="btn" @click="saveWorkspace(); startRoomStep()">Use this</button>
+            </div>
+            <div class="onboard-actions">
+              <button class="btn ghost" @click="startRoomStep">Continue with default →</button>
+            </div>
           </div>
-        </div>
-        <div class="onboard-actions">
-          <button class="btn ghost" @click="startRoomStep">Start empty →</button>
-        </div>
+          <div class="onboard-card">
+            <p><strong>Already have projects?</strong> Point me at their folder and I'll load them in.</p>
+            <div style="display:flex; gap:8px">
+              <input v-model="seedPath" class="onboard-input" placeholder="/Users/you/code" aria-label="Folder to scan" />
+              <button class="btn" :disabled="!seedPath.trim() || seeding" @click="seed('folder')">Scan</button>
+            </div>
+          </div>
+        </template>
       </template>
 
       <!-- 3 · first chatroom -->
@@ -160,16 +196,16 @@ async function finish() {
         </div>
       </template>
 
-      <!-- 4 · first spark -->
+      <!-- 4 · first spark — from Home, the default room -->
       <template v-else-if="step === 'spark'">
-        <div class="onboard-hello"><span class="star">✳</span>Say something in {{ state.current?.name || 'your room' }}.</div>
-        <p class="onboard-sub">Questions get answers. Work becomes a card that runs on the board — watch the right rail.</p>
+        <div class="onboard-hello"><span class="star">✳</span>You start in Home.</div>
+        <p class="onboard-sub">Home is your default room — talk here and I route work into your chatrooms. Try one:</p>
         <div class="onboard-card onboard-sparks">
-          <button class="btn ghost" @click="spark('what do you know about this project?', 'chat')">
-            💬 “what do you know about this project?”
+          <button class="btn ghost" @click="spark('what projects do we have?')">
+            💬 “what projects do we have?”
           </button>
-          <button class="btn ghost" @click="spark('add a card to review the README and list improvements', 'task')">
-            🎫 “review the README and list improvements”
+          <button v-if="lastRoom" class="btn ghost" @click="spark(`in ${lastRoom}: add a card to review the README`)">
+            🎫 “in {{ lastRoom }}: add a card to review the README”
           </button>
           <button class="btn ghost" @click="step = 'tips'">I'll type my own →</button>
         </div>

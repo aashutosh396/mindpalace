@@ -99,8 +99,13 @@ def create_app():
     def onboarding_get():
         cfg = config.load_config()
         web = cfg.get("web", {})
+        try:                                          # vault users skip the seed question
+            vault_present = any((config.vault_dir() / "projects").glob("*.md"))
+        except Exception:
+            vault_present = False
         return {"onboarded": bool(web.get("onboarded")),
                 "name": web.get("owner_name", ""),
+                "vault_present": vault_present,
                 "workspace": str(config.workspace_dir())}
 
     @app.post("/api/onboarding")
@@ -109,6 +114,12 @@ def create_app():
         web = cfg.setdefault("web", {})
         if "name" in body:
             web["owner_name"] = str(body["name"]).strip()[:60]
+        if (body.get("workspace") or "").strip():
+            config.set_workspace(body["workspace"].strip())
+            cfg = config.load_config()                # set_workspace saved; re-read + re-merge
+            web = cfg.setdefault("web", {})
+            if "name" in body:
+                web["owner_name"] = str(body["name"]).strip()[:60]
         if body.get("onboarded"):
             web["onboarded"] = True
         config.save_config(cfg)
