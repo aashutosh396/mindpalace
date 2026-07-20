@@ -4,6 +4,7 @@ import { useWorkspace } from './composables/useWorkspace'
 
 const { state, init, checkHealth, toggleRail, open, goHome } = useWorkspace()
 const tab = ref<'chat' | 'repos' | 'assets' | 'routines'>('chat')
+const booted = ref(false)
 
 // ---- hash routes: #/home · #/room/<slug>[/projects|assets|routines] ----
 const TABS: Record<string, typeof tab.value> = { projects: 'repos', assets: 'assets', routines: 'routines' }
@@ -49,6 +50,7 @@ onMounted(async () => {
   window.addEventListener('hashchange', applyHash)
   await init()
   await applyHash()
+  booted.value = true
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
@@ -63,7 +65,8 @@ onUnmounted(() => {
     <button class="btn ghost" @click="checkHealth">Check again</button>
     <code>curl -fsSL https://claude.ai/install.sh | bash</code>
   </div>
-  <div class="shell" :class="{ 'rail-closed': !state.railOpen, dragging: state.railDragging }"
+  <div v-if="!booted" class="boot-splash"><span class="star">✳</span></div>
+  <div v-else class="shell" :class="{ 'rail-closed': !state.railOpen, dragging: state.railDragging }"
     :style="{ gridTemplateColumns: `250px 1fr ${state.railOpen ? state.railW + 'px' : '0px'}` }">
     <ProjectSidebar />
 

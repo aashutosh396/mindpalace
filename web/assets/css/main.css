@@ -85,6 +85,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
 
+/* ---- boot splash: no flash of the wrong page ---- */
+.boot-splash {
+  flex: 1; display: grid; place-items: center;
+  font-size: 40px; color: var(--brass);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
 /* ---- first-run banner ---- */
 .setup-banner {
   background: var(--brass-soft); border-bottom: 1px solid var(--brass);
