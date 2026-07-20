@@ -31,7 +31,8 @@ const state = reactive({
   connected: false,
   boardOpen: false,
   railOpen: localStorage.getItem('railOpen') !== '0',   // the right sidebar slides
-  railW: Number(localStorage.getItem('railW')) || Math.round(window.innerWidth * 0.35),
+  railW: Math.min(Math.round(window.innerWidth * 0.4),
+    Number(localStorage.getItem('railW')) || Math.round(window.innerWidth * 0.35)),
   railDragging: false,
   projectsOpen: false,               // the Projects sheet
   modal: null as null | { task: any; room: any; log: any[]; thread: any[] },
@@ -280,7 +281,7 @@ const actions = {
     state.railDragging = true
     const move = (ev: MouseEvent) => {
       const w = window.innerWidth - ev.clientX
-      state.railW = Math.min(Math.round(window.innerWidth * 0.6), Math.max(240, w))
+      state.railW = Math.min(Math.round(window.innerWidth * 0.4), Math.max(240, w))   // cap at 40%
     }
     const up = () => {
       state.railDragging = false
