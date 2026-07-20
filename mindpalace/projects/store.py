@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS room (        -- the owner's channels
   icon TEXT DEFAULT 'hash',
   context TEXT DEFAULT '',               -- what this room is for (~250 chars, grounds the agent)
   pending_proposal TEXT,                 -- last 'Next I propose…' awaiting a 'start'
+  session_id TEXT, session_runs INTEGER DEFAULT 0,   -- engine session continuity
   created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS room_project (
   room_id INTEGER NOT NULL REFERENCES room(id),
@@ -112,6 +113,12 @@ def _db() -> sqlite3.Connection:
             _conn.execute("ALTER TABLE reminder ADD COLUMN ring TEXT DEFAULT 'loop'")
         except sqlite3.OperationalError:
             pass
+        for ddl in ("ALTER TABLE room ADD COLUMN session_id TEXT",
+                    "ALTER TABLE room ADD COLUMN session_runs INTEGER DEFAULT 0"):
+            try:                                      # migration: room session continuity
+                _conn.execute(ddl)
+            except sqlite3.OperationalError:
+                pass
         _conn.commit()
     return _conn
 
@@ -304,6 +311,18 @@ def delete_room(rid: int) -> bool:
         db.execute("DELETE FROM room WHERE id=?", (rid,))
         db.commit()
     return True
+
+
+def set_room_session(rid: int, session_id: str | None) -> None:
+    """Record the engine session a room's agent is living in; None = rotate."""
+    with _lock:
+        db = _db()
+        if session_id:
+            db.execute("UPDATE room SET session_id=?, session_runs=session_runs+1 WHERE id=?",
+                       (session_id, rid))
+        else:
+            db.execute("UPDATE room SET session_id=NULL, session_runs=0 WHERE id=?", (rid,))
+        db.commit()
 
 
 def set_proposal(rid: int, text: str | None) -> None:

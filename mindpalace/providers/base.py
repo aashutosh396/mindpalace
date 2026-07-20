@@ -28,6 +28,8 @@ class TaskContext:
     system: str | None = None
     model: str | None = None
     readonly: bool = False        # chat-lane turns may read the project, never modify it
+    session_id: str | None = None         # resume this engine session (room continuity)
+    result_session_id: str | None = None  # set by the provider: session used/created
 
 
 OnEvent = Callable[[ProviderEvent], Awaitable[None]]

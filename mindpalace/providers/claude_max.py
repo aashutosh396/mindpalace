@@ -55,11 +55,22 @@ class ClaudeMaxProvider(Provider):
 
     async def _run_grounded(self, instruction: str, ctx: TaskContext,
                             dirs: list[str], on_event: OnEvent | None) -> str:
+        reply = await self._run_grounded_once(instruction, ctx, dirs, on_event)
+        if ctx.session_id and reply.startswith("(empty;"):
+            # the room's session vanished (cleaned, machine change) — go fresh once
+            ctx.session_id = None
+            reply = await self._run_grounded_once(instruction, ctx, dirs, on_event)
+        return reply
+
+    async def _run_grounded_once(self, instruction: str, ctx: TaskContext,
+                                 dirs: list[str], on_event: OnEvent | None) -> str:
         from .. import config
         from ..core import brain
 
         args = [brain.claude_bin(), "-p", instruction,
                 "--output-format", "stream-json", "--verbose"]
+        if ctx.session_id:                            # room continuity — same conversation
+            args += ["--resume", ctx.session_id]
         if ctx.readonly:                              # chat lane: look, don't touch
             args += ["--allowedTools", brain.READONLY_TOOLS]
         else:
@@ -90,6 +101,9 @@ class ClaudeMaxProvider(Provider):
                             ev = json.loads(raw.decode(errors="replace"))
                         except json.JSONDecodeError:
                             continue
+                        sid = ev.get("session_id")
+                        if sid:
+                            ctx.result_session_id = sid
                         if ev.get("type") == "assistant":
                             for blk in (ev.get("message") or {}).get("content", []):
                                 if blk.get("type") == "tool_use" and on_event:

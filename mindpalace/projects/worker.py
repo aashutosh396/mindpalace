@@ -22,6 +22,7 @@ _SYSTEM = (
     "You are the resident agent of the room '{name}'.\n"
     "{context}"
     "Projects connected to this room — do your work INSIDE their folders:\n{repos}\n"
+    "{skills}"
     "Room assets folder (briefs, designs, uploads the owner gave you): {assets}\n"
     "You have full machine access; stay within this room's world unless the "
     "ticket explicitly points elsewhere."
@@ -60,6 +61,54 @@ _KEEPER = (
 )
 
 
+SESSION_ROTATE_RUNS = 30                  # fresh session after this many runs (v2-style)
+
+ROOM_LOCKS: dict[int, asyncio.Lock] = {}  # one live engine session per room => serialize
+
+
+def _room_lock(rid: int) -> asyncio.Lock:
+    return ROOM_LOCKS.setdefault(rid, asyncio.Lock())
+
+
+def _skills_block() -> str:
+    """Palace skills are provider-agnostic markdown in ~/.mindpalace/skills —
+    they ride the system prompt, so ANY engine (claude, codex, custom) gets
+    them, not just claude's own skill loader."""
+    from .. import config
+    d = config.home() / "skills"
+    if not d.is_dir():
+        return ""
+    lines = []
+    for f in sorted(d.glob("*.md")) + sorted(d.glob("*/SKILL.md")):
+        if f.name.lower() == "readme.md":
+            continue
+        name = f.stem if f.name != "SKILL.md" else f.parent.name
+        try:
+            txt = f.read_text().splitlines()
+        except Exception:
+            continue
+        first = ""
+        in_fm = False
+        for ln in txt:
+            t = ln.strip()
+            if t == "---":
+                in_fm = not in_fm
+                continue
+            if in_fm:
+                if t.lower().startswith("description:"):
+                    first = t.split(":", 1)[1].strip().strip("\"'")
+                    break
+                continue
+            if t:
+                first = first or t.lstrip("# ")
+                break
+        lines.append(f"  - {name}: {first[:110]}  ({f})")
+    if not lines:
+        return ""
+    return ("PALACE SKILLS — reusable procedures the owner saved. When a task matches "
+            "one, READ that file and follow it:\n" + "\n".join(lines[:20]) + "\n")
+
+
 def _ctx_for(task: dict) -> TaskContext | None:
     from .. import config
     r = store.get_room(task["room_id"])
@@ -72,11 +121,17 @@ def _ctx_for(task: dict) -> TaskContext | None:
         f"  - {p['name']}: " + (", ".join(x["path"] for x in p["repos"]) or "(no folders)")
         for p in projects) or "  (no projects connected yet)"
     ctx_line = f"What this room is for: {r['context']}\n" if r.get("context") else ""
-    system = _SYSTEM.format(name=r["name"], context=ctx_line, repos=repos_block, assets=assets)
+    system = _SYSTEM.format(name=r["name"], context=ctx_line, repos=repos_block,
+                            assets=assets, skills=_skills_block())
     if r["slug"] == store.HOME_SLUG:
         port = int(config.load_config().get("web", {}).get("port", 7777))
         system = _KEEPER.format(port=port)
-    return TaskContext(project_slug=r["slug"], repo_paths=paths, asset_dir=assets, system=system)
+    sid = r.get("session_id")
+    if sid and (r.get("session_runs") or 0) >= SESSION_ROTATE_RUNS:
+        store.set_room_session(r["id"], None)         # rotate: context stays lean
+        sid = None
+    return TaskContext(project_slug=r["slug"], repo_paths=paths, asset_dir=assets,
+                       system=system, session_id=sid)
 
 
 _GOAL_WRAP = (
@@ -209,6 +264,11 @@ async def run_one(task: dict, broadcast) -> None:
         return
     on_event = _on_event_for(task, broadcast)
 
+    async with _room_lock(task["room_id"]):
+        await _run_one_locked(task, ctx, on_event, broadcast)
+
+
+async def _run_one_locked(task: dict, ctx, on_event, broadcast) -> None:
     if (task.get("kind") or "task") == "goal":
         promise = task.get("promise") or DEFAULT_PROMISE
         reply, prev = "", ""
@@ -222,6 +282,7 @@ async def run_one(task: dict, broadcast) -> None:
                 task=task["body"] or task["title"], promise=promise,
                 prev=f"Your last iteration reported:\n{prev}\n\n" if prev else "")
             reply = await get_provider().run_task(instruction, ctx, on_event)
+            _remember_session(task["room_id"], ctx)
             store.set_task_result(task["id"], reply)
             if promise in reply:
                 break
@@ -231,7 +292,14 @@ async def run_one(task: dict, broadcast) -> None:
 
     instruction = _WRAP.format(tid=task["id"], task=task["body"] or task["title"])
     reply = await get_provider().run_task(instruction, ctx, on_event)
+    _remember_session(task["room_id"], ctx)
     await _finish(task, reply, broadcast)
+
+
+def _remember_session(rid: int, ctx) -> None:
+    """The room's agent lives in ONE engine conversation — carry it forward."""
+    if getattr(ctx, "result_session_id", None):
+        store.set_room_session(rid, ctx.result_session_id)
 
 
 async def run_followup(task: dict, reply_text: str, broadcast) -> None:
@@ -250,7 +318,9 @@ async def run_followup(task: dict, reply_text: str, broadcast) -> None:
         tid=task["id"], task=task["body"] or task["title"],
         result=(task.get("result") or "(none)")[:1500],
         thread=thread_txt, reply=reply_text)
-    reply = await get_provider().run_task(instruction, ctx, _on_event_for(task, broadcast))
+    async with _room_lock(task["room_id"]):
+        reply = await get_provider().run_task(instruction, ctx, _on_event_for(task, broadcast))
+    _remember_session(task["room_id"], ctx)
     tmsg = store.add_thread(task["id"], "agent", reply)
     await broadcast("task.thread", tmsg)
     t = store.set_task_status(task["id"], "review", result=reply)
@@ -330,7 +400,9 @@ async def run_routine(r: dict, run_id: int, broadcast) -> None:
         title=r["title"], room=room["name"], body=r["body"] or r["title"],
         port=port, rid=r["room_id"])
     try:
-        reply = await get_provider().run_task(instruction, ctx, None)
+        async with _room_lock(r["room_id"]):
+            reply = await get_provider().run_task(instruction, ctx, None)
+        _remember_session(r["room_id"], ctx)
     except Exception as e:
         reply = f"({e})"
     failed = reply.startswith("(")
