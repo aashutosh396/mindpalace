@@ -157,6 +157,9 @@ async def run_followup(task: dict, reply_text: str, broadcast) -> None:
     ctx = _ctx_for(task)
     if ctx is None:
         return
+    marker = f"— follow-up: {reply_text.strip()[:70]} —"
+    store.add_task_log(task["id"], marker)           # divides runs inside the trail
+    await broadcast("task.progress", {"task_id": task["id"], "text": marker})
     thread = store.list_thread(task["id"])[:-1]      # everything before this reply
     thread_txt = ("Earlier follow-ups:\n" +
                   "\n".join(f"{m['role']}: {m['text'][:300]}" for m in thread) + "\n\n"

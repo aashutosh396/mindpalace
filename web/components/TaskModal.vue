@@ -34,7 +34,7 @@ function fmtTime(ts: number) {
 watch(() => state.modal?.log.length, async () => {
   await nextTick()
   trail.value?.scrollTo({ top: trail.value.scrollHeight })
-})
+}, { immediate: true })
 </script>
 
 <template>
@@ -51,47 +51,54 @@ watch(() => state.modal?.log.length, async () => {
       <h2 class="tm-title">{{ t.title }}</h2>
       <p v-if="t.body && t.body !== t.title" class="tm-body">{{ t.body }}</p>
 
-      <div class="tm-section">The work</div>
-      <div ref="trail" class="tm-trail">
-        <div v-for="l in state.modal!.log" :key="l.id" class="tm-step">
-          <span class="tm-time">{{ fmtTime(l.created_at) }}</span>{{ l.text }}
-        </div>
-        <div v-if="!state.modal!.log.length" class="tm-step dim">
-          {{ t.status === 'todo' ? 'Waiting for the worker to pick this up…' : 'No steps recorded.' }}
-        </div>
-        <div v-if="t.status === 'in_progress'" class="tm-step working">⚡ working…</div>
-      </div>
+      <div class="tm-cols">
+        <div class="tm-left">
+          <template v-if="t.result">
+            <div class="tm-section">Result</div>
+            <div class="tm-result">{{ t.result }}</div>
+          </template>
 
-      <template v-if="t.result">
-        <div class="tm-section">Result</div>
-        <div class="tm-result">{{ t.result }}</div>
-      </template>
+          <template v-if="state.modal!.thread.length">
+            <div class="tm-section">Follow-ups</div>
+            <div class="tm-thread">
+              <div v-for="m in state.modal!.thread" :key="m.id" class="tm-thread-msg" :class="m.role">
+                <span class="who">{{ m.role === 'user' ? 'You' : 'Agent' }}</span>{{ m.text }}
+              </div>
+            </div>
+          </template>
 
-      <template v-if="state.modal!.thread.length">
-        <div class="tm-section">Follow-ups</div>
-        <div class="tm-thread">
-          <div v-for="m in state.modal!.thread" :key="m.id" class="tm-thread-msg" :class="m.role">
-            <span class="who">{{ m.role === 'user' ? 'You' : 'Agent' }}</span>{{ m.text }}
+          <form class="tm-reply" @submit.prevent="sendReply">
+            <input
+              v-model="reply"
+              :placeholder="t.status === 'in_progress' ? 'Working — wait for it to finish…' : 'Reply on this card — the agent continues the work'"
+              :disabled="t.status === 'in_progress'"
+              aria-label="Reply on card" />
+            <button class="btn" :disabled="!reply.trim() || t.status === 'in_progress'">Send</button>
+          </form>
+
+          <div class="tm-actions">
+            <button v-if="nextOf(t.status)" class="btn ghost" @click="moveTask(t.id, nextOf(t.status)!)">
+              → {{ LABELS[nextOf(t.status)!] }}
+            </button>
+            <button v-if="t.status !== 'done'" class="btn" @click="moveTask(t.id, 'done'); state.modal = null">
+              Close card
+            </button>
           </div>
         </div>
-      </template>
 
-      <form class="tm-reply" @submit.prevent="sendReply">
-        <input
-          v-model="reply"
-          :placeholder="t.status === 'in_progress' ? 'Working — wait for it to finish…' : 'Reply on this card — the agent continues the work'"
-          :disabled="t.status === 'in_progress'"
-          aria-label="Reply on card" />
-        <button class="btn" :disabled="!reply.trim() || t.status === 'in_progress'">Send</button>
-      </form>
-
-      <div class="tm-actions">
-        <button v-if="nextOf(t.status)" class="btn ghost" @click="moveTask(t.id, nextOf(t.status)!)">
-          → {{ LABELS[nextOf(t.status)!] }}
-        </button>
-        <button v-if="t.status !== 'done'" class="btn" @click="moveTask(t.id, 'done'); state.modal = null">
-          Close card
-        </button>
+        <div class="tm-right">
+          <div class="tm-section" style="margin-top: 0">The work</div>
+          <div ref="trail" class="tm-trail">
+            <div v-for="l in state.modal!.log" :key="l.id" class="tm-step"
+              :class="{ marker: l.text.startsWith('—') }">
+              <span class="tm-time">{{ fmtTime(l.created_at) }}</span>{{ l.text }}
+            </div>
+            <div v-if="!state.modal!.log.length" class="tm-step dim">
+              {{ t.status === 'todo' ? 'Waiting for the worker to pick this up…' : 'No steps recorded.' }}
+            </div>
+            <div v-if="t.status === 'in_progress'" class="tm-step working">⚡ working…</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
