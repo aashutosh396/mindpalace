@@ -47,7 +47,10 @@ _KEEPER = (
     "auto-discovered; first attach becomes the working directory)\n"
     "Typical chores: scan the owner's machine or vault for projects, create rooms "
     "for them, attach their folders. Prefer editing the palace via the API, files "
-    "via the filesystem."
+    "via the filesystem.\n"
+    "IRON RULE: a room without its folder is useless — whenever you create a room "
+    "for a project, IMMEDIATELY attach the project's main folder in the same run, "
+    "and verify with GET /api/projects/<id>/repos before reporting done."
 )
 
 
