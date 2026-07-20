@@ -63,8 +63,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -200,6 +200,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   transition: background .15s;
 }
 .menu-item:hover { background: var(--room-raised); }
+.menu-item.active { background: var(--room-raised); color: var(--text); }
 .menu-item.primary { font-weight: 500; }   /* fill on hover only — a filled row means "you are here" */
 .menu-item.primary:hover { background: var(--room-raised); }
 .menu-item.here { background: var(--room-raised); }
@@ -256,8 +257,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .new-proj { padding: 4px 8px 2px; display: flex; }
 .new-proj input {
   flex: 1; min-width: 0;
-  background: var(--card); border: 1px solid var(--edge); border-radius: 10px;
-  padding: 6px 11px; color: var(--text); font-size: 14px;
+  background: var(--card); border: 1px solid var(--edge); border-radius: 9px;
+  padding: 5px 10px; color: var(--text); font-size: 13px;
 }
 .new-proj input::placeholder { color: var(--text-dim); }
 
@@ -291,7 +292,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* ---- buttons ---- */
 .btn {
   background: var(--text); color: var(--bg); border: none;
-  border-radius: 10px; padding: 7px 14px; cursor: pointer;
+  border-radius: 9px; padding: 4px 11px; cursor: pointer; font-size: 13px;
   font-weight: 500;
   transition: filter .15s;
 }
@@ -302,24 +303,38 @@ button, input, textarea, select { font: inherit; color: inherit; }
   border: 1px solid var(--edge);
 }
 .btn.ghost:hover { color: var(--text); border-color: var(--slate); }
+.btn.danger { color: var(--danger); border-color: var(--danger); }
+.btn.danger:hover { color: #fff; background: var(--danger); filter: none; }
+.rem-add { display: flex; gap: 6px; }
+.rem-add.page { margin-bottom: 4px; }
+.rem-add.page input { padding: 7px 11px; font-size: 13.5px; }
+.rem-row { display: flex; align-items: center; gap: 9px; }
+.rem-ico { color: var(--text-dim); flex: none; }
+.rem-text { flex: 1; min-width: 0; }
+.rem-when { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
+.rem-add input {
+  flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--edge);
+  border-radius: 8px; padding: 5px 9px; font-size: 12.5px;
+}
+.rem-add input[type="datetime-local"] { flex: none; width: 168px; }
 
 /* ---- main column ---- */
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--content); }
 .main-head {
-  display: flex; align-items: baseline; gap: 14px;
-  padding: 16px 26px 6px;
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 10px 22px 4px;
 }
-.room-name { font-family: var(--serif); font-size: 22px; font-weight: 500; }
+.room-name { font-family: var(--serif); font-size: 19px; font-weight: 500; }
 .room-slug { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
 .tabs { margin-left: auto; display: flex; gap: 2px; }
 .tab {
   background: none; border: none; cursor: pointer;
-  color: var(--text-dim); padding: 6px 13px; border-radius: 10px;
-  font-size: 14px;
+  color: var(--text-dim); padding: 3px 10px; border-radius: 9px;
+  font-size: 13px;
 }
 .tab:hover { color: var(--text); background: var(--room-raised); }
 .tab.active { color: var(--text); background: var(--room-raised); }
-.main-body { flex: 1; overflow: auto; padding: 18px 26px 24px; }
+.main-body { flex: 1; overflow: auto; padding: 12px 22px 16px; }
 
 /* ---- chat as the main stage ---- */
 .corridor { display: flex; flex-direction: column; min-height: 0; }
@@ -327,11 +342,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .corridor.center .corridor-head { display: none; }
 .chat-inner {
   width: 100%; max-width: 880px; margin: 0 auto;
-  display: flex; flex-direction: column; gap: 18px;
+  display: flex; flex-direction: column; gap: 12px;
 }
-.chat-log { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.chat-log { flex: 1; overflow-y: auto; padding: 14px 20px; }
 
 /* the ✳ greeting — empty room */
+.chat-older { text-align: center; font-size: 11.5px; color: var(--text-dim); padding: 4px 0; }
 .chat-hello {
   margin-top: 20vh; text-align: center;
   font-family: var(--serif); font-size: 32px; color: var(--text);
@@ -537,7 +553,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   width: 78vw; height: 82vh;
   background: var(--bg); border: 1px solid var(--edge); border-radius: 18px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
-  padding: 18px 20px;
+  padding: 14px 16px;
   display: flex; flex-direction: column; min-height: 0;
 }
 .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
@@ -599,7 +615,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   width: min(1200px, 96vw); height: 86vh;
   background: var(--bg); border: 1px solid var(--edge); border-radius: 18px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
-  padding: 18px 22px;
+  padding: 14px 18px;
   display: flex; flex-direction: column; min-height: 0;
 }
 .tm-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -609,7 +625,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .tm-id { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
 .tm-head .row-x { margin-left: auto; }
-.tm-title { font-family: var(--serif); font-size: 20px; font-weight: 500; }
+.tm-title { font-family: var(--serif); font-size: 18px; font-weight: 500; }
 .tm-body {
   margin-top: 6px; font-size: 14px; color: var(--text-dim);
   white-space: pre-wrap; max-height: 110px; overflow-y: auto;
@@ -674,8 +690,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   padding: 14px; box-shadow: var(--shadow);
 }
 .routine-form input, .routine-form textarea, .routine-form select {
-  background: var(--bg); border: 1px solid var(--edge); border-radius: 10px;
-  padding: 8px 11px; color: var(--text); resize: vertical;
+  background: var(--bg); border: 1px solid var(--edge); border-radius: 9px;
+  padding: 6px 10px; color: var(--text); resize: vertical; font-size: 13px;
 }
 .routine-when { display: flex; gap: 8px; align-items: center; }
 .routine-main { min-width: 0; flex: 1; }
@@ -706,14 +722,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .dim-inline { color: var(--text-dim); font-size: 12px; margin-left: 6px; }
 
 /* ---- panels (assets / repos) ---- */
-.panel { display: flex; flex-direction: column; gap: 10px; max-width: 760px; margin: 0 auto; width: 100%; }
+.panel { display: flex; flex-direction: column; gap: 7px; max-width: 760px; margin: 0 auto; width: 100%; }
 .panel-row {
   display: flex; align-items: center; gap: 10px;
   background: var(--card); border: 1px solid var(--edge); border-radius: var(--r);
   box-shadow: var(--shadow);
-  padding: 11px 15px;
+  padding: 7px 12px;
 }
-.panel-row .path { font-family: var(--mono); font-size: 13px; }
+.panel-row .path { font-family: var(--mono); font-size: 12px; }
 .panel-row .tag {
   font-size: 11.5px; border-radius: 99px; padding: 1px 10px;
   background: var(--room-raised); color: var(--text-dim);
@@ -727,7 +743,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .panel form { display: flex; gap: 8px; }
 .panel form input, .panel form select {
   flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--edge);
-  border-radius: var(--r); padding: 9px 12px; color: var(--text);
+  border-radius: 9px; padding: 6px 10px; color: var(--text); font-size: 13px;
 }
 .row-x {
   margin-left: auto; background: none; border: none; cursor: pointer;
@@ -737,7 +753,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .dropzone {
   border: 1.5px dashed var(--edge); border-radius: 14px;
-  padding: 28px 16px; text-align: center; cursor: pointer;
+  padding: 18px 14px; text-align: center; cursor: pointer;
   color: var(--text-dim);
   transition: border-color .15s, color .15s;
 }
@@ -750,7 +766,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .proj-new { display: flex; gap: 8px; margin-bottom: 14px; }
 .proj-new input {
   flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--edge);
-  border-radius: 10px; padding: 8px 12px;
+  border-radius: 9px; padding: 6px 10px; font-size: 13px;
 }
 .proj-list { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .proj-entry {
@@ -760,13 +776,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .proj-entry-head {
   display: flex; align-items: center; gap: 10px; width: 100%;
   background: none; border: none; text-align: left; cursor: pointer;
-  padding: 11px 14px; font-size: 14.5px; color: var(--text);
+  padding: 8px 12px; font-size: 13.5px; color: var(--text);
 }
 .proj-entry-head .caret { flex: none; color: var(--text-dim); transition: transform .15s ease; }
 .proj-entry-head .caret.open { transform: rotate(90deg); }
 .proj-entry-head:hover .caret { color: var(--text); }
 .proj-entry-name { font-weight: 500; }
-.proj-entry-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+.proj-entry-body { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 5px; }
 .proj-entry-body .panel-row { box-shadow: none; background: var(--bg); }
 .proj-entry-actions { display: flex; gap: 8px; margin-top: 6px; }
 

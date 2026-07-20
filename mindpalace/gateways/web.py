@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from typing import Optional
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -105,6 +106,7 @@ def create_app():
             vault_present = False
         return {"onboarded": bool(web.get("onboarded")),
                 "name": web.get("owner_name", ""),
+                "agent_name": web.get("agent_name", ""),
                 "vault_present": vault_present,
                 "workspace": str(config.workspace_dir())}
 
@@ -114,12 +116,16 @@ def create_app():
         web = cfg.setdefault("web", {})
         if "name" in body:
             web["owner_name"] = str(body["name"]).strip()[:60]
+        if "agent_name" in body:
+            web["agent_name"] = str(body["agent_name"]).strip()[:40]
         if (body.get("workspace") or "").strip():
             config.set_workspace(body["workspace"].strip())
             cfg = config.load_config()                # set_workspace saved; re-read + re-merge
             web = cfg.setdefault("web", {})
             if "name" in body:
                 web["owner_name"] = str(body["name"]).strip()[:60]
+            if "agent_name" in body:
+                web["agent_name"] = str(body["agent_name"]).strip()[:40]
         if body.get("onboarded"):
             web["onboarded"] = True
         config.save_config(cfg)
@@ -420,6 +426,28 @@ def create_app():
     def routines_delete(rtid: int):
         return {"ok": True} if store.delete_routine(rtid) else _404("routine")
 
+    # ---- reminders ----
+    @app.get("/api/reminders")
+    def reminders_list():
+        return store.list_reminders()
+
+    @app.post("/api/reminders")
+    async def reminders_add(body: dict):
+        text = (body.get("text") or "").strip()
+        due = body.get("due_at")
+        if not text or not isinstance(due, (int, float)):
+            return JSONResponse({"error": "need text + due_at (epoch seconds)"}, status_code=422)
+        r = store.add_reminder(text, float(due))
+        await bus.broadcast("reminders.changed", {})
+        return r
+
+    @app.delete("/api/reminders/{rid}")
+    async def reminders_delete(rid: int):
+        if not store.delete_reminder(rid):
+            return _404("reminder")
+        await bus.broadcast("reminders.changed", {})
+        return {"ok": True}
+
     # ---- palace search ----
     @app.get("/api/search")
     def palace_search(q: str = ""):
@@ -430,12 +458,14 @@ def create_app():
 
     # ---- home (the hall) ----
     @app.get("/api/home/chat")
-    async def home_chat_list():
+    async def home_chat_list(before: Optional[int] = None, limit: int = 60):
+        if before:                                   # scroll-up page — no brief side effects
+            return store.list_home_chat(limit, before)
         from ..projects import brief
         row = brief.ensure_daily_brief()
         if row:
             await bus.broadcast("home.message", row)
-        return store.list_home_chat()
+        return store.list_home_chat(limit)
 
     @app.post("/api/home/chat")
     async def home_chat_post(body: dict):
@@ -449,8 +479,8 @@ def create_app():
 
     # ---- room chat: triage → card / conversation ----
     @app.get("/api/rooms/{rid}/chat")
-    def chat_list(rid: int):
-        return store.list_chat(rid)
+    def chat_list(rid: int, before: Optional[int] = None, limit: int = 60):
+        return store.list_chat(rid, limit, before)
 
     @app.post("/api/rooms/{rid}/chat")
     async def chat_post(rid: int, body: dict):

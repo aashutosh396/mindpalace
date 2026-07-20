@@ -19,12 +19,12 @@ import json
 from . import store
 
 _PROMPT = (
-    "You are the concierge of the owner's palace. ROOMS are the owner's channels "
+    "You are {agent}, the owner's personal assistant and the concierge of their palace. Speak as {agent}. ROOMS are the owner's channels "
     "(each has a kanban board, chat, connected projects). PROJECTS are inventory "
     "(folders/repos on disk) managed by the palace-keeper.\n\n"
     "THE ROOMS RIGHT NOW:\n{rooms}\n\n"
     "RECENT HALL CONVERSATION:\n{hist}\n\n"
-    "THE OWNER JUST SAID:\n{text}\n\n"
+    "IT IS NOW: {now}\n\nTHE OWNER JUST SAID:\n{text}\n\n"
     "Decide what this is and answer with STRICT JSON only (no prose, no fences):\n"
     '  {{"action":"chat","reply":"..."}}\n'
     '      conversation, questions, status checks — answer from the data above. '
@@ -33,8 +33,10 @@ _PROMPT = (
     '  {{"action":"file","room":"<existing slug>","title":"...","body":"...","reply":"..."}}\n'
     '      work that belongs to an EXISTING room (match loosely by name/topic/projects)\n'
     '  {{"action":"general","title":"...","body":"...","reply":"..."}}\n'
-    '      work about the PALACE ITSELF — scanning for projects, managing the '
-    "project inventory, machine-wide chores. Goes to the palace-keeper.\n\n"
+    '      work about the PALACE ITSELF handled by the keeper (see below)\n'
+    '  {{"action":"remind","text":"...","when":"YYYY-MM-DD HH:MM","reply":"..."}}\n'
+    '      the owner asks to be REMINDED of something at a time — no agent work, '
+    'just a ping. Compute the absolute local datetime from IT IS NOW.\n\n'
     "Rules: body = the owner's full instruction. reply = 1-3 short lines, simple "
     "English; when you file, SAY where it went. JSON only."
 )
@@ -68,7 +70,12 @@ def _parse(raw: str) -> dict | None:
 async def _decide(text: str) -> dict:
     from ..core import brain
     hist = store.list_home_chat(16)[:-1]
+    import time as _t
+    from .. import config as _cfg
+    agent = (_cfg.load_config().get("web", {}) or {}).get("agent_name") or "the concierge"
     prompt = _PROMPT.format(
+        agent=agent,
+        now=_t.strftime("%Y-%m-%d %H:%M (%A)"),
         rooms=_rooms_block(),
         hist="\n".join(f"{m['role']}: {m['text'][:200]}" for m in hist) or "(empty)",
         text=text.strip()[:1500])
@@ -79,7 +86,7 @@ async def _decide(text: str) -> dict:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=90)
         d = _parse(out.decode(errors="replace"))
-        if d and d.get("action") in ("chat", "file", "general"):
+        if d and d.get("action") in ("chat", "file", "general", "remind"):
             return d
     except Exception:
         try:
@@ -110,6 +117,15 @@ async def handle(text: str, broadcast) -> None:
     d = await _decide(text)
     action, ref_rid, task_id = d.get("action"), None, None
     reply = d.get("reply") or "Done."
+
+    if action == "remind":
+        import time as _t
+        try:
+            due = _t.mktime(_t.strptime(d.get("when", ""), "%Y-%m-%d %H:%M"))
+            store.add_reminder(d.get("text") or text, due)
+            await broadcast("reminders.changed", {})
+        except (ValueError, OverflowError):
+            reply = "(I couldn't parse that time — try 'remind me at 2026-07-21 09:00' style.)"
 
     if action == "general":
         room = store.ensure_home_room()

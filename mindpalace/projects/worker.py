@@ -231,6 +231,10 @@ async def routine_loop(broadcast, interval: int = 60):
     print("[worker] routine scheduler started")
     while True:
         try:
+            for rem in store.due_reminders():
+                await broadcast("reminder.due", rem)
+                hmsg = store.add_home_chat("agent", f"⏰ Reminder: {rem['text']}")
+                await broadcast("home.message", hmsg)
             for r in store.due_routines():
                 task = store.create_task(r["room_id"], r["title"], r["body"],
                                          created_by="routine")

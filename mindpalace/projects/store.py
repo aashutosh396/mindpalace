@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS chat_message (
 CREATE TABLE IF NOT EXISTS home_chat (
   id INTEGER PRIMARY KEY, role TEXT NOT NULL, text TEXT NOT NULL,
   ref_room_id INTEGER, task_id INTEGER, created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS reminder (    -- a ping at a time; no agent run
+  id INTEGER PRIMARY KEY, text TEXT NOT NULL,
+  due_at REAL NOT NULL, fired INTEGER DEFAULT 0, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS asset (
   id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES room(id),
   filename TEXT NOT NULL, path TEXT NOT NULL, size INTEGER DEFAULT 0,
@@ -534,6 +537,44 @@ def mark_routine_run(rtid: int, schedule: str) -> None:
         db.commit()
 
 
+# ---- reminders (a ping at a time; no agent run) ----
+def add_reminder(text: str, due_at: float) -> dict:
+    now = time.time()
+    with _lock:
+        db = _db()
+        cur = db.execute("INSERT INTO reminder (text, due_at, created_at) VALUES (?,?,?)",
+                         (text, due_at, now))
+        db.commit()
+        return {"id": cur.lastrowid, "text": text, "due_at": due_at, "created_at": now}
+
+
+def list_reminders() -> list[dict]:
+    with _lock:
+        rows = _db().execute(
+            "SELECT * FROM reminder WHERE fired=0 ORDER BY due_at").fetchall()
+    return _rows(rows)
+
+
+def delete_reminder(rid: int) -> bool:
+    with _lock:
+        db = _db()
+        cur = db.execute("DELETE FROM reminder WHERE id=?", (rid,))
+        db.commit()
+        return cur.rowcount > 0
+
+
+def due_reminders(now: float | None = None) -> list[dict]:
+    now = now or time.time()
+    with _lock:
+        db = _db()
+        rows = db.execute(
+            "SELECT * FROM reminder WHERE fired=0 AND due_at <= ?", (now,)).fetchall()
+        if rows:
+            db.execute("UPDATE reminder SET fired=1 WHERE fired=0 AND due_at <= ?", (now,))
+            db.commit()
+    return _rows(rows)
+
+
 # ======================================================================
 # CHAT (rooms) + HALL + ASSETS + SEARCH + BRIEF
 # ======================================================================
@@ -548,11 +589,17 @@ def add_chat(rid: int, role: str, text: str, task_id: int | None = None) -> dict
     return dict(r)
 
 
-def list_chat(rid: int, limit: int = 200) -> list[dict]:
+def list_chat(rid: int, limit: int = 200, before: int | None = None) -> list[dict]:
+    """Latest page by default; before=<msg id> pages backward for infinite scroll-up."""
     with _lock:
-        rows = _db().execute(
-            "SELECT * FROM (SELECT * FROM chat_message WHERE room_id=? "
-            "ORDER BY created_at DESC LIMIT ?) ORDER BY created_at", (rid, limit)).fetchall()
+        if before:
+            rows = _db().execute(
+                "SELECT * FROM (SELECT * FROM chat_message WHERE room_id=? AND id<? "
+                "ORDER BY id DESC LIMIT ?) ORDER BY id", (rid, before, limit)).fetchall()
+        else:
+            rows = _db().execute(
+                "SELECT * FROM (SELECT * FROM chat_message WHERE room_id=? "
+                "ORDER BY id DESC LIMIT ?) ORDER BY id", (rid, limit)).fetchall()
     return _rows(rows)
 
 
@@ -568,11 +615,16 @@ def add_home_chat(role: str, text: str, ref_room_id: int | None = None,
     return dict(r)
 
 
-def list_home_chat(limit: int = 200) -> list[dict]:
+def list_home_chat(limit: int = 200, before: int | None = None) -> list[dict]:
     with _lock:
-        rows = _db().execute(
-            "SELECT * FROM (SELECT * FROM home_chat ORDER BY created_at DESC LIMIT ?) "
-            "ORDER BY created_at", (limit,)).fetchall()
+        if before:
+            rows = _db().execute(
+                "SELECT * FROM (SELECT * FROM home_chat WHERE id<? "
+                "ORDER BY id DESC LIMIT ?) ORDER BY id", (before, limit)).fetchall()
+        else:
+            rows = _db().execute(
+                "SELECT * FROM (SELECT * FROM home_chat ORDER BY id DESC LIMIT ?) "
+                "ORDER BY id", (limit,)).fetchall()
     return _rows(rows)
 
 

@@ -6,6 +6,7 @@ const { state, checkHealth, goHome, toast } = useWorkspace()
 
 const step = ref<'gate' | 'name' | 'seed'>('gate')
 const name = ref('')
+const agentName = ref('')
 const seedPath = ref('')
 const seeding = ref(false)
 
@@ -41,7 +42,13 @@ onMounted(() => {
 onUnmounted(() => { if (gateTimer) clearInterval(gateTimer) })
 
 async function saveName() {
-  if (name.value.trim()) await api('/onboarding', { name: name.value })
+  const body: any = {}
+  if (name.value.trim()) body.name = name.value
+  if (agentName.value.trim()) body.agent_name = agentName.value
+  if (Object.keys(body).length) {
+    await api('/onboarding', body)
+    if (body.agent_name) state.agentName = body.agent_name.trim()
+  }
   if (vaultPresent.value) {
     await api('/onboarding/seed', { mode: 'vault' })   // no question — the vault IS the answer
   }
@@ -99,6 +106,8 @@ async function finish() {
         <p class="onboard-sub">What should the palace call you?</p>
         <form class="onboard-card" @submit.prevent="saveName">
           <input v-model="name" class="onboard-input" placeholder="Your name" aria-label="Your name" autofocus />
+          <p class="onboard-sub" style="margin: 12px 0 6px">What do you want to name your personal assistant?</p>
+          <input v-model="agentName" class="onboard-input" placeholder="Assistant name — e.g. Jarvis, Ginji" aria-label="Assistant name" />
           <div class="onboard-actions">
             <button class="btn" type="submit">Continue</button>
           </div>

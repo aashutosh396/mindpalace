@@ -77,7 +77,7 @@ async function detach(p: any, r: any) {
             </div>
             <div class="proj-entry-actions">
               <button class="btn ghost" @click="attach(p)">Track another folder</button>
-              <button class="btn ghost" @click="remove(p)">Delete project</button>
+              <button class="btn ghost danger" @click="remove(p)">Delete project</button>
             </div>
           </div>
         </div>

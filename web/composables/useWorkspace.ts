@@ -22,6 +22,9 @@ const state = reactive({
   allTasks: [] as any[],
   chat: [] as any[],
   homeChat: [] as any[],
+  chatDone: false,                     // reverse pagination: no more older pages
+  homeChatDone: false,
+  chatOlderLoading: false,
   assets: [] as any[],
   arrived: new Set<number>(),
   progress: {} as Record<number, string>,
@@ -38,6 +41,9 @@ const state = reactive({
   roomSettings: null as null | Room,   // room settings modal
   notifs: [] as any[],                 // the top-bar notification feed
   notifOpen: false,
+  reminders: [] as any[],
+  agentName: 'Agent',
+  tool: null as null | 'reminders',
   modal: null as null | { task: any; room: any; log: any[]; thread: any[] },
   showOnboarding: false,
   searchOpen: false,
@@ -170,6 +176,12 @@ function connect() {
     } else if (event === 'chat.message' && data.room_id === state.current?.id) {
       if (!state.chat.find((m: any) => m.id === data.id)) state.chat.push(data)
       if (data.role === 'agent') state.awaitingReply = false
+    } else if (event === 'reminder.due') {
+      notify(`Reminder: ${data.text}`, { kind: 'reminder' })
+      toast(`Reminder: ${data.text}`)
+      state.reminders = state.reminders.filter((r: any) => r.id !== data.id)
+    } else if (event === 'reminders.changed') {
+      api('/reminders').then(rs => { state.reminders = rs }).catch(() => {})
     } else if (event === 'home.message') {
       if (!state.homeChat.find((m: any) => m.id === data.id)) state.homeChat.push(data)
       if (data.role === 'agent' && !state.current) state.awaitingReply = false
@@ -184,6 +196,7 @@ const actions = {
     try {
       const ob = await api('/onboarding')
       state.showOnboarding = !ob.onboarded
+      state.agentName = ob.agent_name || 'Agent'
     } catch { /* backend older than onboarding — skip */ }
     state.rooms = await api('/rooms')
     state.homeChat = await api('/home/chat')
@@ -215,16 +228,37 @@ const actions = {
     } catch (e: any) { toast(e.message, true) }
     state.updating = false
   },
+  async loadOlderChat(): Promise<number> {
+    if (state.chatOlderLoading) return 0
+    const room = state.current
+    const list = room ? state.chat : state.homeChat
+    const done = room ? state.chatDone : state.homeChatDone
+    const first = list[0]
+    if (!first || done) return 0
+    state.chatOlderLoading = true
+    try {
+      const base = room ? `/rooms/${room.id}/chat` : '/home/chat'
+      const older = await api(`${base}?before=${first.id}&limit=60`)
+      if (older.length < 60) { if (room) state.chatDone = true; else state.homeChatDone = true }
+      if (room) state.chat = [...older, ...state.chat]
+      else state.homeChat = [...older, ...state.homeChat]
+      return older.length
+    } catch { return 0 } finally { state.chatOlderLoading = false }
+  },
   async goHome() {
     state.current = null
+    state.tool = null
     state.awaitingReply = false
+    state.homeChatDone = false
     ;[state.homeChat, state.allTasks] = await Promise.all([api('/home/chat'), api('/tasks')])
     const last = state.homeChat[state.homeChat.length - 1]
     state.awaitingReply = !!last && (last as any).role === 'user'
   },
   async open(r: Room) {
     state.current = r
+    state.tool = null
     state.awaitingReply = false
+    state.chatDone = false
     const [tasks, chat, projects, assets] = await Promise.all([
       api(`/rooms/${r.id}/tasks`), api(`/rooms/${r.id}/chat`),
       api(`/rooms/${r.id}/projects`), api(`/rooms/${r.id}/assets`)
@@ -299,6 +333,16 @@ const actions = {
     try {
       await api(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
     } catch (e: any) { t.status = prev; toast(e.message, true) }
+  },
+  openTool(t: 'reminders') {
+    state.tool = t
+    state.current = null
+    actions.remindersApi.list()
+  },
+  remindersApi: {
+    list: async () => { state.reminders = await api('/reminders') },
+    add: (text: string, due_at: number) => api('/reminders', { method: 'POST', body: JSON.stringify({ text, due_at }) }),
+    remove: (rid: number) => api(`/reminders/${rid}`, { method: 'DELETE' })
   },
   toggleRail() {
     state.railOpen = !state.railOpen

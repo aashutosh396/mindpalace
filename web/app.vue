@@ -26,6 +26,11 @@ const SLUGS: Record<string, string> = { repos: 'projects', assets: 'assets', rou
 
 async function applyHash() {
   const parts = location.hash.replace(/^#\/?/, '').split('/')
+  if (parts[0] === 'tools' && parts[1] === 'reminders') {
+    state.tool = 'reminders'
+    state.current = null
+    return
+  }
   if (parts[0] === 'room' && parts[1]) {
     const r = state.rooms.find(x => x.slug === decodeURIComponent(parts[1]))
     if (r) {
@@ -37,10 +42,10 @@ async function applyHash() {
   if (state.current) await goHome()
 }
 
-watch([() => state.current?.slug, tab], () => {
+watch([() => state.current?.slug, tab, () => state.tool], () => {
   const h = state.current
     ? `#/room/${state.current.slug}` + (tab.value !== 'chat' ? '/' + SLUGS[tab.value] : '')
-    : '#/home'
+    : state.tool ? `#/tools/${state.tool}` : '#/home'
   if (location.hash !== h) history.replaceState(null, '', h)
 })
 
@@ -130,6 +135,14 @@ onUnmounted(() => {
         </div>
       </template>
 
+      <template v-else-if="state.tool === 'reminders'">
+        <div class="main-head">
+          <h1 class="room-name">Reminders</h1>
+          <span class="room-slug">a ping at the right time — no agent run</span>
+        </div>
+        <RemindersPage />
+      </template>
+
       <template v-else>
         <div class="main-head">
           <h1 class="room-name">Home</h1>
@@ -147,7 +160,7 @@ onUnmounted(() => {
     <BoardRail v-show="state.railOpen" />
 
     <div class="foot foot-side"></div>
-    <div class="foot foot-main"><Composer /></div>
+    <div class="foot foot-main"><Composer v-if="!state.tool" /></div>
     <div v-show="state.railOpen" class="foot foot-rail"></div>
 
     <div v-if="state.toast" class="toast" :class="{ error: state.toastError }" role="status">
