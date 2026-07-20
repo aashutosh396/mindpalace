@@ -3,7 +3,7 @@
 //   PROJECTS the inventory — folders/repos, inspected via the Projects sheet
 // The live WS bus keeps every open window in sync.
 import { reactive } from 'vue'
-import { chime, ding } from './sound'
+import { chime, ding, startRing, stopRing } from './sound'
 
 export const STATUSES = ['todo', 'in_progress', 'review', 'done'] as const
 export type Status = typeof STATUSES[number]
@@ -199,7 +199,8 @@ function connect() {
     } else if (event === 'reminder.due') {
       notify(`Reminder: ${data.text}`, { kind: 'reminder' })
       state.reminderAlerts.push(data)
-      chime()
+      if (data.ring === 'once') chime()
+      else if (data.ring !== 'off') startRing()      // loud, until dismissed
       state.reminders = state.reminders.filter((r: any) => r.id !== data.id)
     } else if (event === 'reminders.changed') {
       api('/reminders').then(rs => { state.reminders = rs }).catch(() => {})
@@ -384,7 +385,7 @@ const actions = {
   },
   remindersApi: {
     list: async () => { state.reminders = await api('/reminders') },
-    add: (text: string, due_at: number, repeat = '') => api('/reminders', { method: 'POST', body: JSON.stringify({ text, due_at, repeat }) }),
+    add: (text: string, due_at: number, repeat = '', ring = 'loop') => api('/reminders', { method: 'POST', body: JSON.stringify({ text, due_at, repeat, ring }) }),
     update: (rid: number, body: any) => api(`/reminders/${rid}`, { method: 'PATCH', body: JSON.stringify(body) }),
     remove: (rid: number) => api(`/reminders/${rid}`, { method: 'DELETE' })
   },

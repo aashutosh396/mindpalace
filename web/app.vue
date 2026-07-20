@@ -2,8 +2,15 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { Bell, PanelRightClose, PanelRightOpen, RefreshCw } from 'lucide-vue-next'
 import { useWorkspace } from './composables/useWorkspace'
+import { stopRing } from './composables/sound'
 
 const { state, init, checkHealth, toggleRail, open, goHome, getUpdate, openTask, uploadFiles } = useWorkspace()
+
+function dismissAlert() {
+  state.reminderAlerts.shift()
+  if (!state.reminderAlerts.length) stopRing()
+  else if (!state.reminderAlerts.some((a: any) => a.ring !== 'once' && a.ring !== 'off')) stopRing()
+}
 
 // the whole middle chat area is a drop zone (like Discord), not just the box
 let dragDepth = 0
@@ -79,7 +86,7 @@ function onKey(e: KeyboardEvent) {
     return
   }
   if (e.key === 'Escape') {
-    if (state.reminderAlerts.length) state.reminderAlerts.shift()
+    if (state.reminderAlerts.length) dismissAlert()
     else if (state.createRoomOpen) state.createRoomOpen = false
     else if (state.runsFor) state.runsFor = null
     else if (state.toolsOpen) state.toolsOpen = false
@@ -218,7 +225,7 @@ onUnmounted(() => {
         <div class="announce-when">
           {{ new Date(state.reminderAlerts[0].due_at * 1000).toLocaleString([], { weekday: 'long', hour: '2-digit', minute: '2-digit' }) }}
         </div>
-        <button class="btn announce-btn" @click="state.reminderAlerts.shift()">Dismiss</button>
+        <button class="btn announce-btn" @click="dismissAlert()">Dismiss</button>
       </div>
     </div>
 

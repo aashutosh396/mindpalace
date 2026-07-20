@@ -35,6 +35,27 @@ export function chime() {
   tone(1318.5, 0.14, 0.5, 0.05)    // E6 shimmer
 }
 
+// alarm: LOUD double ring, repeating until stopRing() — for reminders
+let ringTimer: ReturnType<typeof setInterval> | null = null
+
+function bellStrike(delay: number) {
+  tone(880, delay, 0.6, 0.5)         // A5 — the body, loud
+  tone(1108.73, delay, 0.55, 0.32)   // C#6
+  tone(659.25, delay, 0.5, 0.28)     // E5 under
+  tone(1760, delay, 0.35, 0.12)      // ring edge
+}
+
+export function startRing() {
+  if (ringTimer) return
+  const pattern = () => { bellStrike(0); bellStrike(0.3) }   // classic ring-ring
+  pattern()
+  ringTimer = setInterval(pattern, 1600)
+}
+
+export function stopRing() {
+  if (ringTimer) { clearInterval(ringTimer); ringTimer = null }
+}
+
 // card finished: one soft ding
 export function ding() {
   tone(783.99, 0, 0.4, 0.1)        // G5

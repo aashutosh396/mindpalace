@@ -8,14 +8,15 @@ const { state, remindersApi, toast } = useWorkspace()
 const text = ref('')
 const when = ref('')
 const repeat = ref('')
+const ring = ref('loop')
 
 onMounted(() => remindersApi.list())
 
 async function add() {
   if (!text.value.trim() || !when.value) return
   const due = new Date(when.value).getTime() / 1000
-  await remindersApi.add(text.value.trim(), due, repeat.value)
-  text.value = ''; when.value = ''; repeat.value = ''
+  await remindersApi.add(text.value.trim(), due, repeat.value, ring.value)
+  text.value = ''; when.value = ''; repeat.value = ''; ring.value = 'loop'
   await remindersApi.list()
   toast('Reminder set')
 }
@@ -25,7 +26,7 @@ const editing = ref<any | null>(null)
 function startEdit(r: any) {
   const d = new Date(r.due_at * 1000)
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
-  editing.value = { id: r.id, text: r.text, when: d.toISOString().slice(0, 16), repeat: r.repeat || '' }
+  editing.value = { id: r.id, text: r.text, when: d.toISOString().slice(0, 16), repeat: r.repeat || '', ring: r.ring || 'loop' }
 }
 
 async function saveEdit() {
@@ -33,7 +34,8 @@ async function saveEdit() {
   await remindersApi.update(editing.value.id, {
     text: editing.value.text,
     due_at: new Date(editing.value.when).getTime() / 1000,
-    repeat: editing.value.repeat
+    repeat: editing.value.repeat,
+    ring: editing.value.ring
   })
   editing.value = null
   await remindersApi.list()
@@ -64,6 +66,11 @@ function fmt(ts: number) {
           <option value="daily">daily</option>
           <option value="weekly">weekly</option>
         </select>
+        <select v-model="ring" aria-label="Ring" class="rem-repeat">
+          <option value="loop">🔔 ring until dismissed</option>
+          <option value="once">single chime</option>
+          <option value="off">silent</option>
+        </select>
         <button class="btn" :disabled="!text.trim() || !when">Set</button>
       </form>
 
@@ -83,6 +90,11 @@ function fmt(ts: number) {
               <option value="daily">daily</option>
               <option value="weekly">weekly</option>
             </select>
+            <select v-model="editing.ring" aria-label="Ring" class="rem-repeat">
+              <option value="loop">🔔 ring until dismissed</option>
+              <option value="once">single chime</option>
+              <option value="off">silent</option>
+            </select>
             <button class="btn">Save</button>
             <button class="btn ghost" type="button" @click="editing = null">Cancel</button>
           </form>
@@ -91,6 +103,8 @@ function fmt(ts: number) {
           <AlarmClock :size="14" :stroke-width="1.75" class="rem-ico" />
           <span class="rem-text">{{ r.text }}</span>
           <span v-if="r.repeat" class="rem-rep">↻ {{ r.repeat }}</span>
+          <span v-if="r.ring === 'off'" class="rem-rep" style="color: var(--text-dim)">silent</span>
+          <span v-else-if="r.ring === 'once'" class="rem-rep" style="color: var(--text-dim)">chime</span>
           <span class="rem-when">{{ fmt(r.due_at) }}</span>
           <button class="btn ghost" style="flex: none" @click="startEdit(r)">Edit</button>
           <button class="btn ghost danger" style="flex: none" @click="remove(r)">Delete</button>

@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS home_chat (
 CREATE TABLE IF NOT EXISTS reminder (    -- a ping at a time; no agent run
   id INTEGER PRIMARY KEY, text TEXT NOT NULL,
   due_at REAL NOT NULL, repeat TEXT DEFAULT '',   -- '' once | hourly | daily | weekly
+  ring TEXT DEFAULT 'loop',                       -- loop (until dismissed) | once | off
   fired INTEGER DEFAULT 0, created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS asset (
   id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES room(id),
@@ -105,6 +106,10 @@ def _db() -> sqlite3.Connection:
             pass
         try:                                          # migration: repeating reminders
             _conn.execute("ALTER TABLE reminder ADD COLUMN repeat TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+        try:                                          # migration: reminder ring mode
+            _conn.execute("ALTER TABLE reminder ADD COLUMN ring TEXT DEFAULT 'loop'")
         except sqlite3.OperationalError:
             pass
         _conn.commit()
@@ -628,16 +633,21 @@ def mark_routine_run(rtid: int, schedule: str) -> None:
 REPEAT_SECS = {"hourly": 3600, "daily": 86400, "weekly": 604800}
 
 
-def add_reminder(text: str, due_at: float, repeat: str = "") -> dict:
+RING_MODES = ("loop", "once", "off")
+
+
+def add_reminder(text: str, due_at: float, repeat: str = "", ring: str = "loop") -> dict:
     now = time.time()
     repeat = repeat if repeat in REPEAT_SECS else ""
+    ring = ring if ring in RING_MODES else "loop"
     with _lock:
         db = _db()
-        cur = db.execute("INSERT INTO reminder (text, due_at, repeat, created_at) VALUES (?,?,?,?)",
-                         (text, due_at, repeat, now))
+        cur = db.execute(
+            "INSERT INTO reminder (text, due_at, repeat, ring, created_at) VALUES (?,?,?,?,?)",
+            (text, due_at, repeat, ring, now))
         db.commit()
         return {"id": cur.lastrowid, "text": text, "due_at": due_at,
-                "repeat": repeat, "created_at": now}
+                "repeat": repeat, "ring": ring, "created_at": now}
 
 
 def list_reminders() -> list[dict]:
@@ -647,7 +657,7 @@ def list_reminders() -> list[dict]:
     return _rows(rows)
 
 
-def update_reminder(rid: int, text=None, due_at=None, repeat=None) -> dict | None:
+def update_reminder(rid: int, text=None, due_at=None, repeat=None, ring=None) -> dict | None:
     with _lock:
         db = _db()
         r = db.execute("SELECT * FROM reminder WHERE id=?", (rid,)).fetchone()
@@ -660,6 +670,8 @@ def update_reminder(rid: int, text=None, due_at=None, repeat=None) -> dict | Non
         if repeat is not None:
             db.execute("UPDATE reminder SET repeat=? WHERE id=?",
                        (repeat if repeat in REPEAT_SECS else "", rid))
+        if ring is not None and ring in RING_MODES:
+            db.execute("UPDATE reminder SET ring=? WHERE id=?", (ring, rid))
         db.commit()
         return dict(db.execute("SELECT * FROM reminder WHERE id=?", (rid,)).fetchone())
 
