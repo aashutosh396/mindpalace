@@ -90,7 +90,7 @@ onUnmounted(() => {
     <code>curl -fsSL https://claude.ai/install.sh | bash</code>
   </div>
   <header v-if="booted" class="topbar">
-    <span class="tb-mark"><Logo :size="15" class="tb-logo" /> mind<em>palace</em></span>
+    <span class="tb-mark" title="mindpalace"><Logo :size="16" class="tb-logo" /></span>
     <span class="tb-date">{{ today }}</span>
     <span class="bl-spacer"></span>
     <button v-if="state.update?.behind" class="tb-update" :disabled="state.updating" @click="getUpdate">
@@ -168,7 +168,7 @@ onUnmounted(() => {
     <RunsRail v-if="state.runsFor" />
     <BoardRail v-show="!state.runsFor && state.railOpen && !state.tool" />
 
-    <div class="foot foot-side"></div>
+    <div class="foot foot-side"><span class="foot-brand"><Logo :size="11" /> mindpalace © {{ new Date().getFullYear() }}</span></div>
     <div class="foot foot-main"><Composer v-if="!state.tool" /></div>
     <div v-show="state.runsFor || (state.railOpen && !state.tool)" class="foot foot-rail">
       <div v-if="state.routineRuns.length" class="run-ticker" aria-label="Recent routine runs">
