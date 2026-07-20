@@ -427,6 +427,10 @@ def create_app():
                 {"error": "need title + schedule like daily@09:00 or every@4h"}, status_code=422)
         return store.add_routine(rid, title, body.get("body", ""), schedule)
 
+    @app.get("/api/routines/{rtid}/runs")
+    def routine_runs(rtid: int):
+        return store.routine_runs(rtid)
+
     @app.patch("/api/routines/{rtid}")
     def routines_toggle(rtid: int, body: dict):
         r = store.toggle_routine(rtid, bool(body.get("enabled")))

@@ -662,6 +662,26 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .tool-tile:hover { border-color: var(--slate); background: var(--room-raised); }
 .tool-name { font-size: 13.5px; font-weight: 500; }
+.panel-col { display: flex; flex-direction: column; }
+.panel-col.off { opacity: .55; }
+.rt-clickable { cursor: pointer; width: 100%; }
+.rt-runs {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 4px 12px 8px 22px;
+}
+.rt-run {
+  display: flex; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer; text-align: left;
+  padding: 2px 4px; border-radius: 6px; font-size: 12.5px; color: var(--text);
+  font-family: var(--mono);
+}
+.rt-run:hover { background: var(--room-raised); }
+.rt-tick { width: 14px; text-align: center; }
+.rt-tick.ok { color: #4d7c50; }
+.rt-tick.bad { color: var(--danger); }
+.rt-tick.eye { color: var(--brass); }
+.rt-tick.run { color: var(--text-dim); }
+
 .rt-room {
   display: flex; align-items: center; gap: 6px; margin-top: 6px;
   background: none; border: none; cursor: pointer; padding: 2px 0;

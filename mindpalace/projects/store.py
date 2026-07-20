@@ -532,6 +532,21 @@ def toggle_routine(rtid: int, enabled: bool) -> dict | None:
     return dict(r) if r else None
 
 
+def routine_runs(rtid: int, limit: int = 12) -> list[dict]:
+    """The cards a routine has spawned (matched by room+title — fires carry
+    the routine's title), newest first: its tick history."""
+    with _lock:
+        db = _db()
+        rt = db.execute("SELECT * FROM routine WHERE id=?", (rtid,)).fetchone()
+        if not rt:
+            return []
+        rows = db.execute(
+            "SELECT id, status, result, created_at, closed_at FROM task "
+            "WHERE room_id=? AND created_by='routine' AND title=? "
+            "ORDER BY id DESC LIMIT ?", (rt["room_id"], rt["title"], limit)).fetchall()
+    return _rows(rows)
+
+
 def due_routines(now: float | None = None) -> list[dict]:
     now = now or time.time()
     with _lock:

@@ -17,11 +17,10 @@ async function openNotif(n: any) {
   if (n.kind === 'update') { await getUpdate(); return }
   if (n.task_id) await openTask(n.task_id)
 }
-const tab = ref<'chat' | 'repos' | 'assets' | 'routines'>('chat')
 const booted = ref(false)
 
 // ---- hash routes: #/home · #/room/<slug>[/projects|assets|routines] ----
-const TABS: Record<string, typeof tab.value> = { projects: 'repos', assets: 'assets', routines: 'routines' }
+const TABS: Record<string, 'chat' | 'repos' | 'assets' | 'routines'> = { projects: 'repos', assets: 'assets', routines: 'routines' }
 const SLUGS: Record<string, string> = { repos: 'projects', assets: 'assets', routines: 'routines' }
 
 async function applyHash() {
@@ -35,16 +34,16 @@ async function applyHash() {
     const r = state.rooms.find(x => x.slug === decodeURIComponent(parts[1]))
     if (r) {
       if (state.current?.id !== r.id) await open(r)
-      tab.value = TABS[parts[2]] || 'chat'
+      state.tab = TABS[parts[2]] || 'chat'
       return
     }
   }
   if (state.current) await goHome()
 }
 
-watch([() => state.current?.slug, tab, () => state.tool], () => {
+watch([() => state.current?.slug, () => state.tab, () => state.tool], () => {
   const h = state.current
-    ? `#/room/${state.current.slug}` + (tab.value !== 'chat' ? '/' + SLUGS[tab.value] : '')
+    ? `#/room/${state.current.slug}` + (state.tab !== 'chat' ? '/' + SLUGS[state.tab] : '')
     : state.tool ? `#/tools/${state.tool}` : '#/home'
   if (location.hash !== h) history.replaceState(null, '', h)
 })
@@ -119,19 +118,19 @@ onUnmounted(() => {
         <div class="main-head">
           <h1 class="room-name">{{ state.current.name }}</h1>
           <nav class="tabs">
-            <button class="tab" :class="{ active: tab === 'chat' }" @click="tab = 'chat'">Chat</button>
-            <button class="tab" :class="{ active: tab === 'repos' }" @click="tab = 'repos'">Projects</button>
-            <button class="tab" :class="{ active: tab === 'assets' }" @click="tab = 'assets'">Assets</button>
-            <button class="tab" :class="{ active: tab === 'routines' }" @click="tab = 'routines'">Routines</button>
+            <button class="tab" :class="{ active: state.tab === 'chat' }" @click="state.tab = 'chat'">Chat</button>
+            <button class="tab" :class="{ active: state.tab === 'repos' }" @click="state.tab = 'repos'">Projects</button>
+            <button class="tab" :class="{ active: state.tab === 'assets' }" @click="state.tab = 'assets'">Assets</button>
+            <button class="tab" :class="{ active: state.tab === 'routines' }" @click="state.tab = 'routines'">Routines</button>
             <button class="tab" :title="state.railOpen ? 'Hide the board' : 'Show the board'"
               :aria-label="state.railOpen ? 'Hide the board' : 'Show the board'"
               @click="toggleRail"><PanelRightClose v-if="state.railOpen" :size="15" :stroke-width="1.75" /><PanelRightOpen v-else :size="15" :stroke-width="1.75" /></button>
           </nav>
         </div>
-        <ChatRail v-if="tab === 'chat'" class="center" />
+        <ChatRail v-if="state.tab === 'chat'" class="center" />
         <div v-else class="main-body">
-          <RoomProjectsPanel v-if="tab === 'repos'" :key="'p' + state.current.id" />
-          <AssetsPanel v-else-if="tab === 'assets'" />
+          <RoomProjectsPanel v-if="state.tab === 'repos'" :key="'p' + state.current.id" />
+          <AssetsPanel v-else-if="state.tab === 'assets'" />
           <RoutinesPanel v-else :key="state.current.id" />
         </div>
       </template>

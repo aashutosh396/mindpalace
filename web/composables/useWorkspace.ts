@@ -44,6 +44,7 @@ const state = reactive({
   reminders: [] as any[],
   agentName: 'Agent',
   tool: null as null | 'reminders' | 'routines',
+  tab: 'chat' as 'chat' | 'repos' | 'assets' | 'routines',
   toolsOpen: false,
   modal: null as null | { task: any; room: any; log: any[]; thread: any[] },
   showOnboarding: false,
@@ -126,11 +127,9 @@ function connect() {
     } else if (event === 'room.projects' && data.room_id === state.current?.id) {
       api(`/rooms/${data.room_id}/projects`).then(ps => { state.roomProjects = ps }).catch(() => {})
     } else if (event === 'task.created') {
-      if (data.created_by === 'routine') {
-        const room = state.rooms.find(r => r.id === data.room_id)
-        notify(`Routine fired: “${data.title}”${room ? ' — ' + room.name : ''}`,
-          { task_id: data.id, kind: 'routine' })
-      }
+      // routine fires are board activity, not bell material — the bell stays a
+      // "needs you" queue (review-ready, reminders, updates); failed runs land
+      // in Review and notify from there.
       if (!state.allTasks.find((t: any) => t.id === data.id)) {
         const room = state.rooms.find(r => r.id === data.room_id)
         state.allTasks.push({ ...data, room_slug: room?.slug, room_name: room?.name || 'Home' })
@@ -258,6 +257,7 @@ const actions = {
   async open(r: Room) {
     state.current = r
     state.tool = null
+    state.tab = 'chat'                   // a room click always lands in its chat
     state.awaitingReply = false
     state.chatDone = false
     const [tasks, chat, projects, assets] = await Promise.all([
