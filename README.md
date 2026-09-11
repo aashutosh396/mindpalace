@@ -13,7 +13,7 @@ and runs real work in the background.
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Runs on Claude Max](https://img.shields.io/badge/runs%20on-Claude%20Max-8A2BE2.svg)](https://claude.com/claude-code)
 
-[Quick start](#-quick-start) · [Features](#-why-mindpalace) · [Docs](docs/) · [Contributing](CONTRIBUTING.md)
+[Quick start](#-quick-start) · [Features](#-why-mindpalace) · [Docs](docs/) · [Vault skill](#-just-want-the-vault-in-your-own-agent) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -179,6 +179,21 @@ Full docs in [`docs/`](docs/):
 [Plugins](docs/plugins.md) ·
 [Commands Reference](docs/commands.md) ·
 [Architecture](docs/architecture.md)
+
+## 🧩 Just want the vault in your own agent?
+
+The knowledge vault — `infra/`, `accounts/`, `projects/`, `runbooks/` — is packaged separately
+as a portable skill you can drop into whatever assistant you already use:
+
+### → **[mindpalace-skill](https://github.com/aashutosh396/mindpalace-skill)**
+
+One host-agnostic `SKILL.md` for **Claude Code**, **Claude.ai**, the **OpenAI Agents SDK**,
+Cursor, or any wrapper that reads an instruction file — plus templates and a vault scaffolder.
+
+It writes to the same `~/.mindpalace/vault/`, so the two are interchangeable: start with the
+skill inside your current tool, install mindpalace later, and every file carries over
+untouched. The skill gives you the discipline; this repo gives you the runtime — always-on,
+terminal and Discord at once, with an Analyst agent that files facts for you.
 
 ## 🤝 Contributing
 
